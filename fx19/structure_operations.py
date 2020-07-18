@@ -1,0 +1,1847 @@
+from __future__ import division, unicode_literals, print_function
+
+"""
+This module only contains the different funcitons to mutate the structure,
+mate two given structures, change composition from a given structure.
+
+Structure constraints
+Geometry of search
+Mating_probability and no. of parents
+Mutation probability, mutation fractions (% atoms and magnitude)
+"""
+from pymatgen import Structure, Lattice
+from pymatgen.transformations.standard_transformations import \
+                                            RotationTransformation
+from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+from numpy.random import uniform as unif
+import numpy as np
+import random, copy
+
+from fx19 import structure_record
+from fx19 import distance_check as dc
+
+
+class Evolve(object):
+    """
+    A wrapper around classes mating and basinhopping. Calls these classes to
+    generate a single model. Will decide whether to do mating (GA) or
+    mutation (basinhopping) to generate a new structure.
+    """
+    def __init__(self, mate, hop, evolve_params):
+        """
+        mate (obj): a mating object
+        hop (obj): a basinhopping object
+        evolve_params (dict): The keys are the following:
+                              'probabilities': {1:0.1, 2:0.2, 3:0.5, 4:0.2}
+                              'num_species': (int) number of species
+                              'specie1'/'specie2'/.. : 'Al'/'O'/'H'/...
+        """
+        self.mate = mate
+        self.hop = hop
+
+        self.probabilities = {1 : 0.375, # 1, 2 are of basinhopping methods
+                              2 : 0.125, # 3, 4 are mating methods (0.5 and 0.5)
+                              3 : 0.375, # Divide probs by 0.5 to get their
+                              4 : 0.125} # mating and basinhopping probs resp'ly
+
+        keys_needed = self.probabilities.keys()
+        if 'probabilities' in evolve_params:
+            keys_given = evolve_params['probabilities'].keys()
+            if keys_needed != keys_given:
+                print ('Warning: Please provide probabilities for all 7 '
+                        'methods.\nUsing defaults only!')
+            else:
+                for key in keys_given:
+                    self.probabilities[key] = evolve_params['probabilities'][key]
+
+        self.num_species = evolve_params['num_species']
+
+        # Make species dicts as attributes
+        self.specie1 = evolve_params['specie1']
+        # save specie2 data if exists
+        if self.num_species > 1:
+            self.specie2 = evolve_params['specie2']
+        # save specie2 data if exists
+        if self.num_species > 2:
+            self.specie3 = evolve_params['specie3']
+        # save specie2 data if exists
+        if self.num_species > 3:
+            self.specie4 = evolve_params['specie4']
+        # save specie2 data if exists
+        if self.num_species > 4:
+            self.specie5 = evolve_params['specie5']
+
+
+    def get_model(self, select, pool, reg_id, method=0):
+        """
+        get new model using mating or basinhopping
+
+        Args:
+        select (obj): Select object
+        pool (obj): Pool object
+        reg_id(obj): register_id object
+        method (string): mention the methodby which to create new structure
+                         takes
+                         0 : choose one method based on their probabilities
+                         1 : 'perturb_sites'
+                         2 : 'scale_lattice'
+                         3 : 'mate_by_slicing'
+                         4 : 'mate_by_random_swap'
+
+        """
+        hop = self.hop
+        mate = self.mate
+
+        methods_dict = {1 : 'perturb_sites',
+                        2 : 'scale_lattice',
+                        3 : 'mate_by_slicing',
+                        4 : 'mate_by_random_swap'}
+
+        if method not in range(5):
+            print ('Error: Provided method index not in known methods.')
+
+        if method == 0:
+            keys = [1, 2, 3, 4]
+            vals = []
+            for key in keys:
+                vals.append(self.probabilities[key])
+            method = np.random.choice(keys, p=vals)
+
+        correct_comp = False
+        while correct_comp is False:
+            try:
+                if method == 1:
+                    new_astr, inheritance = hop.perturb_sites(select, pool)
+                elif method == 2:
+                    new_astr, inheritance = hop.scale_lattice(select, pool)
+                elif method == 3:
+                    new_astr, inheritance = mate.mate_by_slicing(select, pool)
+                elif method == 4:
+                    new_astr, inheritance = mate.mate_by_random_swap(select, pool)
+            except:
+                continue
+            if new_astr is None:
+                continue
+            if any(np.isnan(astr.cart_coords.flatten())):
+                continue
+            new_astr.sort()
+            new_comp = new_astr.composition
+
+            all_ok = []
+            sp1 = self.specie1
+            sp1_ok = False
+            sym_sp1, min_sp1, max_sp1 = sp1['name'], sp1['min_num'], \
+                                                    sp1['max_num']
+            if min_sp1 <= new_comp[sym_sp1] <= max_sp1:
+                sp1_ok = True
+            all_ok.append(sp1_ok)
+            if self.num_species > 1:
+                sp2 = self.specie2
+                sp2_ok = False
+                sym_sp2, min_sp2, max_sp2 = sp2['name'], sp2['min_num'], \
+                                                         sp2['max_num']
+                if min_sp2 <= new_comp[sym_sp2] <= max_sp2:
+                    sp2_ok = True
+                all_ok.append(sp2_ok)
+            if self.num_species > 2:
+                sp3 = self.specie3
+                sp3_ok = False
+                sym_sp3, min_sp3, max_sp3 = sp3['name'], sp3['min_num'], \
+                                                         sp3['max_num']
+                if min_sp3 <= new_comp[sym_sp3] <= max_sp3:
+                    sp3_ok = True
+                all_ok.append(sp3_ok)
+            if self.num_species > 3:
+                sp4 = self.specie4
+                sp4_ok = False
+                sym_sp4, min_sp4, max_sp4 = sp4['name'], sp4['min_num'], \
+                                                         sp4['max_num']
+                if min_sp4 <= new_comp[sym_sp4] <= max_sp4:
+                    sp4_ok = True
+                all_ok.append(sp4_ok)
+            if self.num_species > 4:
+                sp5 = self.specie5
+                sp5_ok = False
+                sym_sp5, min_sp5, max_sp5 = sp5['name'], sp5['min_num'], \
+                                                         sp5['max_num']
+                if min_sp5 <= new_comp[sym_sp5] <= max_sp5:
+                    sp5_ok = True
+                all_ok.append(sp5_ok)
+            if False not in all_ok:
+                correct_comp = True
+
+        new_model = structure_record.model(new_astr, reg_id)
+        new_model.inheritance = inheritance
+        new_model.made_by = methods_dict[method]
+
+        print ('New model made using {} method on parent models {}'.format(
+                                            methods_dict[method], inheritance))
+
+        return new_model
+
+
+    def hop_specific_model(self, select, pool, reg_id, model_id, hop_method=0):
+        """
+        Use basinhopping to make new model
+
+        Args:
+
+        select (obj): Select object
+        pool (obj): Pool object
+        reg_id (obj): register_id object
+        model_id (int): the model label of an existing model
+        hop_method (string): specify which of basinhopping methods to use to
+                             make new model
+                             0 : choose one method based on their probabilities
+                             1 : 'perturb_sites'
+                             2 : 'scale_lattice'
+        """
+        hop = self.hop
+
+        if hop_method not in range(7):
+            print ('Error: Provided method index not in known methods.')
+
+        if hop_method == 0:
+            keys = [1, 2]
+            vals = []
+            for key in keys:
+                prob = (self.probabilities[key]) / 0.5
+                vals.append(prob)
+            hop_method = np.random.choice(keys, p=vals)
+
+        if method == 1:
+            new_astr = hop.perturb_sites(select, pool, model_id=model_id)
+        elif method == 2:
+            new_astr = hop.scale_lattice(select, pool, model_id=model_id)
+
+        new_model = structure_record.model(new_astr, reg_id)
+
+        return new_model
+
+
+class mating(object):
+
+    def __init__(self, mating_params):
+        """
+        Creates a child structure by mating 2 or 3 parents
+
+        Args:
+
+        mating_params (dict): a dictionary of all the parameters required for
+                              performing mating on parents
+        Eg: {'num_parents_fraction': 0.1, # ratio of 3 parents to 2 parents
+        'attach_type_fraction': 0.3, # ratio of direct_attatch to mirror attach
+        'hop_mate_frac': 0.5, # ratio of hop to mate
+        'min_dist_dict': dictionary of minimum bond distances
+                        {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
+        'species_dict': # dictionary of species
+        {'specie1': {'name': 'Al',
+           'min_num': 36,
+           'max_num': 36,
+           'mu': -3.35958515625},
+          'specie2': {'name': 'O',
+           'min_num': 30,
+           'max_num': 30,
+           'mu': -6.76069604253}},
+        """
+        # Defaults for the parameters
+        self.num_parents_fraction = 0.333 # 66% 2 parents
+        self.attach_type_fraction = 0.333 # 66% mirror and attach
+
+        if 'num_parents_fraction' in mating_params:
+            if 0 <= mating_params['num_parents_fraction'] <= 1:
+                self.num_parents_fraction = mating_params['num_parents_fraction']
+            else:
+                print ('Error: Provied num_parents_fraction not in range (0,1)')
+        if 'attach_type_fraction' in mating_params:
+            if 0 <= mating_params['attach_type_fraction'] <= 1:
+                self.attach_type_fraction = mating_params['attach_type_fraction']
+            else:
+                print ('Error: Provied attach_type_fraction not in range (0,1)')
+
+        self.num_species = mating_params['num_species']
+        self.species_dict = mating_params['species_dict']
+        self.min_dist_dict = mating_params['min_dist_dict']
+
+        # Make species dicts as attributes
+        self.specie1 = mating_params['specie1']
+        # save specie2 data if exists
+        if self.num_species > 1:
+            self.specie2 = mating_params['specie2']
+        # save specie2 data if exists
+        if self.num_species > 2:
+            self.specie3 = mating_params['specie3']
+        # save specie2 data if exists
+        if self.num_species > 3:
+            self.specie4 = mating_params['specie4']
+        # save specie2 data if exists
+        if self.num_species > 4:
+            self.specie5 = mating_params['specie5']
+
+    def get_num_parents(self, num_parents_fraction):
+        """
+        Function to get number of parents to select for mating
+
+        Args:
+
+        num_parents_fraction (float): between 0, 1
+                                      0 -> 2 parents ; 1 -> 3 parents
+        """
+        # Decide number of parents for this child
+        if random.random() > num_parents_fraction:
+            num_parents = 2
+        else:
+            num_parents = 3
+
+        return num_parents
+
+    def get_attach_type(self, attach_type_fraction):
+        """
+        Function to get the attach type - mirror and attach, or direct attach
+
+        Args:
+
+        attach_type_fraction (float): between 0, 1
+                                      0 -> 'mirror' ; 1 -> 'direct'
+        """
+        if random.random() > attach_type_fraction:
+            attach_type = 'mirror'
+        else:
+            attach_type = 'direct'
+
+        return attach_type
+
+    def mate_by_slicing(self, select, pool):
+        """
+        Mates parents by for a cluster of a gb by rotating and slicing at the
+        fraction required
+        Uses num_parents, change_num_atoms from the class attributes.
+
+        Returns the child Atoms object
+
+        Args:
+
+        select (obj): Select object
+        pool (obj): Pool object
+
+        Returns:
+            childAtoms (ASE Atoms): Returns the offspring ASE atoms object
+        """
+        # Get num_parents and select them parents
+        num_parents = self.get_num_parents(self.num_parents_fraction)
+        # NOTE: deepcopy already done in get_a_parent()
+        parents = select.get_parents(pool, num_parents)
+        parent1, parent2 = parents[0], parents[1]
+        inheritance = [parent1.label, parent2.label]
+        if num_parents == 3:
+            parent3 = parents[2]
+            inheritance.append(parent3.label)
+            temp3 = self.rotate_astr(parent3.astr)
+            slice3 = self.fraction_slice(temp3, num_parents)
+
+        # rotate all parents randomly and slice them
+        temp1 = self.rotate_astr(parent1.astr)
+        slice1 = self.fraction_slice(temp1, num_parents)
+        temp2 = self.rotate_astr(parent2.astr)
+        slice2 = self.fraction_slice(temp2, num_parents)
+
+        # Attach two slices at a time
+        if random.randint(0, 2) == 0:
+            attach_type = 'direct'
+        else:
+            attach_type = 'mirror'
+        child = self.attach_slices(slice1, slice2, attach_type=attach_type)
+
+        if num_parents == 3:
+            if random.randint(0, 2) == 0:
+                attach_type = 'direct'
+            else:
+                attach_type = 'mirror'
+            child = self.attach_slices(child, slice3, attach_type=attach_type)
+
+        return child, inheritance
+
+    def rotate_astr(self, astr, rotate_type='random'):
+        """
+        Given a structure, returns same structure with all "atoms" rotated at
+        random angle (0:360) along random vector([0, 0, 0]:[3, 3, 3])
+
+        Args:
+        astr (obj): pymatgen structure object
+        rotate_type (str): 'random' or 'mirror' for rotation of structure
+        """
+        species = astr.species
+        first_coords = astr.cart_coords
+        if rotate_type=='random':
+            # perfrom random rotation transformation
+            hkl = [random.randint(0, 3), random.randint(0, 3), random.randint(0, 3)]
+            rotate = RotationTransformation(hkl, unif(0, 360))
+            temp_astr = rotate.apply_transformation(astr)
+        elif rotate_type=='mirror':
+            hkl = [random.randint(0, 3), random.randint(0, 3), 0]
+            rotate = RotationTransformation(hkl, 180)
+            temp_astr = rotate.apply_transformation(astr)
+
+        # NOTE: The lattice is rotated, but coords are still same
+        # Place old cart_coords in temp_parent lattice
+        all_inds = [i for i in range(len(astr.cart_coords))]
+        temp_astr.remove_sites(all_inds)
+        for specie, coord in zip(species, first_coords):
+            temp_astr.append(specie, coord, coords_are_cartesian=True)
+
+        # Translate the cluster to center of box
+        fc = temp_astr.frac_coords
+        range_x, range_y, range_z = fc[:, 0], fc[:, 1], fc[:, 2]
+        cent_x, cent_y, cent_z = (max(range_x) + min(range_x))/2, \
+                                 (max(range_y) + min(range_y))/2, \
+                                 (max(range_z) + min(range_z))/2
+        cent = np.array([cent_x, cent_y, cent_z])
+        trans_vector = np.array([0.5, 0.5, 0.5]) - cent
+        temp_astr.translate_sites(all_inds, trans_vector)
+
+        # Get conventional structure (2 ways)
+        # 1. modify_lattice from parent1 (straight forward)
+        # 2. use SpacegroupAnalyzer
+        temp_astr.lattice = astr.lattice # Approach 1
+        # If the above causes any issues, use this approach 2
+        # sp = SpacegroupAnalyzer(temp_parent)
+        # prepped_parent = sp.get_conventional_standard_structure()
+
+        return temp_astr
+
+    def fraction_slice(self, astr, num_parents):
+        """
+        For a given astr, this function slices at (1/num_parents) from bottom
+        and returns the bottom part
+
+        Args:
+        astr (obj): pymatgen structure object
+        num_parents (int): number of parents to use for mating
+        """
+        z_mids = astr.cart_coords[:, 2]
+        # Determine z_cut to get ~ equal fractions from all parents
+        z_cut = (max(z_mids) + min(z_mids)) / num_parents
+
+        # NOTE: Due to random rotation, the fraction we slice is different
+        # for all parents
+        # Get indices of slicing atoms, i.e., above z_cut
+        rm_inds = []
+        for i, z in enumerate(z_mids):
+            if z >= z_cut:
+                rm_inds.append(i)
+        # Remove these atoms from parent1
+        astr.remove_sites(rm_inds)
+
+        return astr
+
+    def attach_slices(self, slice1, slice2, attach_type='mirror'):
+        """
+        Given two slices, rotates and attaches slices and returns attached
+        structure
+
+        Args:
+        slice1 (obj): pymatgen structure object of one slice
+        slice2 (obj): pymatgen structure object of second slice
+        attach_type: 'mirror' or 'direct'
+
+        (Pseudocode)
+        If attach_type=='mirror':
+            rotate slice2 along (x, y, 0) plane to 180 degrees
+            You should get mirrored image
+
+        find max_z of slice1 (cartesian)
+        find min_z of slice2
+        z_trans = each_z2 + (max_z1 - min_z2) + 1
+
+        find cent_x1, cent_y1 for slice1
+        find cent_x2, cent_y2 for slice2
+        align both cent_x1, cent_x2 ; cent_y1, cent_y2
+
+        add the transformed slice2 coords to slice1
+
+        return slice1
+        """
+        astr = copy.deepcopy(slice1)
+        new_slice2 = copy.deepcopy(slice2)
+        # If mirror one slice before attachment,
+        if attach_type=='mirror':
+            new_slice2 = self.rotate_astr(slice2, rotate_type='mirror')
+        slice1_coords = astr.cart_coords
+        slice2_coords = new_slice2.cart_coords
+
+        max_z_1 = max(slice1_coords[:, 2])
+        min_z_2 = min(slice2_coords[:, 2])
+        # Get translate vector along z i.e., x, y are 0
+        z_trans = np.array([0, 0, (max_z_1 - min_z_2) + 1])   # tolerance of z+1
+        add_coords = slice2_coords + z_trans
+        # center add_coords on slice1 i.e., align centers along x and y
+        range_x1, range_y1 = slice1_coords[:, 0], slice1_coords[:, 1]
+        range_x2, range_y2 = slice2_coords[:, 0], slice2_coords[:, 1]
+        cent_x1, cent_y1 = (max(range_x1) + min(range_x1))/2, \
+                                 (max(range_y1) + min(range_y1))/2
+        cent_x2, cent_y2 = (max(range_x2) + min(range_x2))/2, \
+                                 (max(range_y2) + min(range_y2))/2
+        xy_trans = np.array([(cent_x1 - cent_x2), (cent_y1 - cent_y2), 0])
+        add_coords = add_coords + xy_trans
+
+        # species of add_coords
+        add_species = new_slice2.species
+        # add each of add_coords to slice1
+        for specie, coord in zip(add_species, add_coords):
+            slice1.append(specie, coord, coords_are_cartesian=True)
+        slice1.sort()
+
+        return slice1
+
+    def mate_by_random_swap(self, select, pool):
+        """
+        NOTE: Works only for fixed composition searches.
+
+        Atoms are randomly added to a new cell from all parents based on index.
+        Checks distance after every added atomic coordinate. For all indices,
+        that failed distance check, the coords are moved within radius "1"
+        sphere and tried.
+
+        The trick is to add an index of atom from only one parent
+
+        Args:
+        select (obj): Select object
+        pool (obj): Pool object
+        """
+        # Get num_parents and select them parents
+        num_parents = self.get_num_parents(self.num_parents_fraction)
+        parents = select.get_parents(pool, num_parents)
+        parent1, parent2 = parents[0], parents[1]
+        inheritance = [parent1.label, parent2.label]
+        p1_sites = parent1.astr.sites
+        p2_sites = parent2.astr.sites
+        list_of_p_sites = [p1_sites, p2_sites]
+
+        child = copy.deepcopy(parent1.astr)
+        all_inds = [i for i in range(len(child.cart_coords))]
+        child.remove_sites(all_inds)
+
+        # NOTE: Works only for fixed composition searches.
+        # Currently, child num atoms would be equal to that of parent1
+        # Need robust construction to allow for multiple sizes as in
+        # initial_population.
+        num_atoms_child = parent1.astr.num_sites
+
+        inds = [i for i in range(num_atoms_child)]
+        random.shuffle(inds)
+
+        if num_parents == 3:
+            parent3 = parents[2]
+            inheritance.append(parent3.label)
+            p3_sites = parent3.astr.sites
+            list_of_p_sites.append(p3_sites)
+            # First add first random atom from parent3
+            child.append(p3_sites[inds[0]].specie, p3_sites[inds[0]].coords,
+                                                coords_are_cartesian=True)
+        else:
+            # First add first random atom from parent2
+            child.append(p2_sites[inds[0]].specie, p2_sites[inds[0]].coords,
+                                                coords_are_cartesian=True)
+
+        # Remove index 0 from inds; it is already added from parent3 or parent2
+        inds.pop(0)
+        num_while_loops = 0
+        # Add sites randomly and get indices that failed distance and repeat
+        while num_while_loops < 10:
+            random.shuffle(inds)
+            rem_inds = self.add_random_sites(child, list_of_p_sites, inds)
+            inds = rem_inds
+            num_while_loops += 1
+            if len(inds) == 0:
+                break
+
+        if len(child.sites) == num_atoms_child:
+            return child
+
+        # If still some inds remain, move coords and repeat above loop
+        num_while_loops = 0
+        while num_while_loops < 100:
+            random.shuffle(inds)
+            rem_inds = self.add_random_sites(child, list_of_p_sites, inds,
+                                             move=True)
+            inds = rem_inds
+            num_while_loops += 1
+            if len(inds) == 0:
+                break
+
+        if not len(child.sites) == num_atoms_child:
+            print ('Random swap failed to create child structure.')
+            return None
+
+        child.sort()
+        return child, inheritance
+
+    def add_random_sites(self, child, list_of_parent_sites, indices,
+                         move=False):
+        """
+        child structure to which sites to be added randomly from different set
+        of parent_sites.
+
+        Args:
+        child (obj): pymatgen structure object of the child
+        list_of_parent_sites (list): list of sites from parent structures
+        indices (list): Indices that are shuffled randomly for num_atoms_child
+        move (bool): Whether to move and try to add a site coords when adding
+        """
+        p1_sites, p2_sites = list_of_parent_sites[0], list_of_parent_sites[1]
+
+        rem_inds = []
+
+        # If 2 parents
+        if len(list_of_parent_sites) == 2:
+            num_parents = 2
+            inds1, inds2 = self.divide_index_list(indices, num_parents)
+            # Add sites from each parent sites in circular fashion
+            for i in range(len(inds1)):
+                if not self.add_site(child, p1_sites, inds1[i], move=move):
+                    rem_inds.append(inds1[i])
+                if i < len(inds2):
+                    if not self.add_site(child, p2_sites, inds2[i], move=move):
+                        rem_inds.append(inds2[i])
+
+        # If 3 parents
+        if len(list_of_parent_sites) == 3:
+            num_parents = 3
+            p3_sites = list_of_parent_sites[2]
+            inds1, inds2, inds3 = self.divide_index_list(indices, num_parents)
+            # Add sites from each parent sites in circular fashion
+            # Always inds1 will be the longest.
+            for i in range(len(inds1)):
+                if not self.add_site(child, p1_sites, inds1[i], move=move):
+                    rem_inds.append(inds1[i])
+                if i < len(inds2):
+                    if not self.add_site(child, p2_sites, inds2[i], move=move):
+                        rem_inds.append(inds2[i])
+                if i < len(inds3):
+                    if not self.add_site(child, p3_sites, inds3[i], move=move):
+                        rem_inds.append(inds3[i])
+
+        return rem_inds
+
+
+    def add_site(self, child, parent_sites, index, move=False):
+        """
+        Adds the parent_site to child according to the index provided
+        Checks distance for new site and adds only if satisfies.
+        The coords are moved and then tested if move is set to True.
+
+        Returns 'True' if site is added to child
+
+        Args:
+        child (obj): child structure object
+        parent_sites (list/array): sites of parent structure
+        index (int): index of the parent site to add
+        move (bool): Whether to move and try to add a site coords when adding
+        """
+        child_coords =  child.cart_coords
+        specie_to_add = parent_sites[index].specie.name
+        coords_to_add = parent_sites[index].coords
+
+        if move:
+            radius = random.random() * 1.5
+            translate = self.get_point_on_sphere(radius)
+            coords_to_add = coords_to_add + translate
+
+        if dc.satisfies_all_dists(coords_to_add, specie_to_add, child,
+                                  self.min_dist_dict,self.species_dict):
+            child.append(specie_to_add, coords_to_add,
+                                  coords_are_cartesian=True)
+            return True
+        else:
+            return False
+
+    def get_point_on_sphere(self, r):
+        """
+        Returns a random point on a sphere of radius r
+
+        Args:
+        r (float): radius of the sphere
+        """
+
+        # get random point (x, y, z) using normal distribution
+        point = np.random.randn(3)
+        # normalize the point
+        point_mag = np.linalg.norm(point)
+        point = point / point_mag
+        # multiply by radius
+        point = point * r
+
+        return point
+
+    def divide_index_list(self, indices, num_parents):
+        """
+        Returns 2 or 3 lists of indices for 2 or 3 parents
+        Function separated for clarity
+
+        Args:
+        indices (list): Indices that are shuffled randomly for num_atoms_child
+        num_parents (int): Number of parents to used for mating
+        """
+        if num_parents == 2:
+            A = indices[ : len(indices)//2 ]
+            B = indices[ len(indices)//2 : ]
+            if len(A) > len(B):
+                list_1, list_2 = A, B
+            else:
+                list_1, list_2 = B, A
+            return list_1, list_2
+
+        if num_parents == 3:
+            cut = len(indices) // 3
+            rem = len(indices) % 3
+            list_1, list_2, list_3 = indices[: cut], indices[cut : 2*cut], \
+                                                     indices[2*cut : 3*cut]
+            if rem > 0:
+                list_1.append(indices[3*cut])
+            if rem == 2:
+                list_2.append(indices[3*cut + 1])
+            return list_1, list_2, list_3
+
+    def check_atoms_for_all_species(self, astr):
+        """
+        For any (newly created) structure, checks if the number of atoms for
+        each species lie within minimum and maximum number allowed for that
+        species.
+
+        Args:
+        astr (obj): pymatgen structure object
+        """
+        num_species = self.num_species
+
+        all_ok = []
+        # Check for specie1
+        sp1_ok = self.check_atoms_for_a_specie(self.specie1, astr)
+        all_ok.append(sp1_ok)
+        # If specie2 exists, chekc specie2  and so on..
+        if num_species > 1:
+            sp2_ok = self.check_atoms_for_a_specie(self.specie2, astr)
+            all_ok.append(sp2_ok)
+        if num_species > 2:
+            sp3_ok = self.check_atoms_for_a_specie(self.specie3, astr)
+            all_ok.append(sp3_ok)
+        if num_species > 3:
+            sp4_ok = self.check_atoms_for_a_specie(self.specie4, astr)
+            all_ok.append(sp4_ok)
+        if num_species > 4:
+            sp5_ok = self.check_atoms_for_a_specie(self.specie5, astr)
+            all_ok.append(sp5_ok)
+
+        if False in all_ok:
+            return False
+        else:
+            return True
+
+    def check_atoms_for_a_specie(self, specie, astr):
+        """
+        For any (newly created) structure, checks if the number of atoms for
+        given single species lie within minimum and maximum number allowed for
+        that species.
+
+        Args:
+        specie (dict): containing 'name', 'min_num' and 'max_num'
+        astr (obj): pymatgen structure object
+        """
+        # Get symbol set of species in structure
+        astr_species_symbols = astr.symbol_set
+        composition = astr.composition
+        symbol = specie['name']
+        num_atoms_in_astr = composition[symbol]
+
+        # It is possible mating could remove some species
+        # Check if given specie exists in the structure
+        if specie['min_num'] == 0:
+            if symbol not in astr_species_symbols:
+                # num atoms for the species in structure is 0
+                # Eliminate check_1 and check_2
+                return True
+
+        check_1 = False
+        if symbol in astr_species_symbols:
+            check1 = True
+
+        # check if its atoms are within the min-max
+        check_2 = False
+        if specie['min_num'] <= num_atoms_in_astr <= specie['max_num']:
+            check_2 = True
+
+        satisfies = False
+        if check_1 is True and check_2 is True:
+            satisfies = True
+
+        return satisfies
+
+
+class basinhopping(object):
+    """
+    Class that handles making child models using basinhopping methods
+    """
+    def __init__(self, basinhopping_params):
+        """
+        Args:
+
+        basinhopping_params (dict): dictionary with all the required
+        basinhopping parameters
+
+
+        Eg: {'perturb_box': [[0.4,0.9], [0.9,0.7], [0.1,0.7]]
+            # list of range of frac_coords in each direction to perturb
+            'indices_fraction': 0.6 # fraction of total atoms to perturb
+            'scale_fraction': 0.1 # (Deprecated) fraction to perturb lattice
+            'scale_direction': 'up' # up for stretching ; down for compression
+            'jump_fraction': 0.5, # maximum perturbation distance in Å
+            'min_dist_dict': # dictionary of minimum bond distances
+             {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
+            'species_dict': # dictionary of species information
+             {'specie1': {'name': 'Al',
+               'min_num': 36,
+               'max_num': 36,
+               'mu': -3.35958515625},
+              'specie2': {'name': 'O',
+               'min_num': 30,
+               'max_num': 30,
+               'mu': -6.76069604253}}}
+        """
+        self.perturb_box = [[0,1], [0,1], [0,1]]
+        self.indices_fraction = None
+        # if indices_fraction is given, box perturbation is skipped completely
+        self.scale_direction = None
+        self.scale_fraction = 0.15
+        self.jump_fraction = 0.15
+        self.min_dist_dict = basinhopping_params['min_dist_dict']
+        self.species_dict = basinhopping_params['species_dict']
+
+        if 'perturb_box' in basinhopping_params:
+            input_box = basinhopping_params['perturb_box']
+            # confirm the box satisfies the format
+            if len(input_box) != 3:
+                print ('Error1: Provided box is not valid one. Using default..')
+                self.perturb_box = [[0,1], [0,1], [0,1]]
+            elif any(len(input_box[i]) != 2 for i in range(3)):
+                print ('Error2: Provided box is not valid one. Using default..')
+                self.perturb_box = [[0,1], [0,1], [0,1]]
+            elif False in ((0 <= input_box[i][j] <= 1) \
+                            for j in range(2) for i in range(3)):
+                print ('Error3: Provided box is not valid one. Using default..')
+                self.perturb_box = [[0,1], [0,1], [0,1]]
+            else:  # if box provided is in the correct format
+                self.perturb_box = input_box
+
+        if 'indices_fraction' in basinhopping_params:
+            if 0 < basinhopping_params['indices_fraction'] <= 1:
+                self.indices_fraction = basinhopping_params['indices_fraction']
+            else:
+                print ('Provided indices_fraction out of range (0,1]. '
+                        'Using default..')
+
+        if 'scale_direction' in basinhopping_params:
+            if not basinhopping_params['scale_direction'] in ['up', 'down']:
+                print ('scale_direction should be either \'up\' or \'down\'.'
+                       ' If not mentioned, either of them would be used '
+                       'with equal probability.')
+            else:
+                self.scale_direction = basinhopping_params['scale_direction']
+
+        if 'scale_fraction' in basinhopping_params:
+            if not 0 < basinhopping_params['scale_fraction'] <= 0.5:
+                print ('scale_fraction should be between (0, 0.5]. More than '
+                       '0.5 would be unphysical to squeeze or stretch the '
+                       'lattice. Using default value of 0.15')
+            else:
+                self.scale_fraction = basinhopping_params['scale_fraction']
+
+        if 'jump_fraction' not in basinhopping_params:
+            if not 0 < basinhopping_params['jump_fraction'] <= 0.5:
+                print ('jump_fraction should be between (0, 0.5]. More than '
+                       '0.5 would be throw the atoms too far. Check the '
+                       'jump distance by lattice vectors * jump_fraction. '
+                       'Using default value of 0.15')
+        else:
+            self.jump_fraction = basinhopping_params['jump_fraction']
+
+
+
+    def perturb_sites(self, select, pool, model_id=None, gb=False):
+        """
+        displaces atoms in a parent box (cluster) using uniform distribution
+
+        Args:
+
+        select (obj): Select object
+        pool (obj): Pool object
+        model_id (int): If given, basinhopping is done on this specific model
+        gb (bool): True if the search is 'gb'
+        """
+        D_box = self.perturb_box
+        indices_fraction = self.indices_fraction
+
+        if model_id is None:
+            parent_model = select.get_a_parent(pool)
+            # make a copy
+            parent = copy.deepcopy(parent_model)
+            inheritance = [parent.label]
+        else:
+            for model in pool.good_pool:
+                if model.label == model_id:
+                    parent = copy.deepcopy(model)
+                    inheritance = [parent.label]
+                    break
+
+        # Get the necessary variables
+        frac_coords = parent.astr.frac_coords
+        species = parent.astr.species
+
+        if gb:
+            frac_coords = parent.gb_iface.frac_coords
+            species = parent.gb_iface.species
+
+        # Get frac_coords within D_box
+        D_coords, D_inds = [], []
+        for i, coords in enumerate(frac_coords):
+            if self.coords_in_the_box(coords):
+                D_coords.append(coords)
+                D_inds.append(i)
+
+        # If random indices fraction given, overwrite D_coords
+        if indices_fraction:
+            if 0 < indices_fraction < 1:
+                total_atoms = parent.astr.num_sites
+                num_fraction = int(total_atoms * indices_fraction)
+                D_inds = random.sample(range(0, total_atoms), num_fraction)
+                D_coords = [frac_coords[i] for i in inds]
+
+        num_perturbed = 0
+        jumps_needed = int(0.5 * len(D_coords))
+        for i, one_coords in zip(D_inds, D_coords):
+            # Get updated cart_coords
+            all_cart_coords = parent.astr.cart_coords
+            if gb:
+                all_cart_coords = parent.gb_iface.cart_coords
+            # remove current index from cart_coords
+            # rem_cart_coords = np.delete(all_cart_coords, i, 0)
+            # Randomly perturb within sphere of radius = jump_fraction
+            replaced = False
+            tries = 0
+            while not replaced and tries < 1000:
+                tries += 1
+                jump = self.jump_fraction #unif(0, self.jump_fraction)
+                perturb = self.get_point_on_sphere(jump)
+                new_frac = one_coords + perturb
+                if not gb:
+                    new_cart = parent.astr.lattice.get_cartesian_coords(
+                                                                    new_frac)
+                else:
+                    new_cart = parent.gb_iface.lattice.get_cartesian_coords(
+                                                                    new_frac)
+                # Check distance and replace with new coords
+                if not gb and dc.satisfies_all_dists(new_cart,
+                                          species[i].name,
+                                          parent.gb_iface,
+                                          self.min_dist_dict,
+                                          self.species_dict,
+                                          remove_index=i):
+                    parent.astr.replace(i, species[i], new_cart,
+                                        coords_are_cartesian=True)
+                    replaced = True
+                    num_perturbed += 1
+                if gb and dc.satisfies_all_dists(new_cart,
+                                          species[i].name,
+                                          parent.gb_iface,
+                                          self.min_dist_dict,
+                                          self.species_dict,
+                                          remove_index=i):
+                    parent.gb_iface.replace(i, species[i], new_cart,
+                                        coords_are_cartesian=True)
+                    replaced = True
+                    num_perturbed += 1
+
+        if not num_perturbed < jumps_needed:
+            if gb:
+                return parent.gb_iface, inheritance
+            else:
+                return parent.astr, inheritance
+        else:
+            return None, None
+
+
+    def coords_in_the_box(self, coords):
+        """
+        For a given coords and a D_box,
+        Returns True if the coords are within the box with respect to PBC.
+
+        Args:
+
+        coords (list/array): fractional coordinates of a point to be perturbed
+        """
+        D_box = self.perturb_box
+
+        Dx, Dy, Dz = False, False, False
+        if D_box[0][0] < D_box[0][1] and \
+                    D_box[0][0] <= coords[0] <= D_box[0][1]:
+            Dx = True
+        elif D_box[0][1] < D_box[0][0] and \
+                    not D_box[0][0] < coords[0] < D_box[0][1]:
+            Dx = True
+
+        if D_box[1][0] < D_box[1][1] and \
+                    D_box[1][0] <= coords[1] <= D_box[1][1]:
+            Dy = True
+        elif D_box[1][1] < D_box[1][0] and \
+                    not D_box[1][0] < coords[1] < D_box[1][1]:
+            Dy = True
+
+        if D_box[2][0] < D_box[2][1] and \
+                    D_box[2][0] <= coords[0] <= D_box[2][1]:
+            Dz = True
+        elif D_box[2][1] < D_box[2][0] and \
+                    not D_box[2][0] < coords[0] < D_box[2][1]:
+            Dz = True
+
+        if all([Dx, Dy, Dz]):
+            return True
+        else:
+            return False
+
+    def get_point_on_sphere(self, r):
+        """
+        Returns a random point on a sphere of radius r
+
+        Args:
+        r (float): radius of the sphere
+        """
+
+        # get random point (x, y, z) using normal distribution
+        point = np.random.randn(3)
+        # normalize the point
+        point_mag = np.linalg.norm(point)
+        point = point / point_mag
+        # multiply by radius
+        point = point * r
+
+        return point
+
+    def scale_lattice(self, select, pool, model_id=None):
+        """
+        Stretch or squeeze the lattice within given scale_fraction
+
+        Args:
+
+        select (obj): Select object
+        pool (obj): Pool object
+        model_id (int): If given, basinhopping is done on this specific model
+        """
+        scale_fraction = self.scale_fraction
+        direction = self.scale_direction
+
+        if direction is None:
+            direction = ['up', 'down'][random.randint(0, 1)]
+        if direction == 'up':
+            dxn = 1
+        else:
+            dxn = -1
+
+        if model_id is None:
+            parent = select.get_a_parent(pool)
+            inheritance = [parent.label]
+        else:
+            for model in pool.good_pool:
+                if model.label == model_id:
+                    parent = model
+                    inheritance = [parent.label]
+                    break
+        parent.astr.apply_strain(dxn * scale_fraction)
+
+        return parent.astr, inheritance
+
+
+class gb_ops(object):
+    """
+    Includes functions for creating initial_population and creating child
+    structures with mating operations of grain boundary models. However,
+    basinhopping class object (hop) is used to make basinhopping child models.
+
+    Here the initial population is not random. Grain 1 and grain 2 are
+    made to overlap and remove extra atoms.
+    """
+    def __init__(self, hop, str_constraints):
+        """
+        Args:
+
+        hop (object): basinhopping class object
+        str_constraints (dict): structure constraints dict from
+                                inputs.make_objects
+        """
+        # Save basinhopping object as an attribute because
+        # hop.perturb_sites() is used for child generation
+        self.hop = hop
+        # basinhopping vs mating fraction : only used for gb geometry search
+        self.hop_mate_frac = 0.3 # 30% hop, 70% mate
+        if 'hop_mate_frac' in str_constraints:
+            self.hop_mate_frac = str_constraints['hop_mate_frac']
+        if 'init_gb_astr' not in str_constraints:
+            print ('Error: Initial grain boudanry not provided. ')
+        else:
+            self.init_gb_astr = str_constraints['init_gb_astr']
+
+        if 'iface_thickness' not in str_constraints:
+            print ('Error: Thickness of interface region not provided. ')
+        else:
+            self.iface_thickness = str_constraints['iface_thickness']
+
+        if 'iface_z_mid' not in str_constraints:
+            print ('Error: Mid point of grain boundary not provided. ')
+        else:
+            self.iface_z_mid = str_constraints['iface_z_mid']
+
+        if 'num_slices' not in str_constraints:
+            print ('Error: NUmber of slices to cut for mating not provided. ')
+        else:
+            self.num_slices = str_constraints['num_slices']
+
+        self.slice_axes = [0, 1]  # default slicing axes of x and y only
+        if 'slice_axes' in str_constraints:
+            self.slice_axes = str_constraints['slice_axes']
+
+        # num_species is taken from species_dict from structure_record
+        self.num_species = str_constraints['num_species']
+        # save specie1 data, same as in initial population
+        # specie1 should always exist
+        self.sym_specie1 = str_constraints['specie1']['name']
+        self.min_num_sp1 = str_constraints['specie1']['min_num']
+        self.max_num_sp1 = str_constraints['specie1']['max_num']
+        # save specie2 data if exists
+        if self.num_species > 1:
+            if 'specie2' in str_constraints and str_constraints['specie2']:
+                self.sym_specie2 = str_constraints['specie2']['name']
+                self.min_num_sp2 = str_constraints['specie2']['min_num']
+                self.max_num_sp2 = str_constraints['specie2']['max_num']
+        # save specie3 data if exists
+        if self.num_species > 2:
+            if 'specie3' in str_constraints and str_constraints['specie3']:
+                self.sym_specie3 = str_constraints['specie3']['name']
+                self.min_num_sp3 = str_constraints['specie3']['min_num']
+                self.max_num_sp3 = str_constraints['specie3']['max_num']
+        # save specie4 data if exists
+        if self.num_species > 3:
+            if 'specie4' in str_constraints and str_constraints['specie4']:
+                self.sym_specie4 = str_constraints['specie4']['name']
+                self.min_num_sp4 = str_constraints['specie4']['min_num']
+                self.max_num_sp4 = str_constraints['specie4']['max_num']
+        # save specie5 data if exists
+        if self.num_species > 4:
+            if 'specie5' in str_constraints and str_constraints['specie5']:
+                self.sym_specie5 = str_constraints['specie5']['name']
+                self.min_num_sp5 = str_constraints['specie5']['min_num']
+                self.max_num_sp5 = str_constraints['specie5']['max_num']
+
+        self.min_dist_dict = str_constraints['min_dist_dict']
+        self.species_dict = str_constraints['species_dict']
+        self.element_syms = str_constraints['element_syms']
+        self.iface_latt = str_constraints['iface_latt']
+
+        # hollow gb structure
+        copy_g = self.init_gb_astr.copy()
+
+        # Get coords and species
+        g_sites = copy_g.sites
+        sor_sites = sorted(g_sites, key=lambda x: x.coords[2])
+
+        half_zrange = (self.iface_thickness / (self.init_gb_astr.lattice.c * 2))
+        min_z_t = self.iface_z_mid + half_zrange
+        max_z_b = self.iface_z_mid - half_zrange
+        self.hollow_botz = max_z_b
+        self.hollow_topz = min_z_t
+        top_i, bot_i = None, None
+        for i, site in enumerate(sor_sites):
+            if site.c >= max_z_b and not bot_i:
+                bot_i = i
+            if site.c >= min_z_t and not top_i:
+                top_i = i
+                break
+        mids = sor_sites[bot_i : top_i]
+        rem_i = []
+        for i, site in enumerate(copy_g.sites):
+            if site in mids:
+                rem_i.append(i)
+        copy_g.remove_sites(rem_i)
+
+        self.hollow_init_gb = copy_g.get_sorted_structure()
+
+    def overlap_grains(self):
+        """
+        cut bottom grain the size of iface_thickness
+        add top grain sites to the cut grain
+        remove half the atoms randomly from the interface
+
+        No arguments needed
+        """
+        init_gb_astr = self.init_gb_astr
+        iface_thickness = self.iface_thickness
+
+        # Lattice of gb interface: a, b are same, c lattice vector is from input
+        latt = init_gb_astr.lattice.matrix.copy()
+        latt[2] = [0, 0, iface_thickness]
+        latt = Lattice(latt)
+        window_frac = iface_thickness / init_gb_astr.lattice.c
+        # Cut the portion randomly from bottom grain and top grain
+        cut_bot = random.uniform(0.05, 0.25)
+        top_cut = random.uniform(0.75, 0.95)
+        # Add those sites to the above lattice
+        bot_sites, top_sites = [], []
+        sorted_sites = sorted(init_gb_astr.sites, key=lambda x: x.coords[2])
+        for site in sorted_sites:
+            if cut_bot < site.c < cut_bot + window_frac:
+                bot_sites.append(site)
+            if top_cut > site.c > top_cut - window_frac:
+                top_sites.append(site)
+
+        new_bot_sps, new_bot_fc = self.new_sites_coords(bot_sites,
+                                [cut_bot, cut_bot + window_frac], [0, 1], 2)
+        new_top_sps, new_top_fc = self.new_sites_coords(top_sites,
+                                [top_cut - window_frac, top_cut], [0, 1], 2)
+        species = new_bot_sps + new_top_sps
+        coords = new_bot_fc + new_top_fc
+
+        child = Structure(latt, species, coords)
+        child.merge_sites(tol=1, mode='delete')
+
+        return child.get_sorted_structure()
+
+    def get_rem_inds(self, child_astr):
+        """
+        remove random indices from total number of atoms in child.
+        Such that it satisfies each species min_num and max_num
+
+        Args:
+        child_astr (obj): pymatgen structure object og grain boundary
+        """
+        # get num species for each species present in element_syms
+        n_sp1 = round(unif(self.min_num_sp1, self.max_num_sp1))
+        n_sp2, n_sp3, n_sp4, n_sp5 = 0, 0, 0, 0
+        if self.num_species > 1:
+            n_sp2 = round(unif(self.min_num_sp2, self.max_num_sp2))
+        if self.num_species > 2:
+            n_sp3 = round(unif(self.min_num_sp3, self.max_num_sp3))
+        if self.num_species > 3:
+            n_sp4 = round(unif(self.min_num_sp4, self.max_num_sp4))
+        if self.num_species > 4:
+            n_sp5 = round(unif(self.min_num_sp5, self.max_num_sp5))
+
+        # get iface sites in the child_gb_astr
+        child_astr_sites = child_astr.sites
+        iface_inds_in_gb = []
+        for i, site in enumerate(child_astr.sites):
+            if self.hollow_botz <= site.c <= self.hollow_topz:
+                 iface_inds_in_gb.append(i)
+        iface_sites = [site for i, site in enumerate(child_astr_sites) \
+                                    if i in iface_inds_in_gb]
+        site_sps = [site.specie for site in iface_sites]
+        site_sps = [i.name for i in site_sps]
+        iface_sps = set(site_sps)
+        comp_dict = {}
+        for sp in iface_sps:
+            comp_dict[sp] = site_sps.count(sp)
+            # comp_dict is the composition dictionary of iface in child_astr
+        # get num species to be removed for each species
+        diff_sp1, diff_sp2, diff_sp3, diff_sp4, diff_sp5 = 0, 0, 0, 0, 0
+        for specie in comp_dict.keys():
+            if self.sym_specie1 == specie:
+                diff_sp1 = n_sp1 - comp_dict[specie]
+            if self.num_species > 1:
+                if self.sym_specie2 == specie:
+                    diff_sp2 = n_sp2 - comp_dict[specie]
+            if self.num_species > 2:
+                if self.sym_specie3 == specie:
+                    diff_sp3 = n_sp3 - comp_dict[specie]
+            if self.num_species > 3:
+                if self.sym_specie4 == specie:
+                    diff_sp4 = n_sp4 - comp_dict[specie]
+            if self.num_species > 4:
+                if self.sym_specie5 == specie:
+                    diff_sp5 = n_sp5 - comp_dict[specie]
+
+        # if difference is positive, add sites and return []
+        if diff_sp1 > 0:
+            sp_1 = self.sym_specie1
+            self.add_sites_diff(diff_sp1, sp_1, child_astr)
+        if diff_sp2 > 0:
+            sp_2 = self.sym_specie2
+            self.add_sites_diff(diff_sp2, sp_2, child_astr)
+        if diff_sp3 > 0:
+            sp_3 = self.sym_specie3
+            self.add_sites_diff(diff_sp3, sp_3, child_astr)
+        if diff_sp4 > 0:
+            sp_4 = self.sym_specie4
+            self.add_sites_diff(diff_sp4, sp_4, child_astr)
+        if diff_sp5 > 0:
+            sp_5 = self.sym_specie5
+            self.add_sites_diff(diff_sp5, sp_5, child_astr)
+
+        # if difference is negative, return rem_inds -> remove sites
+        rem_inds = []
+        rem_sp1, rem_sp2, rem_sp3, rem_sp4, rem_sp5 = 0, 0, 0, 0, 0
+
+        random.shuffle(iface_inds_in_gb)
+        for ind in iface_inds_in_gb:
+            site = child_astr.sites[ind]
+            if site.specie.name == self.sym_specie1:
+                if rem_sp1 < -diff_sp1:
+                    rem_inds.append(ind)
+                    rem_sp1 += 1
+            if self.num_species > 1:
+                if site.specie.name == self.sym_specie2:
+                    if rem_sp2 < -diff_sp2:
+                        rem_inds.append(ind)
+                        rem_sp2 += 1
+            if self.num_species > 2:
+                if site.specie.name == self.sym_specie3:
+                    if rem_sp3 < -diff_sp3:
+                        rem_inds.append(ind)
+                        rem_sp3 += 1
+            if self.num_species > 3:
+                if site.specie.name == self.sym_specie4:
+                    if rem_sp4 < -diff_sp4:
+                        rem_inds.append(ind)
+                        rem_sp4 += 1
+            if self.num_species > 4:
+                if site.specie.name == self.sym_specie5:
+                    if rem_sp5 < -diff_sp5:
+                        rem_inds.append(ind)
+                        rem_sp5 += 1
+
+        return rem_inds
+
+    def add_sites_diff(self, diff, sp, child_astr):
+        """
+        Add random sites to the child iface to get correct composition
+
+        Args:
+        diff (int): number of new sites to add
+        sp (str): species name
+        child_astr (Structure): pymatgen structure object of child_astr
+        """
+        # This is half the thickness (- 1 Å tolerance)
+        half_z_thickness = (self.iface_thickness - 0.3) /   \
+                                (self.init_gb_astr.lattice.c * 2)
+        zmin = self.iface_z_mid - half_z_thickness
+        zmax = self.iface_z_mid + half_z_thickness
+
+        # remove non-relevant sites from the structure before sending to
+        # dc.satisfies_all_dists(). This saves lot of time.
+        dc_astr = copy.deepcopy(child_astr)
+        rem_inds = []
+        for i, site in enumerate(dc_astr.sites):
+            if not (zmin-0.02) <= site.c <= (zmax+0.02):
+                rem_inds.append(i)
+        dc_astr.remove_sites(rem_inds)
+
+        num_added, tries = 0, 0
+        while num_added < diff: #and tries < 1000: #(leave this structure)
+            tries += 1
+            coords = child_astr.cart_coords
+            new_c = [unif(0, 1), unif(0, 1), unif(zmin, zmax)]
+            new_c = child_astr.lattice.get_cartesian_coords(new_c)
+            if dc.satisfies_all_dists(new_c, sp, dc_astr,
+                                      self.min_dist_dict, self.species_dict):
+                child_astr.append(sp, new_c, coords_are_cartesian=True)
+                num_added += 1
+        del dc_astr
+
+    def new_sites_coords(self, sites, old_axis_bounds, new_axis_bounds, axis):
+        """
+        Given set of cartesian coords as "sites"
+        converts them into fractional coordinates within the "new_axis_bounds"
+        along the "axis" provided.
+
+        Args:
+        sites (list/array): list of cartesian coordinates
+        old_axis_bounds (list): fractional coords of bounds of block in z
+                                direction
+        new_axis_bounds (list): fractional coords of bounds of new lattice in z
+                                direction
+        axis: (int) axis along which to make slices (0, 1, 2 for x, y and z)
+        """
+
+        sorted_sites = sorted(sites, key=lambda x: x.coords[axis])
+        axis_min, axis_max = sites[0].frac_coords[axis], \
+                                sites[-1].frac_coords[axis]
+        old_min, old_max = old_axis_bounds
+        new_min, new_max = new_axis_bounds
+
+        # change the coordinates of given sites to the new_axis_bounds
+        add_fcs, add_sps = [], []
+        for site in sites:
+            if axis == 0:
+                x = site.a
+            elif axis == 1:
+                x = site.b
+            elif axis == 2:
+                x = site.c
+            new_x = (x - old_min) / (old_max - old_min) # normalize
+            new_x = new_x * (new_max - new_min) + new_min # transform
+
+            if axis ==0:
+                add_fcs.append([new_x, site.b, site.c])
+            elif axis == 1:
+                add_fcs.append([site.a, new_x, site.c])
+            elif axis == 2:
+                add_fcs.append([site.a, site.b, new_x])
+            add_sps.append(site.species)
+
+        return add_sps, add_fcs
+
+    def get_hollow_gb(self):
+        """
+        Function to remove sites from the interface region of init_gb_astr.
+        This hollow_gb will be used for all models in a search.
+
+        No arguments needed
+        """
+        init_gb_astr = self.init_gb_astr
+        iface_z_mid = self.iface_z_mid
+        iface_thickness = self.iface_thickness
+
+        gb_c = init_gb_astr.lattice.c
+        copy_gb = init_gb_astr.copy()
+
+        # Get coords and species
+        gb_sites = copy_gb.sites
+        sorted_sites = sorted(gb_sites, key=lambda x: x.coords[2])
+        min_z_top = iface_z_mid + (iface_thickness / (gb_c * 2))
+        max_z_bot = iface_z_mid - (iface_thickness / (gb_c * 2))
+
+        top_ind, bot_ind = None, None
+        for i, site in enumerate(sorted_sites):
+            if site.c >= max_z_bot and not bot_ind:
+                bot_ind = i
+            if site.c >= min_z_top and not top_ind:
+                top_ind = i
+                break
+        mid_sites = sorted_sites[bot_ind : top_ind]
+        rem_inds = []
+        for i, site in enumerate(copy_gb.sites):
+            if site in mid_sites:
+                rem_inds.append(i)
+        copy_gb.remove_sites(rem_inds)
+
+        return copy_gb
+
+    def grain_implant(self, iface_to_implant):
+        """
+        Take init_gb_astr, remove all atoms in the middle.
+        Add each atom in iface_to_implant to the hollow space
+
+        Args:
+        iface_to_implant (obj): pymatgen structure object to be implanted
+        """
+        hollow_init_gb = self.hollow_init_gb
+        iface_z_mid = self.iface_z_mid
+        iface_thickness = self.iface_thickness
+        gb_c = self.init_gb_astr.lattice.c
+
+        min_z_top = iface_z_mid + (iface_thickness / (gb_c * 2))
+        max_z_bot = iface_z_mid - (iface_thickness / (gb_c * 2))
+
+        # Add sites from iface_to_implant to hollow_init_gb
+        zmin, zmax = 0, 1 # limits for fractional coordinates along z direction
+
+        # Maintain a tolerance of 0.2 Å between implant and hollow_gb
+        ztol = 0.2 / gb_c
+        newz_min, newz_max = max_z_bot + ztol, min_z_top - ztol
+
+        add_fcs, add_sps = [], []
+        for site in iface_to_implant.sites:
+            newc = (site.c - zmin)/(zmax - zmin) # normalize
+            newc = newc * (newz_max - newz_min) + newz_min # transform
+            add_fcs.append([site.a, site.b, newc])
+            add_sps.append(site.species)
+
+        new_gb = hollow_init_gb.copy()
+        for i in range(len(add_fcs)):
+            new_gb.append(add_sps[i], add_fcs[i])
+
+        new_gb.merge_sites(tol=1, mode='delete')
+        rem_inds = self.get_rem_inds(new_gb)
+        new_gb.remove_sites(rem_inds)
+
+        return new_gb.get_sorted_structure()
+
+    def separate_gb(self, gb_astr):
+        """
+        Separates the interface region from grain boundary and
+        returns interface structure
+        Args:
+            gb_astr (obj): pymatgen structure object of gb
+
+        NOTE: buffer will be considered when joining the grains to iface_box
+            buffer: the tolerance when joining box to top and bottom grains
+        """
+        iface_z_mid = self.iface_z_mid
+        iface_thickness = self.iface_thickness
+
+        gb_latt_matrix = gb_astr.lattice.matrix
+        gb_c = gb_astr.lattice.c
+
+        # Get new lattices for all grains
+        #bot_matrix = gb_latt_matrix.copy()
+        # TODO: Add tolerance here
+        #bot_matrix[2] = [0, 0, ((gb_c - iface_thickness)/2) + 1.5]
+        #bot_latt = Lattice(bot_matrix)
+
+        mid_matrix = gb_latt_matrix.copy()
+        mid_matrix[2] = [0, 0, iface_thickness + 0.2]
+        mid_latt = Lattice(mid_matrix)
+
+        #top_matrix = gb_latt_matrix.copy()
+        # TODO: Add tolerance here
+        #top_matrix[2] = [0, 0, ((gb_c - iface_thickness) / 2) + 1.5]
+        #top_latt = Lattice(top_matrix)
+
+        # Get coords and species
+        gb_sites = gb_astr.sites
+        sorted_sites = sorted(gb_sites, key=lambda x: x.coords[2])
+        min_z_top = iface_z_mid + (iface_thickness / (gb_c * 2))
+        max_z_bot = iface_z_mid - (iface_thickness / (gb_c * 2))
+
+        top_ind, bot_ind = None, None
+        for i, site in enumerate(sorted_sites):
+            if site.c >= max_z_bot and not bot_ind:
+                bot_ind = i
+            if site.c >= min_z_top and not top_ind:
+                top_ind = i
+                break
+        #bot_sites = sorted_sites[:bot_ind]
+        #top_sites = sorted_sites[top_ind:]
+        mid_sites = sorted_sites[bot_ind:top_ind]
+
+        # translate sites in bottom, middle and top grains
+        # to maintain clarity
+        bot_z_max, bot_z_min = max_z_bot + 1.5/gb_c, 0
+        mid_z_max, mid_z_min = min_z_top, max_z_bot
+        top_z_max, top_z_min = 1, min_z_top - 1.5/gb_c
+
+        #new_bot_fc, new_bot_sps = [], []
+        #for site in bot_sites:
+        #    newc = (site.c - bot_z_min) / (bot_z_max - bot_z_min)
+        #    new_bot_fc.append([site.a, site.b, newc])
+        #    new_bot_sps.append(site.species)
+
+        new_mid_fc, new_mid_sps = [], []
+        for site in mid_sites:
+            newc = (site.c - mid_z_min ) / (mid_z_max - mid_z_min + 0.2/gb_c)
+            newc = newc + 0.1/(iface_thickness + 0.2)
+            new_mid_fc.append([site.a, site.b, newc])
+            new_mid_sps.append(site.species)
+
+        #new_top_fc, new_top_sps = [], []
+        #for site in top_sites:
+        #    newc = (site.c - top_z_min) / (top_z_max - top_z_min)
+        #    new_top_fc.append([site.a, site.b, newc])
+        #    new_top_sps.append(site.species)
+
+        #bot_grain = Structure(bot_latt, new_bot_sps, new_bot_fc)
+        mid_grain = Structure(mid_latt, new_mid_sps, new_mid_fc)
+        #top_grain = Structure(top_latt, new_top_sps, new_top_fc)
+
+        return mid_grain
+
+    def fraction_slice(self, astr, axis):
+        """
+        For a given astr, this function slices it into required number of
+        blocks along the provided axis
+
+        Args:
+        astr:  structure object
+        num_slices: (int) number of blocks
+        axis: (int) axis along which to make slices (0, 1, 2 for x, y and z)
+
+        Returns a lattice object (same for all blocks) and
+                list of blocks (sites lists)
+        """
+        num_slices = self.num_slices
+        # since equal cuts, all blocks would have same lattice
+        latt = astr.lattice
+        new_mat = astr.lattice.matrix.copy()
+        if axis == 0:
+            new_mat[0] = [latt.a/num_slices, 0, 0]
+        elif axis == 1:
+            new_mat[1] = [0, latt.b/num_slices, 0]
+        elif axis == 2:
+            new_mat[2] = [0, 0, latt.c/num_slices]
+        new_latt = Lattice(new_mat)
+
+        all_sites = astr.sites
+        sorted_sites = sorted(all_sites, key=lambda x: x.coords[axis])
+
+        # determine the ax - coordinates to make cuts
+        # frac coords from 0 - 1
+        cut_locs = [(i+1) * 1/num_slices for i in range(num_slices)]
+        cut_atom_inds = []
+        for n, cut_loc in enumerate(cut_locs):
+            for i, site in enumerate(sorted_sites):
+                if axis == 0:
+                    x = site.a
+                elif axis == 1:
+                    x = site.b
+                elif axis == 2:
+                    x = site.c
+                if n == len(cut_atom_inds):
+                    if x >= cut_loc:
+                        cut_atom_inds.append(i)
+                        continue
+        # Add 0 at beginning and total num of sites at the end for easy indexing
+        cut_atom_inds.append(len(sorted_sites))
+        cut_atom_inds.reverse()
+        cut_atom_inds.append(0)
+        cut_atom_inds.reverse()
+
+        # do the same for cut_locs
+        cut_locs.reverse()
+        cut_locs.append(0)
+        cut_locs.reverse()
+
+        blocks = []
+        for i in range(len(cut_atom_inds)-1):
+            bl = sorted_sites[cut_atom_inds[i] : cut_atom_inds[i+1]]
+            bl_bounds = [cut_locs[i], cut_locs[i+1]]
+            block = [bl, bl_bounds]
+            blocks.append(block)
+
+        return new_latt, blocks
+
+    def join_slices_to_mold(self, blocks_dict, axis):
+        """
+        divides iface_latt into equal number of blocks in the direction of axis.
+        change the ax-coordinate of each site and append to respective mold
+        Ex: if axis = 1, y - coordinate needs to be changed
+
+        Args:
+        blocks_dict: dictionary of blocks list from each parent
+            Ex: {'p1': blocks_p1, 'p2': blocks_p2}
+            blocks_p1 = [[sites], [sites], [sites]]
+            pre-condition - the blocks all must be of same size (lattice)
+        axis: (int) axis along which to make slices (0, 1, 2 for x, y and z)
+
+        returns pymatgen structure object of the joned interface
+        """
+        num_slices = self.num_slices
+        iface_latt = self.iface_latt
+
+        cut_locs = [(i+1) * 1/num_slices for i in range(num_slices)]
+        cut_locs.reverse()
+        cut_locs.append(0)
+        cut_locs.reverse()
+
+        mold_ax_bounds = []
+        for i in range(len(cut_locs)-1):
+            p = [cut_locs[i], cut_locs[i+1]]
+            mold_ax_bounds.append(p)
+
+        random_blocks = []
+        while len(random_blocks) < len(mold_ax_bounds):
+            # choose blocks from parents alternatively
+            block = random.choice(blocks_dict['p1'])
+            if block not in random_blocks:
+                random_blocks.append(block)
+            block = random.choice(blocks_dict['p2'])
+            if block not in random_blocks:
+                random_blocks.append(block)
+
+        species, coords = [], []
+        for ax_bnds, block in zip(mold_ax_bounds, random_blocks):
+            block_sites, block_bounds = block
+            new_sps, new_fcs = self.new_sites_coords(block_sites, block_bounds,
+                                                                ax_bnds, axis)
+            for sp, fc in zip(new_sps, new_fcs):
+                species.append(sp)
+                coords.append(fc)
+
+        new_str = Structure(iface_latt, species, coords)
+
+        return new_str.get_sorted_structure()
+
+    def mate(self, select, pool):
+        """
+        Takes 2 parents and mates them
+
+        Args:
+        select (obj): Select object
+        pool (obj): Pool object
+
+        Returns child gb structure, method used as string
+        """
+        # get two parents
+        num_parents = 2
+        parents = select.get_parents(pool, num_parents)
+        parent1, parent2 = parents[0], parents[1]
+        inheritance = [parent1.label, parent2.label]
+        # choose axis to slice
+        axes = self.slice_axes
+        axis = random.choice(axes)
+        # get the slice blocks two lists from two parents
+        _, blocks_1 = self.fraction_slice(parent1.gb_iface, axis)
+        _, blocks_2 = self.fraction_slice(parent2.gb_iface, axis)
+        # make it to a dict
+        blocks_dict = {}
+        blocks_dict['p1'] = blocks_1
+        blocks_dict['p2'] = blocks_2
+        # the lattice for all models (child and parents) is same
+        # get a child gb_iface structure
+        child = self.join_slices_to_mold(blocks_dict, axis)
+        # move all coords inside the lattice
+        self.move_coords_inside(child)
+        # maintain composition of the child structure
+        child.merge_sites(tol=1, mode='delete')
+        # Add this ga_child to init_gb_astr
+        child_gb_astr = self.grain_implant(child)
+
+        return child_gb_astr, inheritance
+
+    def random_model(self, reg_id):
+        """
+        Similar to random_model_obj.random_model
+        Wrapper around overlap_grains() and grain_implant()
+
+        Args:
+        reg_id (obj): register_id object
+        """
+        done = False
+        while not done:
+            active_iface = self.overlap_grains()
+            gb_iface = self.grain_implant(active_iface)
+            done = self.gb_iface_comp_check(gb_iface)
+
+        gb_model = structure_record.model(gb_iface, reg_id)
+        gb_model.inheritance = 'random'
+
+        return gb_model
+
+    def get_model(self, select, pool, reg_id):
+        """
+        The name of this function is set to get_model() to match with the
+        similar model in 'evolve' class.
+
+        A wrapper around the fraction_slice() and
+        join_slices_to_mold() functions
+
+        Args:
+        select (obj): Select object
+        pool (obj): Pool object
+        reg_id (obj): register_id object
+
+        Returns a new gb model object
+        """
+        hop = self.hop
+
+        correct_comp = False
+        while correct_comp is False:
+            try:
+                if random.random() <= self.hop_mate_frac:
+                    # Do hop.perturb_sites()
+                    perturbed_iface, inheritance = hop.perturb_sites(
+                                                        select, pool, gb=True)
+                    self.move_coords_inside(perturbed_iface)
+                    new_astr = self.grain_implant(perturbed_iface)
+                    maker = 'perturb_sites'
+                else: # Do gb_ops_obj.mate()
+                    new_astr, inheritance = self.mate(select, pool)
+                    maker = 'fraction_slice'
+            except:
+                continue
+            if new_astr is None:
+                continue
+            if any(np.isnan(new_astr.cart_coords.flatten())):
+                continue
+            new_astr.sort()
+            correct_comp = self.gb_iface_comp_check(new_astr)
+
+        new_model = structure_record.model(new_astr, reg_id)
+        new_model.inheritance = inheritance
+        new_model.made_by = maker
+
+        print ('New model made using {} method on parent models {}'.format(
+                                            maker, inheritance))
+
+        return new_model
+
+    def move_coords_inside(self, astr):
+        """
+        For a given structure object, move all sites within the unit cell.
+        Eg: [-0.1, 0.4, 1.2] --> [0.9, 0.4, 0.2]
+
+        returns 'astr' with all atoms inside
+
+        Args:
+
+        astr: pymatgen Structure object
+        """
+        species = astr.species
+        fc = astr.frac_coords
+        fc = np.where((fc<0) | (fc>1), fc - np.floor(fc), fc)
+
+        # replace all the coords in astr
+        all_inds = [i for i in range(len(species))]
+        astr.remove_sites(all_inds)
+        for sp, coords in zip(species, fc):
+            astr.append(sp, coords, coords_are_cartesian=False)
+
+    def gb_iface_comp_check(self, new_gb):
+        """
+        Checks that the number of atoms per species of given gb structure is
+        within the allowed range
+
+        Args:
+
+        new_gb: the grain boundary structure object
+        """
+        new_gb.sort()
+        new_comp = new_gb.composition
+        hollow_comp = self.hollow_init_gb.composition
+
+        all_ok = []
+        sp1_ok = False
+        sym1 = self.sym_specie1
+        if self.min_num_sp1 <= new_comp[sym1] - hollow_comp[sym1] <= \
+                                                        self.max_num_sp1:
+            sp1_ok = True
+        all_ok.append(sp1_ok)
+        if self.num_species > 1:
+            sp2_ok = False
+            sym2 = self.sym_specie2
+            if self.min_num_sp2 <= new_comp[sym2] - hollow_comp[sym2] <= \
+                                                        self.max_num_sp2:
+                sp2_ok = True
+            all_ok.append(sp2_ok)
+        if self.num_species > 2:
+            sp3_ok = False
+            sym3 = self.sym_specie3
+            if self.min_num_sp3 <= new_comp[sym3] - hollow_comp[sym3] <= \
+                                                        self.max_num_sp3:
+                sp3_ok = True
+            all_ok.append(sp3_ok)
+        if self.num_species > 3:
+            sp4_ok = False
+            sym4 = self.sym_specie4
+            if self.min_num_sp4 <= new_comp[sym4] - hollow_comp[sym4] <= \
+                                                        self.max_num_sp4:
+                sp4_ok = True
+            all_ok.append(sp4_ok)
+        if self.num_species > 4:
+            sp5_ok = False
+            sym5 = self.sym_specie5
+            if self.min_num_sp5 <= new_comp[sym5] - hollow_comp[sym5] <= \
+                                                        self.max_num_sp5:
+                sp5_ok = True
+            all_ok.append(sp5_ok)
+
+        correct_comp = False
+        if False not in all_ok:
+            correct_comp = True
+
+        return correct_comp
+
+         #####
