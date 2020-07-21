@@ -9,13 +9,17 @@ from diffpy.Structure import loadStructure
 from diffpy.srfit.pdf import PDFContribution
 from diffpy.srfit.fitbase import FitRecipe, FitResults
 
+# For preprocessing experimental image
+from skimage.transform import rescale
+from skimage import restoration
+from skimage.exposure import equalize_adapthist
+
 from ingrained.structure import Bicrystal
 from ingrained.optimize import CongruityBuilder
-from ingrained import image_ops
-import cv2
+import ingrained.image_ops as iop
 
 import numpy as np
-import os
+import os, cv2
 
 class pdf_of_model(object):
     """
@@ -342,30 +346,62 @@ class gb_ingrained(object):
             The inital optimization prints out these params. Use them as it is.
         """
         self.name = 'GB_STEM'
-        ingrained_keys = ['iw', 'df', 'px', 'border_reduce']
-        for k in ingrained_keys:
-            if k not in gb_ingrained_params.keys():
-                print ("Provide all the optimized ingrained parameters.")
-
-        self.iw = gb_ingrained_params['iw']
-        self.df = gb_ingrained_params['df']
-        self.px = gb_ingrained_params['px']
-        self.border_reduce = gb_ingrained_params['border_reduce']
 
         self.main_path = gb_ingrained_params['main_path']
         self.init_gb_path = gb_ingrained_params['init_gb_path']
+        if not self.init_gb_path:
+            print ('Provide path to ingrained optimized initial '
+                        'grain boundary structure')
+
+        # get either progress_file or ing_opt_params from input
+        self.progress_file = gb_ingrained_params['progress_file']
+        self.opt_params = gb_ingrained_params['ing_opt_params']
+        if not self.progress_file and not self.opt_params:
+            print ('Provide ingrained optimization progress as progress_file'
+                    ' or sim params of optimized solution')
+
         self.dm3_path = gb_ingrained_params['dm3_path']
-        bicrys_ref = Bicrystal(self.init_gb_path)
-        congruity_ref = CongruityBuilder(bicrys_ref, dm3=self.dm3_path)
-        congruity_ref.fit(interface_width=self.iw, defocus=self.df,
-                          border_reduce=self.border_reduce, pixel_size=self.px,
-                          save_experiment=self.main_path+"/gb_im_ref.jpg")
+        if not self.dm3_path:
+            print ('Provide path (dm3_path) to experimental image')
+
+        # Prepare experimental image (make sure this procedure matches the procedure in 'run.py')
+        image_data = iop.image_open(self.dm3_path)
+        exp_img = iop.apply_rotation(
+                            image_data['Pixels'],1)[271-10:783+10,0:520]
+        exp_img = iop.scale_pixels(exp_img, mode='rescale')
+        exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5,1300)
+        exp_img = equalize_adapthist(exp_img ,clip_limit=0.005)
+
+        bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
+        congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
+
+        # Get solutions from text file
+        if self.progress_file:
+            progress = np.genfromtxt(progress_file, delimiter=',')
+            best_idx = int(np.argmin(progress[:,-1]))
+            x = progress[best_idx]
+            xfit = x[1:-1]
+            xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
+
+        #TODO: Find why we set self.opt_params[1] = 0
+        if not self.opt_params:
+            self.opt_params = xfit.copy()
+            self.opt_params[1] = 0
+        else:
+            xfit = self.opt_params.copy()
+
+        sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
+                            congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+
+        sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
+
+        np.save(self.main_path + '/whole_exp.npy', exp_patch)
+        np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
         # Temporary hard coded cropping of image to interface region
-        im_ref = cv2.imread(self.main_path+"/gb_im_ref.jpg", 0)
-        self.im_ref = im_ref[55:170, :]
-        cv2.imwrite(self.main_path+"/gb_im_ref.jpg", self.im_ref)
-
+        self.im_ref = exp_patch[132:300]
+        match_ssim = iop.score_ssim(sim_img[132:300], self.im_ref)
+        print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
 
     def scale_gb_astr(self, tested_scales, factor=0.01):
         """
@@ -389,20 +425,17 @@ class gb_ingrained(object):
         Returns model after setting attribute obj()_val = residual
         """
         relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
-        bicrys_model = Bicrystal(relax_path+'/POSCAR_relaxed')
-        filename = relax_path+"/gb_im_model.jpg"
-        bicrys_model.convolution_HAADF(filename=filename,
-                                       dm3=self.dm3_path,
-                                       pixel_size=self.px,
-                                       interface_width=self.iw,
-                                       defocus=self.df,
-                                       border_reduce=self.border_reduce)
+        # Initialize a Bicrystal object from relaxed structure
+        bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+        # Simulate an image
+        im_model, __ = bicrys_model.simulate_image(sim_params=self.opt_params)
+        np.save(relax_path + '/model_sim.npy',im_model)
 
-        im_model = cv2.imread(filename, 0)
-        im_model = im_model[55:170, :]
+        im_model = im_model[132:300]
+        filename = relax_path+"/gb_im_model.jpg"
         cv2.imwrite(filename, im_model)
-        #TODO: sigma value should be fixed?
-        score = image_ops.score_vifp(self.im_ref, im_model, sigma=2)
+
+        score = iop.score_ssim(im_model, self.im_ref)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims

@@ -266,6 +266,15 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
     gb_ingrained_params = i_dict[exp_sim_params_id]
     gb_ingrained_params['main_path'] = i_dict['main_path']
 
+    #if 'init_gb_path' not in gb_ingrained_params:
+    #    gb_ingrained_params['init_gb_path'] = None
+    if 'progress_file' not in gb_ingrained_params:
+        gb_ingrained_params['progress_file'] = None
+    if 'ing_opt_params' not in gb_ingrained_params:
+        gb_ingrained_params['ing_opt_params'] = None
+    if not 'dm3_path' in gb_ingrained_params:
+        gb_ingrained_params['dm3_path'] = None
+
     return gb_ingrained_params
 
 def get_mating_params(i_dict, str_constraints):

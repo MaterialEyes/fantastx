@@ -451,4 +451,3 @@ def new_update_pool(evald_futures, models_evald, pool, select, data_file, sims):
         models_evald += 1
 
     return evald_futures, pool, models_evald
-

@@ -73,8 +73,10 @@ with open(data_file, 'w') as f:
 # set up everything for calculations
 models_evald = 0
 # the output of energy evaluation for models is stored in this dict
-evald_futures = []
-processed_labels = []
+evald_futures, simd_futures = [], []
+num_initial_pop =  5#i_dict['initial_population']['total']
+total_models_needed = 10#i_dict['structure_record']['stopper']['num_calcs']
+
 # Start the ProcessPoolExecutor with num_parallel as max_workers
 # NOTE: ~ total_cores/max_workers is the num cores used to do one calculation
 max_workers = 2 # TODO: make an option for max_workers in the input file
@@ -89,8 +91,49 @@ cluster_job = SLURMCluster(cores=1,
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
 
-master_pool = ProcessPoolExecutor(max_workers=16)
+# full_eval function which uses global variables
+def full_eval(model):
+    """
+    A wrapper function around energy_eval and Xsim_eval.
+    Both these are done one after the other as one job by worker
 
+    Args:
+    model - (obj) Newly created model object which shall be evaluated
+
+    Note:
+    Uses reg_id, Xsim_1, energy_code objects which were stored as global
+    parameters in all workers and master
+    """
+    # submit model to energy relaxation
+    try:
+        energy_code.relax(model, reg_id)
+    except FileExistsError:
+        print ('Duplicate label in parallel processes. Skipping..')
+        return None
+    resubmitted = 2
+    if model.converged == False:
+        for i in range(len(energy_code.resubmit)):
+            if resubmitted < energy_code.resubmit and model.converged == False:
+                resubmitted += 1
+                try:
+                    energy_code.re_relax(model)
+                except:
+                    continue
+
+    # separate gb_iface for the energy evaluated futures
+    separate_gb(energy_code, gb_ops_obj, model)
+    # Do Xsim if required
+    if Xsim_1:
+        # get the relaxed structure
+        relaxed_str = model.astr
+        if relaxed_str is None:
+            print ('Relaxed structure not available. Skipping Xsim..')
+            return None
+        else:
+            # if relaxed structure exists
+            model.Xsim1 = Xsim_1.name
+            model, Xsim_val = Xsim_1.evaluate_obj(model)
+            return model
 
 # make new model from all input files provided, then random, then evolve
 input_models = []
@@ -112,8 +155,6 @@ if input_model_obj is not None:
     print ('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
-num_initial_pop =  5#i_dict['initial_population']['total']
-total_models_needed = 10#i_dict['structure_record']['stopper']['num_calcs']
 working_jobs = get_working_jobs(evald_futures)
 
 start_time = time.time()
@@ -123,48 +164,29 @@ while models_evald < total_models_needed:
     # In some cases (lammps based), working_jobs always < max_workers
     while working_jobs < max_workers and models_evald < total_models_needed:
         # make model
-        s=0
         if models_evald < num_initial_pop:
-            s = time.time()
             new_model = make_model(random_model_obj, evolve, select, pool,
                                         reg_id, model_type='random')
         else:
-            s = time.time()
             new_model = make_model(random_model_obj, evolve, select, pool,
                                         reg_id, model_type='evolved')
-        if s!= 0:
-            make_model_time = time.time() - s
-            print ('It took {} secs to make model {}'.format(
-                                    make_model_time, new_model.label))
+
         # relax the model in dask-workers
-        out = client.submit(relax, new_model, reg_id, energy_code)
+        out = client.submit(full_eval, new_model)
         evald_futures.append(out)
+        evald_futures, pool, models_evald = new_update_pool(evald_futures,
+                                                            models_evald,
+                                                            pool, select,
+                                                            data_file, sims)
         working_jobs = get_working_jobs(evald_futures)
-        # make sure 50 % of workers are working before processing futures
-        if working_jobs > mar_workers * 0.5:
-            processed_labels, pool, evald_futures = update_pool(
-                                                        master_pool,
-                                                        evald_futures,
-                                                        processed_labels,
-                                                        weights, pool, select,
-                                                        energy_code, gb_ops_obj,
-                                                        Xsim_1, data_file, sims)
-        models_evald = len(processed_labels)
-        if models_evald % 100 < 5:
-            run_time = time.time() - start_time
-            with open('/ufrc/hennig/kvs.chaitanya/relaxation/Fantastx/' + \
-                        'Apr_1_gb/speed_1/models_time.txt', 'a') as f:
-                f.write('{}\t{}\n'.format(run_time, models_evald))
         #temp_selection_probs(pool)
 
 # process extra calculations running in last batch
 while len(evald_futures) > 0:
-    processed_labels, pool, evald_futures = update_pool(
-                                                       evald_futures,
-                                                       processed_labels,
-                                                       weights, pool, select,
-                                                       energy_code, gb_ops_obj,
-                                                       Xsim_1, data_file, sims)
+    evald_futures, pool, models_evald = new_update_pool(evald_futures,
+                                                            models_evald,
+                                                            pool, select,
+                                                            data_file, sims)
 
 sorted_pool = pool.get_sorted_pool()
 with open('sorted_data', 'a') as f:

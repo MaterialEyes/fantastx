@@ -74,8 +74,10 @@ with open(data_file, 'w') as f:
 models_evald = 0
 # the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
+num_initial_pop =  i_dict['initial_population']['total']
+total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
 
-max_workers = i_dict['workers'] 
+max_workers = i_dict['workers']
 ###############
 cluster_job = SLURMCluster(cores=1,
                            memory="4GB",
@@ -97,8 +99,8 @@ def full_eval(model):
     model - (obj) Newly created model object which shall be evaluated
 
     Note:
-    Uses reg_id, Xsim_1, energy_code objects which were stored as global 
-    parameters in all workers and master 
+    Uses reg_id, Xsim_1, energy_code objects which were stored as global
+    parameters in all workers and master
     """
     # submit model to energy relaxation
     try:
@@ -131,9 +133,6 @@ def full_eval(model):
             model, Xsim_val = Xsim_1.evaluate_obj(model)
             return model
 
-# wait for workers to start on cluster
-client.wait_for_workers(1)
-
 # make new model from all input files provided, then random, then evolve
 input_models = []
 if input_model_obj is not None:
@@ -154,8 +153,6 @@ if input_model_obj is not None:
     print ('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
-num_initial_pop =  i_dict['initial_population']['total']
-total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
 working_jobs = get_working_jobs(evald_futures)
 
 # Make random models & evolved models
@@ -172,13 +169,13 @@ while models_evald < total_models_needed:
         else:
             new_model = make_model(random_model_obj, evolve, select, pool,
                                         reg_id, model_type='evolved')
-        
+
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
-        evald_futures, pool, models_evald = new_update_pool(evald_futures, 
-                                                            models_evald, 
-                                                            pool, select, 
+        evald_futures, pool, models_evald = new_update_pool(evald_futures,
+                                                            models_evald,
+                                                            pool, select,
                                                             data_file, sims)
         working_jobs = get_working_jobs(evald_futures)
 
@@ -197,4 +194,3 @@ client.shutdown()
 
 print ('Done!')
 print ('Total time: ', time.time() - start_time)
-
