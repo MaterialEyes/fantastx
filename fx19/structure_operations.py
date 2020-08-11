@@ -16,6 +16,7 @@ from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from numpy.random import uniform as unif
 import numpy as np
 import random, copy
+import math
 
 from fx19 import structure_record
 from fx19 import distance_check as dc
@@ -1188,8 +1189,11 @@ class gb_ops(object):
         latt = Lattice(latt)
         window_frac = iface_thickness / init_gb_astr.lattice.c
         # Cut the portion randomly from bottom grain and top grain
-        cut_bot = random.uniform(0.05, 0.25)
-        top_cut = random.uniform(0.75, 0.95)
+        z_fracs = init_gb_astr.frac_coords[:, 2]
+        # bring all between 0, 1
+        z_fracs = [i - math.floor(i) for i in z_fracs]
+        cut_bot = random.uniform(min(z_fracs), self.iface_z_mid - 0.05)
+        top_cut = random.uniform(self.iface_z_mid + 0.05, max(z_fracs))
         # Add those sites to the above lattice
         bot_sites, top_sites = [], []
         sorted_sites = sorted(init_gb_astr.sites, key=lambda x: x.coords[2])
