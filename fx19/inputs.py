@@ -139,7 +139,7 @@ def make_objects(i_dict):
     # For gb, overlap and remove sites is used for random models
     gb_ops_obj = None
     if str_constraints['shape'] == 'gb':
-        str_constraints['hop_mate_frac'] = mating_params['hop_mate_frac']
+        str_constraints['hop_mate_frac'] = i_dict['hop_mate_frac']
         gb_ops_obj = structure_operations.gb_ops(hop, str_constraints)
         all_objects['gb_ops_obj'] = gb_ops_obj
 
