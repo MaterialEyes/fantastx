@@ -794,7 +794,7 @@ class basinhopping(object):
             'indices_fraction': 0.6 # fraction of total atoms to perturb
             'scale_fraction': 0.1 # (Deprecated) fraction to perturb lattice
             'scale_direction': 'up' # up for stretching ; down for compression
-            'jump_fraction': 0.5, # maximum perturbation distance in Å
+            'max_perturbation': 0.5, # maximum perturbation distance in Å
             'min_dist_dict': # dictionary of minimum bond distances
              {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
             'species_dict': # dictionary of species information
@@ -812,7 +812,7 @@ class basinhopping(object):
         # if indices_fraction is given, box perturbation is skipped completely
         self.scale_direction = None
         self.scale_fraction = 0.15
-        self.jump_fraction = 0.15
+        self.max_perturbation = 0.15
         self.min_dist_dict = basinhopping_params['min_dist_dict']
         self.species_dict = basinhopping_params['species_dict']
 
@@ -855,14 +855,14 @@ class basinhopping(object):
             else:
                 self.scale_fraction = basinhopping_params['scale_fraction']
 
-        if 'jump_fraction' not in basinhopping_params:
-            if not 0 < basinhopping_params['jump_fraction'] <= 0.5:
-                print ('jump_fraction should be between (0, 0.5]. More than '
+        if 'max_perturbation' not in basinhopping_params:
+            if not 0 < basinhopping_params['max_perturbation'] <= 0.5:
+                print ('max_perturbation should be between (0, 0.5]. More than '
                        '0.5 would be throw the atoms too far. Check the '
-                       'jump distance by lattice vectors * jump_fraction. '
+                       'jump distance by lattice vectors * max_perturbation. '
                        'Using default value of 0.15')
         else:
-            self.jump_fraction = basinhopping_params['jump_fraction']
+            self.max_perturbation = basinhopping_params['max_perturbation']
 
 
 
@@ -924,12 +924,12 @@ class basinhopping(object):
                 all_cart_coords = parent.gb_iface.cart_coords
             # remove current index from cart_coords
             # rem_cart_coords = np.delete(all_cart_coords, i, 0)
-            # Randomly perturb within sphere of radius = jump_fraction
+            # Randomly perturb within sphere of radius = max_perturbation
             replaced = False
             tries = 0
             while not replaced and tries < 1000:
                 tries += 1
-                jump = self.jump_fraction #unif(0, self.jump_fraction)
+                jump = self.max_perturbation #unif(0, self.max_perturbation)
                 perturb = self.get_point_on_sphere(jump)
                 new_frac = one_coords + perturb
                 if not gb:

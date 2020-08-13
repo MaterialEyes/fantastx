@@ -130,7 +130,7 @@ def make_objects(i_dict):
     if 'basinhopping_constraints' in i_dict:
         basinhopping_params = i_dict['basinhopping_constraints']
     # NOTE: contains 'perturb_box', 'indices_fraction', 'scale_fraction',
-    # 'jump_fraction' and 'scale_direction'
+    # 'max_perturbation' and 'scale_direction'
     basinhopping_params['min_dist_dict'] = str_constraints['min_dist_dict']
     basinhopping_params['species_dict'] = i_dict['structure_record']['species']
     hop = structure_operations.basinhopping(basinhopping_params)
