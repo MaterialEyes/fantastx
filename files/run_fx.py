@@ -13,7 +13,7 @@ import numpy as np
 from time import sleep
 
 # dask import
-from dask_jobqueue import SLURMCluster
+from dask_jobqueue import SLURMCluster, PBSCluster
 from dask.distributed import Client
 
 main_path = os.getcwd()
@@ -75,15 +75,27 @@ models_evald = 0
 # the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
 
-max_workers = i_dict['workers'] 
-###############
-cluster_job = SLURMCluster(cores=1,
-                           memory="2GB",
-                           project='hennig',
-                           queue='hpg2-compute',
-                           interface='ib0',
-                           walltime='24:00:00',
-                           job_extra=['--ntasks 4', '--nodes=1'])
+workers = i_dict['workers']
+max_workers = workers['max_workers']
+
+if workers['cluster'] == 'SLURM':
+    cluster_job = SLURMCluster(cores=workers['cores'],
+                               memory=workers['total_mem'],
+                               project=workers['project_name'],
+                               queue=workers['submit_to_queue'],
+                               interface=workers['node_type'],
+                               walltime=workers['walltime'],
+                               job_extra=workers['job_extra'])
+elif workers['cluster'] == 'PBS':
+    cluster_job = PBSCluster(cores=workers['cores'],
+                               memory=workers['total_mem'],
+                               project=workers['project_name'],
+                               queue=workers['submit_to_queue'],
+                               interface=workers['node_type'],
+                               walltime=workers['walltime'],
+                               job_extra=workers['job_extra'])
+else:
+    print ('FANTASTX currently supports SLURM and PBS. Provided scheduler type not identified.')
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
 
@@ -97,8 +109,8 @@ def full_eval(model):
     model - (obj) Newly created model object which shall be evaluated
 
     Note:
-    Uses reg_id, Xsim_1, energy_code objects which were stored as global 
-    parameters in all workers and master 
+    Uses reg_id, Xsim_1, energy_code objects which were stored as global
+    parameters in all workers and master
     """
     # submit model to energy relaxation
     try:
@@ -172,13 +184,13 @@ while models_evald < total_models_needed:
         else:
             new_model = make_model(random_model_obj, evolve, select, pool,
                                         reg_id, model_type='evolved')
-        
+
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
-        evald_futures, pool, models_evald = new_update_pool(evald_futures, 
-                                                            models_evald, 
-                                                            pool, select, 
+        evald_futures, pool, models_evald = new_update_pool(evald_futures,
+                                                            models_evald,
+                                                            pool, select,
                                                             data_file, sims)
         working_jobs = get_working_jobs(evald_futures)
 
@@ -197,4 +209,3 @@ client.shutdown()
 
 print ('Done!')
 print ('Total time: ', time.time() - start_time)
-
