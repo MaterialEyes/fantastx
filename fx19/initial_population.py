@@ -138,33 +138,33 @@ class make_random_model(object):
         self.num_species = str_constraints['num_species']
         # save specie1 data
         # TODO: allow infinite species by reading input directly
-        self.sym_specie1 = str_constraints['specie1']['name']
-        self.min_num_sp1 = str_constraints['specie1']['min_num']
-        self.max_num_sp1 = str_constraints['specie1']['max_num']
+        self.sym_specie1 = str_constraints['species1']['name']
+        self.min_num_sp1 = str_constraints['species1']['min_num']
+        self.max_num_sp1 = str_constraints['species1']['max_num']
         # save specie2 data if exists
         if self.num_species > 1:
-            if 'specie2' in str_constraints and str_constraints['specie2']:
-                self.sym_specie2 = str_constraints['specie2']['name']
-                self.min_num_sp2 = str_constraints['specie2']['min_num']
-                self.max_num_sp2 = str_constraints['specie2']['max_num']
+            if 'species2' in str_constraints and str_constraints['species2']:
+                self.sym_specie2 = str_constraints['species2']['name']
+                self.min_num_sp2 = str_constraints['species2']['min_num']
+                self.max_num_sp2 = str_constraints['species2']['max_num']
         # save specie3 data if exists
         if self.num_species > 2:
-            if 'specie3' in str_constraints and str_constraints['specie3']:
-                self.sym_specie3 = str_constraints['specie3']['name']
-                self.min_num_sp3 = str_constraints['specie3']['min_num']
-                self.max_num_sp3 = str_constraints['specie3']['max_num']
+            if 'species3' in str_constraints and str_constraints['species3']:
+                self.sym_specie3 = str_constraints['species3']['name']
+                self.min_num_sp3 = str_constraints['species3']['min_num']
+                self.max_num_sp3 = str_constraints['species3']['max_num']
         # save specie4 data if exists
         if self.num_species > 3:
-            if 'specie4' in str_constraints and str_constraints['specie4']:
-                self.sym_specie4 = str_constraints['specie4']['name']
-                self.min_num_sp4 = str_constraints['specie4']['min_num']
-                self.max_num_sp4 = str_constraints['specie4']['max_num']
+            if 'species4' in str_constraints and str_constraints['species4']:
+                self.sym_specie4 = str_constraints['species4']['name']
+                self.min_num_sp4 = str_constraints['species4']['min_num']
+                self.max_num_sp4 = str_constraints['species4']['max_num']
         # save specie5 data if exists
         if self.num_species > 4:
-            if 'specie5' in str_constraints and str_constraints['specie5']:
-                self.sym_specie5 = str_constraints['specie5']['name']
-                self.min_num_sp5 = str_constraints['specie5']['min_num']
-                self.max_num_sp5 = str_constraints['specie5']['max_num']
+            if 'species5' in str_constraints and str_constraints['species5']:
+                self.sym_specie5 = str_constraints['species5']['name']
+                self.min_num_sp5 = str_constraints['species5']['min_num']
+                self.max_num_sp5 = str_constraints['species5']['max_num']
 
 
     def get_cluster_in_box(self):

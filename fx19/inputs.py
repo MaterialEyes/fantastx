@@ -193,15 +193,15 @@ def get_energy_params(i_dict):
     if i_dict['energy_obj_fn'] == 'mu_based':
         species_dict = i_dict['structure_record']['species']
         try:
-            mu[1] = species_dict['specie1']['mu']
-            if 'specie2' in species_dict:
-                mu[2] = species_dict['specie2']['mu']
-            if 'specie3' in species_dict:
-                mu[3] = species_dict['specie3']['mu']
-            if 'specie4' in species_dict:
-                mu[4] = species_dict['specie4']['mu']
-            if 'specie5' in species_dict:
-                mu[5] = species_dict['specie5']['mu']
+            mu[1] = species_dict['species1']['mu']
+            if 'species2' in species_dict:
+                mu[2] = species_dict['species2']['mu']
+            if 'species3' in species_dict:
+                mu[3] = species_dict['species3']['mu']
+            if 'species4' in species_dict:
+                mu[4] = species_dict['species4']['mu']
+            if 'species5' in species_dict:
+                mu[5] = species_dict['species5']['mu']
         except:
             print ('Error: For \'mu_based\' objective function, '
                    'chemical potentials must be provided for every species!')
@@ -304,7 +304,7 @@ def get_mating_params(i_dict, str_constraints):
     mating_params['num_species'] = str_constraints['num_species']
 
     # species dicts
-    keys = ['specie1', 'specie2', 'specie3', 'specie4', 'specie5']
+    keys = ['species1', 'species2', 'species3', 'species4', 'species5']
     for specie in keys:
         if specie in str_constraints:
             mating_params[specie] = str_constraints[specie]
@@ -334,7 +334,7 @@ def get_evolve_params(i_dict, str_constraints):
     evolve_params['probabilities'] = probs_dict
     evolve_params['num_species'] = str_constraints['num_species']
     # species dicts
-    keys = ['specie1', 'specie2', 'specie3', 'specie4', 'specie5']
+    keys = ['species1', 'species2', 'species3', 'species4', 'species5']
     for specie in keys:
         if specie in str_constraints:
             evolve_params[specie] = str_constraints[specie]

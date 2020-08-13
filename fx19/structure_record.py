@@ -206,10 +206,10 @@ class structure_constraints(object):
         # see that all attributes for all species are present by placing
         # defaults for specie1 and that of specie1 for the rest
         element_syms = {}
-        if 'specie1' not in species_dict:
+        if 'species1' not in species_dict:
             print ('Please provide specie1 under species in input file.')
         else:
-            self.specie1 = species_dict['specie1']
+            self.specie1 = species_dict['species1']
             if 'name' not in self.specie1:
                 print ('Please specify element name (Ex: \'Al\') of specie 1.')
             element_syms[1] = self.specie1['name']
@@ -223,8 +223,8 @@ class structure_constraints(object):
                 self.max_num_atoms = self.specie1['max_num']
 
         if self.num_species > 1:
-            if 'specie2' in species_dict:
-                self.specie2 = species_dict['specie2']
+            if 'species2' in species_dict:
+                self.specie2 = species_dict['species2']
                 if 'name' not in self.specie2:
                     print ('Please specify element name (Ex: \'Al\') of specie 2.')
                 element_syms[2] = self.specie2['name']
@@ -236,8 +236,8 @@ class structure_constraints(object):
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 2:
-            if 'specie3' in species_dict:
-                self.specie3 = species_dict['specie3']
+            if 'species3' in species_dict:
+                self.specie3 = species_dict['species3']
                 if 'name' not in self.specie3:
                     print ('Please specify element name (Ex: \'Al\') of specie 3.')
                 element_syms[3] = self.specie3['name']
@@ -249,8 +249,8 @@ class structure_constraints(object):
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 3:
-            if 'specie4' in species_dict:
-                self.specie4 = species_dict['specie4']
+            if 'species4' in species_dict:
+                self.specie4 = species_dict['species4']
                 if 'name' not in self.specie4:
                     print ('Please specify element name (Ex: \'Al\') of specie 4.')
                 element_syms[4] = self.specie4['name']
@@ -262,8 +262,8 @@ class structure_constraints(object):
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 4:
-            if 'specie5' in species_dict:
-                self.specie5 = species_dict['specie5']
+            if 'species5' in species_dict:
+                self.specie5 = species_dict['species5']
                 if 'name' not in self.specie5:
                     print ('Please specify element name (Ex: \'Al\') of specie 5.')
                 element_syms[5] = self.specie5['name']

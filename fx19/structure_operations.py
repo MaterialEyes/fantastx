@@ -35,7 +35,7 @@ class Evolve(object):
         evolve_params (dict): The keys are the following:
                               'probabilities': {1:0.1, 2:0.2, 3:0.5, 4:0.2}
                               'num_species': (int) number of species
-                              'specie1'/'specie2'/.. : 'Al'/'O'/'H'/...
+                              'species1'/'species2'/.. : 'Al'/'O'/'H'/...
         """
         self.mate = mate
         self.hop = hop
@@ -58,19 +58,19 @@ class Evolve(object):
         self.num_species = evolve_params['num_species']
 
         # Make species dicts as attributes
-        self.specie1 = evolve_params['specie1']
+        self.specie1 = evolve_params['species1']
         # save specie2 data if exists
         if self.num_species > 1:
-            self.specie2 = evolve_params['specie2']
+            self.specie2 = evolve_params['species2']
         # save specie2 data if exists
         if self.num_species > 2:
-            self.specie3 = evolve_params['specie3']
+            self.specie3 = evolve_params['species3']
         # save specie2 data if exists
         if self.num_species > 3:
-            self.specie4 = evolve_params['specie4']
+            self.specie4 = evolve_params['species4']
         # save specie2 data if exists
         if self.num_species > 4:
-            self.specie5 = evolve_params['specie5']
+            self.specie5 = evolve_params['species5']
 
 
     def get_model(self, select, pool, reg_id, method=0):
@@ -236,11 +236,11 @@ class mating(object):
         'min_dist_dict': dictionary of minimum bond distances
                         {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
         'species_dict': # dictionary of species
-        {'specie1': {'name': 'Al',
+        {'species1': {'name': 'Al',
            'min_num': 36,
            'max_num': 36,
            'mu': -3.35958515625},
-          'specie2': {'name': 'O',
+          'species2': {'name': 'O',
            'min_num': 30,
            'max_num': 30,
            'mu': -6.76069604253}},
@@ -265,19 +265,19 @@ class mating(object):
         self.min_dist_dict = mating_params['min_dist_dict']
 
         # Make species dicts as attributes
-        self.specie1 = mating_params['specie1']
+        self.specie1 = mating_params['species1']
         # save specie2 data if exists
         if self.num_species > 1:
-            self.specie2 = mating_params['specie2']
+            self.specie2 = mating_params['species2']
         # save specie2 data if exists
         if self.num_species > 2:
-            self.specie3 = mating_params['specie3']
+            self.specie3 = mating_params['species3']
         # save specie2 data if exists
         if self.num_species > 3:
-            self.specie4 = mating_params['specie4']
+            self.specie4 = mating_params['species4']
         # save specie2 data if exists
         if self.num_species > 4:
-            self.specie5 = mating_params['specie5']
+            self.specie5 = mating_params['species5']
 
     def get_num_parents(self, num_parents_fraction):
         """
@@ -798,11 +798,11 @@ class basinhopping(object):
             'min_dist_dict': # dictionary of minimum bond distances
              {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
             'species_dict': # dictionary of species information
-             {'specie1': {'name': 'Al',
+             {'species1': {'name': 'Al',
                'min_num': 36,
                'max_num': 36,
                'mu': -3.35958515625},
-              'specie2': {'name': 'O',
+              'species2': {'name': 'O',
                'min_num': 30,
                'max_num': 30,
                'mu': -6.76069604253}}}
@@ -1111,33 +1111,33 @@ class gb_ops(object):
         self.num_species = str_constraints['num_species']
         # save specie1 data, same as in initial population
         # specie1 should always exist
-        self.sym_specie1 = str_constraints['specie1']['name']
-        self.min_num_sp1 = str_constraints['specie1']['min_num']
-        self.max_num_sp1 = str_constraints['specie1']['max_num']
+        self.sym_specie1 = str_constraints['species1']['name']
+        self.min_num_sp1 = str_constraints['species1']['min_num']
+        self.max_num_sp1 = str_constraints['species1']['max_num']
         # save specie2 data if exists
         if self.num_species > 1:
-            if 'specie2' in str_constraints and str_constraints['specie2']:
-                self.sym_specie2 = str_constraints['specie2']['name']
-                self.min_num_sp2 = str_constraints['specie2']['min_num']
-                self.max_num_sp2 = str_constraints['specie2']['max_num']
+            if 'species2' in str_constraints and str_constraints['species2']:
+                self.sym_specie2 = str_constraints['species2']['name']
+                self.min_num_sp2 = str_constraints['species2']['min_num']
+                self.max_num_sp2 = str_constraints['species2']['max_num']
         # save specie3 data if exists
         if self.num_species > 2:
-            if 'specie3' in str_constraints and str_constraints['specie3']:
-                self.sym_specie3 = str_constraints['specie3']['name']
-                self.min_num_sp3 = str_constraints['specie3']['min_num']
-                self.max_num_sp3 = str_constraints['specie3']['max_num']
+            if 'species3' in str_constraints and str_constraints['species3']:
+                self.sym_specie3 = str_constraints['species3']['name']
+                self.min_num_sp3 = str_constraints['species3']['min_num']
+                self.max_num_sp3 = str_constraints['species3']['max_num']
         # save specie4 data if exists
         if self.num_species > 3:
-            if 'specie4' in str_constraints and str_constraints['specie4']:
-                self.sym_specie4 = str_constraints['specie4']['name']
-                self.min_num_sp4 = str_constraints['specie4']['min_num']
-                self.max_num_sp4 = str_constraints['specie4']['max_num']
+            if 'species4' in str_constraints and str_constraints['species4']:
+                self.sym_specie4 = str_constraints['species4']['name']
+                self.min_num_sp4 = str_constraints['species4']['min_num']
+                self.max_num_sp4 = str_constraints['species4']['max_num']
         # save specie5 data if exists
         if self.num_species > 4:
-            if 'specie5' in str_constraints and str_constraints['specie5']:
-                self.sym_specie5 = str_constraints['specie5']['name']
-                self.min_num_sp5 = str_constraints['specie5']['min_num']
-                self.max_num_sp5 = str_constraints['specie5']['max_num']
+            if 'species5' in str_constraints and str_constraints['species5']:
+                self.sym_specie5 = str_constraints['species5']['name']
+                self.min_num_sp5 = str_constraints['species5']['min_num']
+                self.max_num_sp5 = str_constraints['species5']['max_num']
 
         self.min_dist_dict = str_constraints['min_dist_dict']
         self.species_dict = str_constraints['species_dict']
