@@ -36,11 +36,11 @@ Input parameters for the algorithm are provided in a 'yaml' file. Some parameter
 
 The parameters are divided based on the modules that use them. Main keywords correspond to modules and important parameters. Within each module, there might be multiple sub-keywords. The structure of the keywords shall be maintained in the input file. For example, to specify the algorithm to stop after 10000 models, keywords structure_record, stopper and num_calcs should be specified with necessary indentations.
 
-~~~
+```YAML
 structure_record:
     stopper:
         num_calcs: 10000
-~~~
+```
 
 Refer to example [gb_input.yaml](#example_input_file) file for short description of all possible parameters with default values (if applicable) to keywords.
 
@@ -122,7 +122,7 @@ Refer to example [gb_input.yaml](#example_input_file) file for short description
 This is how you dropdown.
 </details>
 
-~~~
+```YAML
 # parameters pertaining to inputs.py module
 inputs:
     energy_files_path:
@@ -206,11 +206,11 @@ workers: # contains specifications for each dask worker job
     job_extra: # any other PBS/SLURM submit options
         - "--ntasks=8"  # SBATCH options directly provided
         - "--nodes=1"
-~~~
+```
 <br>
 Following parameters are not needed for gb search.
 
-~~~
+```YAML
 mating_constraints: # parameters for mating parents
     # fraction to use three parents for mating; reminder uses two parents
     num_parents_fraction: 0.1
@@ -224,6 +224,6 @@ evolve_probabilities:
     3: 0.45  # fraction to use mating method - mate by slice and attach
     4: 0.2   # fraction to use mating method - mate by swap atoms
 
-~~~
+```
 
 ### Nano clusters search
