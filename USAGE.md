@@ -116,11 +116,7 @@ Refer to example [gb_input.yaml](#example_input_file) file for short description
 
 #### <a id=''></a>
 
-<details>
-<summary>How do I dropdown?</summary>
-<br>
-This is how you dropdown.
-</details>
+#### <a id='example_input_file'></a>gb_input.yaml file example with description
 
 ```YAML
 # parameters pertaining to inputs.py module
