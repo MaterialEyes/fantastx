@@ -103,17 +103,23 @@ def make_objects(i_dict):
     all_objects['pool'] = pool
 
     # selection type of objective function
-    if not 'select_objective' in i_dict:
-        print ('Error: Please provide single or multi objective function')
-    elif i_dict['select_objective'] == 'multi':
-        select_params = {}
-        select_params['type'] = 'multi'
-        if 'weights' in i_dict: # defaults assumed in selection module
-            select_params['weights'] = i_dict['weights']
-        if 'temp' in i_dict:
-            select_params['temp'] = i_dict['temp']
-        select = selection.Select(select_params)
-    elif i_dict['select_objective'] == 'single':
+    if not 'select_params' in i_dict:
+        print ('Error: Please provide select_params keyword and objective'
+                ' keyword specifying single or multiobjective optimization.')
+    else:
+        select_params = i_dict['select_params']
+    if not 'objective' in select_params.keys():
+        print ('Error: Please provide select_params keyword and objective'
+                ' keyword specifying single or multiobjective optimization.')
+
+    if select_params['objective'] not in ['multi', 'single']:
+        print ('Error: Select objective should be a string of either'
+                                                ' single or multi.')
+                                                
+    select = selection.Select(select_params)
+    # weights and num_required_above_50 are in select_params if provided
+
+    if select_params['objective'] == 'single':
         select_params = {}
         select_params['type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
