@@ -175,6 +175,8 @@ class Select(object):
         # store optimized k; gets updated every 100th model
         self.optimum_k = -1 # default
 
+        # store the parent ids to control number of times a model can be parent
+        self.all_parent_labels = []
 
     def add_new_model(self, model, sim_ids=None):
         """
@@ -612,5 +614,6 @@ class Select(object):
             parent = random.choice(pool.good_pool)
             if parent.selection_prob:
                 if random.random() < parent.selection_prob:
-                    done = True
-                    return parent
+                    if self.all_parent_labels.count(parent.label) < 200:
+                        done = True
+                        return parent
