@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-import os, yaml
+import os, yaml, sys
 import datetime
 import random, copy
 from fx19 import inputs
@@ -13,7 +13,7 @@ import numpy as np
 from time import sleep
 
 # dask import
-from dask_jobqueue import SLURMCluster
+from dask_jobqueue import SLURMCluster, PBSCluster
 from dask.distributed import Client
 
 main_path = os.getcwd()
@@ -42,10 +42,10 @@ else:
 energy_code = all_objects['energy_code']
 if 'Xsim_1' in all_objects.keys():
     Xsim_1 = all_objects['Xsim_1']
-    sims = [1]
+    sim_ids = [1]
 else:
     Xsim_1 = None
-# TODO: add Xsim2 and Xsim3 etc.. and count in sims
+# TODO: add Xsim2 and Xsim3 etc.. and count in sim_ids
 
 pool = all_objects['pool']
 select = all_objects['select']
@@ -74,18 +74,29 @@ with open(data_file, 'w') as f:
 models_evald = 0
 # the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
-num_initial_pop =  i_dict['initial_population']['total']
-total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
 
-max_workers = i_dict['workers']
-###############
-cluster_job = SLURMCluster(cores=1,
-                           memory="4GB",
-                           project='hennig',
-                           queue='hpg2-compute',
-                           interface='ib0',
-                           walltime='24:00:00',
-                           job_extra=['--ntasks 8', '--nodes=1'])
+workers = i_dict['workers']
+max_workers = workers['max_workers']
+
+if workers['cluster'] == 'SLURM':
+    cluster_job = SLURMCluster(cores=workers['cores'],
+                               memory=workers['total_mem'],
+                               project=workers['project_name'],
+                               queue=workers['submit_to_queue'],
+                               interface=workers['node_type'],
+                               walltime=workers['walltime'],
+                               job_extra=workers['job_extra'])
+elif workers['cluster'] == 'PBS':
+    cluster_job = PBSCluster(cores=workers['cores'],
+                               memory=workers['total_mem'],
+                               project=workers['project_name'],
+                               queue=workers['submit_to_queue'],
+                               interface=workers['node_type'],
+                               walltime=workers['walltime'],
+                               job_extra=workers['job_extra'])
+else:
+    print ('FANTASTX currently supports SLURM and PBS. Provided '
+                        'scheduler type not identified.')
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
 
@@ -133,6 +144,9 @@ def full_eval(model):
             model, Xsim_val = Xsim_1.evaluate_obj(model)
             return model
 
+# wait for workers to start on cluster
+client.wait_for_workers(1)
+
 # make new model from all input files provided, then random, then evolve
 input_models = []
 if input_model_obj is not None:
@@ -153,14 +167,17 @@ if input_model_obj is not None:
     print ('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
+num_initial_pop =  i_dict['initial_population']['total']
+total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
 working_jobs = get_working_jobs(evald_futures)
 
+start_time = time.time()
 # Make random models & evolved models
 while models_evald < total_models_needed:
     working_jobs = get_working_jobs(evald_futures)
     # In some cases (lammps based), working_jobs always < max_workers
     # Ensure some structures are always in the queue for each worker so that
-    # workers wont be idle if  make_model becomes bottle neck in some cases
+    # workers wont be idle if some step on master becomes bottle neck
     while working_jobs < 2*max_workers and models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
@@ -173,22 +190,18 @@ while models_evald < total_models_needed:
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
-        evald_futures, pool, models_evald = new_update_pool(evald_futures,
+        evald_futures, models_evald, pool, select = update_pool( evald_futures,
                                                             models_evald,
                                                             pool, select,
-                                                            data_file, sims)
+                                                            data_file, sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
 # process extra calculations running in last batch
 while len(evald_futures) > 0:
-    evald_futures, pool, models_evald = new_update_pool(evald_futures,
+    evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                             models_evald,
                                                             pool, select,
-                                                            data_file, sims)
-sorted_pool = pool.get_sorted_pool()
-with open('sorted_data', 'a') as f:
-    for model in sorted_pool:
-        f.write('{0}\t {1}\n'.format(model.label, model.obj0_val))
+                                                            data_file, sim_ids)
 
 client.shutdown()
 
