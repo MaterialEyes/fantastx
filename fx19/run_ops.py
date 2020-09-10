@@ -113,8 +113,10 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
     # make new model from parents
     if model_type == 'evolved':
         new_model = evolve.get_model(select, pool, reg_id)
+        # add the new_model inheritance to select.all_parent_labels
+        select.all_parent_labels += new_model.inheritance
 
-    return new_model
+    return new_model, select
 
 def separate_gb(energy_code, gb_ops_obj, model):
     """
