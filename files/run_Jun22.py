@@ -159,7 +159,7 @@ if input_model_obj is not None:
 
     # evaluate the input models
     for input_model in input_models:
-        new_model = make_model(random_model_obj, evolve, select, pool,
+        new_model, select = make_model(random_model_obj, evolve, select, pool,
                                 reg_id, model_type='inputs', model=input_model)
         # relax the model in dask-workers
         out = client.submit(relax, new_model, reg_id, energy_code)
@@ -181,11 +181,11 @@ while models_evald < total_models_needed:
     while working_jobs < 2*max_workers and models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
-            new_model = make_model(random_model_obj, evolve, select, pool,
-                                        reg_id, model_type='random')
+            new_model, select = make_model(random_model_obj, evolve, select,
+                                            pool, reg_id, model_type='random')
         else:
-            new_model = make_model(random_model_obj, evolve, select, pool,
-                                        reg_id, model_type='evolved')
+            new_model, select = make_model(random_model_obj, evolve, select,
+                                            pool, reg_id, model_type='evolved')
 
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
