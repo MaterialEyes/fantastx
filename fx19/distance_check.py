@@ -276,7 +276,7 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
     coords_sets = []
     for dist_key in min_dist_dict.keys():
         if x in dist_key:
-            set_sp = 'specie' + dist_key[-1]
+            set_sp = 'species' + dist_key[-1]
             sp_name = species_dict[set_sp]['name']
             dist_set = min_dist_dict[dist_key]
             all_sites = copy.deepcopy(astr.sites)
