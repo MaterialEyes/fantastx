@@ -136,33 +136,33 @@ class make_random_model(object):
             self.max_bond_dist = str_constraints['max_bond_dist']
 
         self.num_species = str_constraints['num_species']
-        # save specie1 data
+        # save species1 data
         # TODO: allow infinite species by reading input directly
-        self.sym_specie1 = str_constraints['species1']['name']
+        self.sym_species1 = str_constraints['species1']['name']
         self.min_num_sp1 = str_constraints['species1']['min_num']
         self.max_num_sp1 = str_constraints['species1']['max_num']
-        # save specie2 data if exists
+        # save species2 data if exists
         if self.num_species > 1:
             if 'species2' in str_constraints and str_constraints['species2']:
-                self.sym_specie2 = str_constraints['species2']['name']
+                self.sym_species2 = str_constraints['species2']['name']
                 self.min_num_sp2 = str_constraints['species2']['min_num']
                 self.max_num_sp2 = str_constraints['species2']['max_num']
-        # save specie3 data if exists
+        # save species3 data if exists
         if self.num_species > 2:
             if 'species3' in str_constraints and str_constraints['species3']:
-                self.sym_specie3 = str_constraints['species3']['name']
+                self.sym_species3 = str_constraints['species3']['name']
                 self.min_num_sp3 = str_constraints['species3']['min_num']
                 self.max_num_sp3 = str_constraints['species3']['max_num']
-        # save specie4 data if exists
+        # save species4 data if exists
         if self.num_species > 3:
             if 'species4' in str_constraints and str_constraints['species4']:
-                self.sym_specie4 = str_constraints['species4']['name']
+                self.sym_species4 = str_constraints['species4']['name']
                 self.min_num_sp4 = str_constraints['species4']['min_num']
                 self.max_num_sp4 = str_constraints['species4']['max_num']
-        # save specie5 data if exists
+        # save species5 data if exists
         if self.num_species > 4:
             if 'species5' in str_constraints and str_constraints['species5']:
-                self.sym_specie5 = str_constraints['species5']['name']
+                self.sym_species5 = str_constraints['species5']['name']
                 self.min_num_sp5 = str_constraints['species5']['min_num']
                 self.max_num_sp5 = str_constraints['species5']['max_num']
 
@@ -246,50 +246,50 @@ class make_random_model(object):
         species = []
         count = []
         # NOTE: composition is decided here randomly
-        specie1 = self.sym_specie1
+        species1 = self.sym_species1
         if self.min_num_sp1 == self.max_num_sp1:
-            num_specie1 = self.min_num_sp1
+            num_species1 = self.min_num_sp1
         else:
-            num_specie1 = int(unif(self.min_num_sp1, self.max_num_sp1+1))
-        for i in range(num_specie1):
-            species.append(specie1)
-        count.append(num_specie1)
+            num_species1 = int(unif(self.min_num_sp1, self.max_num_sp1+1))
+        for i in range(num_species1):
+            species.append(species1)
+        count.append(num_species1)
         if self.num_species > 1:
-            specie2 = self.sym_specie2
+            species2 = self.sym_species2
             if self.min_num_sp2 == self.max_num_sp2:
-                num_specie2 = self.min_num_sp2
+                num_species2 = self.min_num_sp2
             else:
-                num_specie2 = int(unif(self.min_num_sp2, self.max_num_sp2+1))
-            for i in range(num_specie2):
-                species.append(specie2)
-            count.append(num_specie2)
+                num_species2 = int(unif(self.min_num_sp2, self.max_num_sp2+1))
+            for i in range(num_species2):
+                species.append(species2)
+            count.append(num_species2)
         if self.num_species > 2:
-            specie3 = self.sym_specie3
+            species3 = self.sym_species3
             if self.min_num_sp3 == self.max_num_sp3:
-                num_specie3 = self.min_num_sp3
+                num_species3 = self.min_num_sp3
             else:
-                num_specie3 = int(unif(self.min_num_sp3, self.max_num_sp3+1))
-            for i in range(num_specie3):
-                species.append(specie3)
-            count.append(num_specie3)
+                num_species3 = int(unif(self.min_num_sp3, self.max_num_sp3+1))
+            for i in range(num_species3):
+                species.append(species3)
+            count.append(num_species3)
         if self.num_species > 3:
-            specie4 = self.sym_specie4
+            species4 = self.sym_species4
             if self.min_num_sp4 == self.max_num_sp4:
-                num_specie4 = self.min_num_sp4
+                num_species4 = self.min_num_sp4
             else:
-                num_specie4 = int(unif(self.min_num_sp4, self.max_num_sp4+1))
-            for i in range(num_specie4):
-                species.append(specie4)
-            count.append(num_specie4)
+                num_species4 = int(unif(self.min_num_sp4, self.max_num_sp4+1))
+            for i in range(num_species4):
+                species.append(species4)
+            count.append(num_species4)
         if self.num_species > 4:
-            specie5 = self.sym_specie5
+            species5 = self.sym_species5
             if self.min_num_sp5 == self.max_num_sp5:
-                num_specie5 = self.min_num_sp5
+                num_species5 = self.min_num_sp5
             else:
-                num_specie5 = int(unif(self.min_num_sp5, self.max_num_sp5+1))
-            for i in range(num_specie5):
-                species.append(specie5)
-            count.append(num_specie5)
+                num_species5 = int(unif(self.min_num_sp5, self.max_num_sp5+1))
+            for i in range(num_species5):
+                species.append(species5)
+            count.append(num_species5)
 
         # For fixed composition, we do not change total num_atoms
         # So, min and max should be same for each species and,
