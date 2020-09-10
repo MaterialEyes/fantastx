@@ -204,73 +204,73 @@ class structure_constraints(object):
         self.min_dist_dict = min_dist
 
         # see that all attributes for all species are present by placing
-        # defaults for specie1 and that of specie1 for the rest
+        # defaults for species1 and that of species1 for the rest
         element_syms = {}
         if 'species1' not in species_dict:
-            print ('Please provide specie1 under species in input file.')
+            print ('Please provide species1 under species in input file.')
         else:
-            self.specie1 = species_dict['species1']
-            if 'name' not in self.specie1:
+            self.species1 = species_dict['species1']
+            if 'name' not in self.species1:
                 print ('Please specify element name (Ex: \'Al\') of specie 1.')
-            element_syms[1] = self.specie1['name']
-            if 'min_num' not in self.specie1:
-                self.specie1['min_num'] = self.min_num_atoms
+            element_syms[1] = self.species1['name']
+            if 'min_num' not in self.species1:
+                self.species1['min_num'] = self.min_num_atoms
             else:
-                self.min_num_atoms = self.specie1['min_num']
-            if 'max_num' not in self.specie1:
-                self.specie1['max_num'] = self.max_num_atoms
+                self.min_num_atoms = self.species1['min_num']
+            if 'max_num' not in self.species1:
+                self.species1['max_num'] = self.max_num_atoms
             else:
-                self.max_num_atoms = self.specie1['max_num']
+                self.max_num_atoms = self.species1['max_num']
 
         if self.num_species > 1:
             if 'species2' in species_dict:
-                self.specie2 = species_dict['species2']
-                if 'name' not in self.specie2:
+                self.species2 = species_dict['species2']
+                if 'name' not in self.species2:
                     print ('Please specify element name (Ex: \'Al\') of specie 2.')
-                element_syms[2] = self.specie2['name']
-                if 'min_num' not in self.specie2:
-                    self.specie2['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie2:
-                    self.specie2['max_num'] = self.max_num_atoms
+                element_syms[2] = self.species2['name']
+                if 'min_num' not in self.species2:
+                    self.species2['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species2:
+                    self.species2['max_num'] = self.max_num_atoms
             else:
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 2:
             if 'species3' in species_dict:
-                self.specie3 = species_dict['species3']
-                if 'name' not in self.specie3:
+                self.species3 = species_dict['species3']
+                if 'name' not in self.species3:
                     print ('Please specify element name (Ex: \'Al\') of specie 3.')
-                element_syms[3] = self.specie3['name']
-                if 'min_num' not in self.specie3:
-                    self.specie3['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie3:
-                    self.specie3['max_num'] = self.max_num_atoms
+                element_syms[3] = self.species3['name']
+                if 'min_num' not in self.species3:
+                    self.species3['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species3:
+                    self.species3['max_num'] = self.max_num_atoms
             else:
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 3:
             if 'species4' in species_dict:
-                self.specie4 = species_dict['species4']
-                if 'name' not in self.specie4:
+                self.species4 = species_dict['species4']
+                if 'name' not in self.species4:
                     print ('Please specify element name (Ex: \'Al\') of specie 4.')
-                element_syms[4] = self.specie4['name']
-                if 'min_num' not in self.specie4:
-                    self.specie4['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie3:
-                    self.specie4['max_num'] = self.max_num_atoms
+                element_syms[4] = self.species4['name']
+                if 'min_num' not in self.species4:
+                    self.species4['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species3:
+                    self.species4['max_num'] = self.max_num_atoms
             else:
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 4:
             if 'species5' in species_dict:
-                self.specie5 = species_dict['species5']
-                if 'name' not in self.specie5:
+                self.species5 = species_dict['species5']
+                if 'name' not in self.species5:
                     print ('Please specify element name (Ex: \'Al\') of specie 5.')
-                element_syms[5] = self.specie5['name']
-                if 'min_num' not in self.specie5:
-                    self.specie5['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie5:
-                    self.specie5['max_num'] = self.max_num_atoms
+                element_syms[5] = self.species5['name']
+                if 'min_num' not in self.species5:
+                    self.species5['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species5:
+                    self.species5['max_num'] = self.max_num_atoms
 
         self.element_syms = element_syms
 
