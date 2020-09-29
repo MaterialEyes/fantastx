@@ -79,7 +79,7 @@ workers = i_dict['workers']
 max_workers = workers['max_workers']
 
 if workers['cluster'] == 'SLURM':
-    cluster_job = SLURMCluster(cores=workers['cores'],
+    cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                project=workers['project_name'],
                                queue=workers['submit_to_queue'],
@@ -87,7 +87,7 @@ if workers['cluster'] == 'SLURM':
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'])
 elif workers['cluster'] == 'PBS':
-    cluster_job = PBSCluster(cores=workers['cores'],
+    cluster_job = PBSCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                project=workers['project_name'],
                                queue=workers['submit_to_queue'],
@@ -184,7 +184,7 @@ while models_evald < total_models_needed:
             new_model, select = make_model(random_model_obj, evolve, select,
                                             pool, reg_id, model_type='random')
         else:
-            new_model, select = make_model(random_model_obj, evolve, select, 
+            new_model, select = make_model(random_model_obj, evolve, select,
                                             pool, reg_id, model_type='evolved')
 
         # relax the model in dask-workers
