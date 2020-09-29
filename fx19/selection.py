@@ -1,4 +1,3 @@
-
 from __future__ import division, unicode_literals, print_function
 
 """
@@ -68,6 +67,15 @@ class Pool(object):
 
             return select
 
+        # call update selection probs which uses linear method for < 1000 models
+        if len(self.all_models) <= 1000:
+            self.good_pool = select.update_all_selection_probs(self.all_models,
+                                                           self.capacity,
+                                                           sim_ids=sim_ids)
+            print ('New model {} added: pool and probs are updated based'
+                        ' on their values only!'.format(model.label))
+
+            return select
 
         # check if model changes existing selection probs
         to_good_pool, model = select.add_new_model(model, sim_ids=sim_ids)
@@ -164,7 +172,7 @@ class Select(object):
             for i in range(5 - len(self.weights)):
                 self.weights.append(1)
 
-        # Stre pareto points & convex hull points here
+        # Store pareto points & convex hull points here
         self.pareto_points = None
         self.hull_points = None
 
@@ -177,6 +185,9 @@ class Select(object):
 
         # store the parent ids to control number of times a model can be parent
         self.all_parent_labels = []
+
+        # store all sets of pareto points labels
+        self.pareto_labels = []
 
     def add_new_model(self, model, sim_ids=None):
         """
@@ -200,7 +211,7 @@ class Select(object):
 
         """
         # check if pareto_points or other class attributes exist
-        if not self.pareto_points and not self.hull_points:
+        if self.pareto_points is None or self.hull_points is None:
             return None, model
 
         model_obj0 = model.obj0_val
@@ -241,7 +252,10 @@ class Select(object):
     def update_all_selection_probs(self, all_models,
                                 good_pool_capacity, sim_ids=None):
         """
-        Calculates the objective function of each model, which is the distance from the pareto front. Updates selection probabilities based on an exponential distribution by optimizing a constant such that to maintain required number of models with probability above 50%.
+        Calculates the objective function of each model, which is the distance
+        from the pareto front. Updates selection probabilities based on an
+        exponential distribution by optimizing a constant such that to maintain
+        required number of models with probability above 50%.
 
         Args:
 
@@ -259,35 +273,37 @@ class Select(object):
 
         2. normalize obj0_vals and obj1_vals separately
 
-        3. divide normalized values by respective weights
+        3. use linear probs directly if less than 1000 models. This is because
+        linear probs samples the PE landscape evenly than dist from pareto
 
-        4. make a 2D pareto plot
+        4. If number of models is less than 1000, skip steps 5 - 13
+
+        5. make a 2D pareto plot
            costs = [i, j for i, j in zip(weighted_normalized_obj0s,
                                          weighted_normalized_obj1s)]
 
-        5. get pareto optimal points
+        6. get pareto optimal points
 
-        6. make convex hull; get pareto points that are on convex hull
+        7. make convex hull; get pareto points that are on convex hull
 
-        7. Get Px, Py - max & min points on convex hull
+        8. Get Px, Py - max & min points on convex hull
 
-        8. Find slope of line perpendicular to PxPy line
+        9. Find slope of line perpendicular to PxPy line
 
-        9. Find distance of each point from the convex hull along this
+        10. Find distance of each point from the convex hull along this
         perpendicular line
 
-        10. Find cutoff distance from hull value to separate good_pool models
+        11. Find cutoff distance from hull value to separate good_pool models
 
-        11. Normalize the values (distances from hull) of all good_pool_models
+        12. Normalize the values (distances from hull) of all good_pool models
 
-        12. Assign probabilities based on exp(kX). Default k = -1. However,
+        13. Assign probabilities based on exp(kX). Default k = -1. However,
         optimize k to get required number of models with probability greater
         than 0.5.
 
-        13. Assign probabilites to models in good pool;
+        14. Assign probabilites to models in good pool
 
         """
-        times_to = '/blue/hennig/kvs.chaitanya/relaxation/Fantastx/Apr_1_gb/master_pool/dist_from_pareto/test_2/times_to.txt'
         s1 = time.time()
         # NOTE: Currently only supports pareto distance in 2D (with 2 objective
         # functions). So, dist_from_pareto is distance from a line in 2D. It
@@ -326,123 +342,160 @@ class Select(object):
         # weighted normalized values
         weighted_norm_vals = norm_vals/weights
 
-        s3 = time.time()
-        # Get indices of points (models) which are pareto efficient
-        pareto_true_inds= Select._is_pareto_efficient(weighted_norm_vals)
-        pareto_true_inds.tolist()
-        pareto_points_inds = [i for i, b in enumerate(pareto_true_inds) \
-                                                    if b==True]
-        pareto_points = [list(weighted_norm_vals[i]) for i in \
-                                                        pareto_points_inds]
-        # store pareto optimal points as class attribute
-        self.pareto_points = pareto_points
+        if len(all_models) > 1000:
+            s3 = time.time()
+            # Get indices of points (models) which are pareto efficient
+            pareto_true_inds= Select._is_pareto_efficient(weighted_norm_vals)
+            pareto_true_inds.tolist()
+            pareto_points_inds = [i for i, b in enumerate(pareto_true_inds) \
+                                                        if b==True]
+            pareto_points = [list(weighted_norm_vals[i]) for i in \
+                                                            pareto_points_inds]
+            # store pareto optimal points as class attribute
+            self.pareto_points = pareto_points
+            # store pareto point labels to track how the pareto front changes
+            pareto_labels = [model_labels[i] for i in pareto_points_inds]
+            self.pareto_labels.append(pareto_labels)
 
-        # Add origin in the beginning to find convex hull visible from origin
-        pareto_points = [[0 for i in range(len(pareto_points[0]))]] + \
-                                                    pareto_points
+            # Add origin in the beginning to get convex hull visible from origin
+            pareto_points = [[0 for i in range(len(pareto_points[0]))]] + \
+                                                        pareto_points
 
-        pareto_points.sort()
-        pareto_points = np.array(pareto_points)
+            pareto_points.sort()
+            pareto_points = np.array(pareto_points)
 
-        s4 = time.time()
-        try:
-            # Make convex hull with pareto points
-            hull = ConvexHull(pareto_points, qhull_options='QG0')
-        except:
-            return []
-        # Get visible facets from (0, 0)
-        visible_facets = []
-        hull_points = []
-        for facet in hull.simplices[hull.good]:
-            vis_facets = hull.points[facet]
-            visible_facets.append(vis_facets)
-            if tuple(vis_facets[0]) not in hull_points:
-                hull_points.append(tuple(vis_facets[0]))
-            if tuple(vis_facets[1]) not in hull_points:
-                hull_points.append(tuple(vis_facets[1]))
+            s4 = time.time()
+            try:
+                # Make convex hull with pareto points
+                hull = ConvexHull(pareto_points, qhull_options='QG0')
+            except:
+                return []
+            # Get visible facets from (0, 0)
+            visible_facets = []
+            hull_points = []
+            for facet in hull.simplices[hull.good]:
+                vis_facets = hull.points[facet]
+                visible_facets.append(vis_facets)
+                if tuple(vis_facets[0]) not in hull_points:
+                    hull_points.append(tuple(vis_facets[0]))
+                if tuple(vis_facets[1]) not in hull_points:
+                    hull_points.append(tuple(vis_facets[1]))
 
-        hull_points = np.array([list(i) for i in hull_points])
-        self.hull_points = hull_points
-        self.visible_facets = visible_facets
+            hull_points = np.array([list(i) for i in hull_points])
+            self.hull_points = hull_points
+            self.visible_facets = visible_facets
 
-        # Assuming 2D pareto front from here
-        # Get maximum x & maximum y hull points
-        Px = hull_points[hull_points[:, 0].argmax()]
-        Py = hull_points[hull_points[:, 1].argmax()]
+            # Assuming 2D pareto front from here
+            # Get maximum x & maximum y hull points
+            Px = hull_points[hull_points[:, 0].argmax()]
+            Py = hull_points[hull_points[:, 1].argmax()]
 
-        # slope of line between Px, Py
-        m_pxpy = (Px[1] - Py[1]) / (Px[0] - Py[0])
+            # slope of line between Px, Py
+            m_pxpy = (Px[1] - Py[1]) / (Px[0] - Py[0])
 
-        s5 = time.time()
-        distances_from_hull = []
-        for data_of_model in weighted_norm_vals:
-            # get equation of line perpendicular to PxPy & passes through model
-            c_xy = data_of_model[1] - (-1/m_pxpy) * data_of_model[0]
-            xy_line = (-1/m_pxpy, c_xy)
+            s5 = time.time()
+            distances_from_hull = []
+            for data_of_model in weighted_norm_vals:
+                # get equation of the line perpendicular to the line PxPy and
+                # passes through model
+                c_xy = data_of_model[1] - (-1/m_pxpy) * data_of_model[0]
+                xy_line = (-1/m_pxpy, c_xy)
 
-            # find distance of the model from each visible facet along this line
-            distances = []
-            for facet in visible_facets:
-                # get equation (m, c) for a facet
-                facet_line = Select._line_from_points(facet[0], facet[1])
-                # Get point of intersection with facet_line
-                x0y0 = Select._point_on_two_lines(facet_line, xy_line)
-                distances.append(Select._dist_from_point(x0y0, data_of_model))
-            distances_from_hull.append(min(distances))
+                # find distance of the model from each visible facet
+                # along this line
+                distances = []
+                for facet in visible_facets:
+                    # get equation (m, c) for a facet
+                    facet_line = Select._line_from_points(facet[0], facet[1])
+                    # Get point of intersection with facet_line
+                    x0y0 = Select._point_on_two_lines(facet_line, xy_line)
+                    distances.append(Select._dist_from_point(x0y0,
+                                                             data_of_model))
+                distances_from_hull.append(min(distances))
 
-        s6 = time.time()
-        # Get the cutoff value (distance_from_hull) for good_pool
-        # TODO: Use a better way to get the cutoff_value
-        if len(all_models) <= good_pool_capacity:
-            cutoff_value = max(distances_from_hull)
-        else:
-            copy_vals = distances_from_hull.copy()
-            copy_vals.sort()
-            cutoff_value = copy_vals[good_pool_capacity]
-        self.cutoff_value = cutoff_value
+            s6 = time.time()
+            # Get the cutoff value (distance_from_hull) for good_pool
+            # TODO: Use a better way to get the cutoff_value
+            if len(all_models) <= good_pool_capacity:
+                cutoff_value = max(distances_from_hull)
+            else:
+                copy_vals = distances_from_hull.copy()
+                copy_vals.sort()
+                cutoff_value = copy_vals[good_pool_capacity]
+            self.cutoff_value = cutoff_value
 
-        # Make good_pool with models with less than cutoff value
-        # Clear both pools
-        good_pool = []
-        good_pool_values = []
-        for model, value in zip(all_models, distances_from_hull):
-            model.overall_val = value
-            if value <= cutoff_value:
-                good_pool.append(model)
-                good_pool_values.append(value)
+            # Make good_pool with models with less than cutoff value
+            # Clear both pools
+            good_pool = []
+            good_pool_values = []
+            for model, value in zip(all_models, distances_from_hull):
+                model.overall_val = value
+                if value <= cutoff_value:
+                    good_pool.append(model)
+                    good_pool_values.append(value)
 
-        # Calculate probabilities to models in good_pool; 0 for others
-        good_pool_values = np.array(good_pool_values).reshape(-1,1)
-        # scale the good_pool_values using MinMaxScaler
-        scaled_good_pool_values = scaler.fit_transform(good_pool_values)[:,0]
+            # Calculate probabilities to models in good_pool; 0 for others
+            good_pool_values = np.array(good_pool_values).reshape(-1,1)
+            # scale the good_pool_values using MinMaxScaler
+            scaled_good_pool_values = \
+                                scaler.fit_transform(good_pool_values)[:,0]
 
-        s7 = time.time()
-        # optimize the contant (k) for exponential function e^(-kx) such that
-        # at required number of models have probability greater than 0.5
-        initial_k = [-1]
-        if len(good_pool) > 100 and len(good_pool) > self.num_required_above_50:
-            res = minimize(Select._optimize_exponential_constant, initial_k,
-                           args=(self.num_required_above_50,
-                                 scaled_good_pool_values),
-                           method='Nelder-Mead', options={'maxiter':100})
-            opt_k = res.x[0]
-            self.optimum_k = opt_k
-            # Get probabilities by min max exponential function using the opt_k
-            exponential_probs = [(exp(opt_k * i) - exp(opt_k)) / \
+            s7 = time.time()
+            # optimize contant (k) in the exponential function e^(-kx) such that
+            # required number of models have probability greater than 0.5
+            initial_k = [-1]
+            if len(good_pool) > 100 and len(good_pool) > \
+                                                self.num_required_above_50:
+                res = minimize(Select._optimize_exponential_constant, initial_k,
+                               args=(self.num_required_above_50,
+                                     scaled_good_pool_values),
+                               method='Nelder-Mead', options={'maxiter':100})
+                opt_k = res.x[0]
+                self.optimum_k = opt_k
+                # Get probabilities by min max exponential function
+                # using the opt_k
+                exponential_probs = [(exp(opt_k * i) - exp(opt_k)) / \
                             (1 - exp(opt_k)) for i in scaled_good_pool_values]
-        else:
-            opt_k = initial_k[0]
-            # Get probabilities by simple exponential function using opt_k = -1
-            exponential_probs = [exp(opt_k * i) for i in \
-                                                    scaled_good_pool_values]
+            else:
+                opt_k = initial_k[0]
+                # Get probabilities by simple exponential function
+                # using opt_k = -1
+                exponential_probs = [exp(opt_k * i) for i in \
+                                                        scaled_good_pool_values]
+            selection_probs = exponential_probs
+
+        else: # if len(all_models) <= 1000
+            all_models_values = np.array([sum(weighted_norm_vals[i]) \
+                                for i in range(len(weighted_norm_vals))])
+
+            # get cutoff for good_pool
+            if len(all_models) <= good_pool_capacity:
+                cutoff_value = max(all_models_values)
+            else:
+                copy_vals = all_models_values.copy()
+                copy_vals.sort()
+                cutoff_value = copy_vals[good_pool_capacity]
+            self.cutoff_value = cutoff_value
+
+            # get good pool
+            good_pool, good_pool_values = [], []
+            for model, value in zip(all_models, all_models_values):
+                model.overall_val = value
+                if value <= cutoff_value:
+                    good_pool.append(model)
+                    good_pool_values.append(value)
+
+            # use linear method to provide selection probs
+            linear_vals = good_pool_values
+            linear_probs = (linear_vals - max(linear_vals)) / \
+                                (min(linear_vals) - max(linear_vals))
+            selection_probs = linear_probs
 
         # Assign probabilities to the models
-        for model, prob in zip(good_pool, exponential_probs):
+        for model, prob in zip(good_pool, selection_probs):
             model.selection_prob = prob
 
         s8 = time.time()
-        with open(times_to, 'a') as f:
-            f.write('{0}\t{1:5f}\t{2:5f}\t{3:5f}\t{4:5f}\t{5:5f}\t{6:5f}\t{7:5f}\t{8:5f}\n'.format(len(all_models), s2-s1, s3-s2, s4-s3, s5-s4, s6-s5, s7-s6, s8-s7, s8-s1))
 
         return good_pool
 
