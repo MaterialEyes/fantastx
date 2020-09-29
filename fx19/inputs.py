@@ -115,7 +115,7 @@ def make_objects(i_dict):
     if select_params['objective'] not in ['multi', 'single']:
         print ('Error: Select objective should be a string of either'
                                                 ' single or multi.')
-                                                
+
     select = selection.Select(select_params)
     # weights and num_required_above_50 are in select_params if provided
 
@@ -151,8 +151,9 @@ def make_objects(i_dict):
 
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(i_dict, str_constraints)
-    evolve = structure_operations.Evolve(mate, hop, evolve_params)
-    all_objects['evolve'] = evolve
+    if not evolve_params == {}:
+        evolve = structure_operations.Evolve(mate, hop, evolve_params)
+        all_objects['evolve'] = evolve
 
 
     ################### Develop the below objects
@@ -337,13 +338,13 @@ def get_evolve_params(i_dict, str_constraints):
                         'Keys should be only 1, 2, 3 or 4.')
         if sum(probs_dict.values()) != 1:
             print ('Error: Sum of probabilities should be equal to 1')
-    evolve_params['probabilities'] = probs_dict
-    evolve_params['num_species'] = str_constraints['num_species']
-    # species dicts
-    keys = ['species1', 'species2', 'species3', 'species4', 'species5']
-    for specie in keys:
-        if specie in str_constraints:
-            evolve_params[specie] = str_constraints[specie]
+        evolve_params['probabilities'] = probs_dict
+        evolve_params['num_species'] = str_constraints['num_species']
+        # species dicts
+        keys = ['species1', 'species2', 'species3', 'species4', 'species5']
+        for specie in keys:
+            if specie in str_constraints:
+                evolve_params[specie] = str_constraints[specie]
     return evolve_params
 
 # assume experimental pdf is given
