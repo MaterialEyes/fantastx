@@ -440,12 +440,12 @@ class gb_ingrained(object):
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
         if model.Xsim1 == 'GB_STEM':
-            model.obj1_val = float((1 - score)*100) # Minimizing the obj vals
+            model.obj1_val = float((score)*100) # Minimizing the obj vals
         elif model.Xsim2 == 'GB_STEM':
-            model.obj2_val = float((1 - score)*100)
+            model.obj2_val = float((score)*100)
         elif model.Xsim3 == 'GB_STEM':
-            model.obj3_val = float((1 - score)*100)
+            model.obj3_val = float((score)*100)
         elif model.Xsim4 == 'GB_STEM':
-            model.obj4_val = float((1 - score)*100)
+            model.obj4_val = float((score)*100)
 
         return model, score
