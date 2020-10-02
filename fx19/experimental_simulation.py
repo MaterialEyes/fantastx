@@ -225,6 +225,7 @@ class pdf_of_model(object):
                                              method=self.minimize_method,
                                              tol=1e-3,
                                              options={'maxiter':20})
+            fitted_params = result.x
             residual = Fit.scalarResidual(fitted_params)
             return (residual / 600) ** .5
         else:

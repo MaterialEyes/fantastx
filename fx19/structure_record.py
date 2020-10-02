@@ -156,16 +156,10 @@ class structure_constraints(object):
         under structure_record
         """
 
-        self.def_min_dist = 1.5 # minimum distance between atoms in angstroms
+        self.def_min_dist = 2 # minimum distance between atoms in angstroms
         self.min_num_atoms = 30
         self.max_num_atoms = 101
 
-        if 'lin_sph_ratio' in str_record:
-            self.lin_sph_ratio = str_record['lin_sph_ratio']
-        if 'radius_rand_linear' in str_record:
-            self.r_rand_lin = str_record['radius_rand_linear']
-        if 'tol_rand_linear' in str_record:
-            self.tol_rand_lin = str_record['tol_rand_linear']
         if 'max_bond_dist' in str_record:
             self.max_bond_dist = str_record['max_bond_dist']
 
@@ -281,35 +275,21 @@ class structure_constraints(object):
         elif 'gb' in str_record:
             self.shape = 'gb'
         # TODO: add other shapes here
-        if self.shape == 'cluster':
-            # defaults
-            self.min_lattice_length = 3 # angstroms
-            self.max_lattice_length = 21
-            self.min_lattice_angle = 30 # degrees
-            self.max_lattice_angle = 150
 
-            self.box_abc = None
+        if self.shape == 'cluster':
             if 'box_abc' in str_record['cluster']:
-                #if str_record['cluster']['box_abc'] not None:
                 self.box_abc = str_record['cluster']['box_abc']
+            else:
+                print ('The lattice lengths of the box are not specified.'
+                        ' Using default orthogonal box of a=b=c=20Å')
+                self.box_abc = [20, 20, 20]
+
             if 'max_dia' in str_record['cluster']:
                 self.max_dia = str_record['cluster']['max_dia']
-
-            if self.box_abc:
-                self.min_lattice_length = min(self.box_abc) - 0.1 # tol
-                self.max_lattice_length = max(self.box_abc) + 0.1
-                self.min_lattice_angle = 88 # 2 degrees tol
-                self.max_lattice_angle = 92
-
-            if not self.box_abc:
-                if 'min_lattice_length' in constraints:
-                    self.min_lattice_length = constraints['min_lattice_length']
-                if 'max_lattice_length' in constraints:
-                    self.max_lattice_length = constraints['max_lattice_length']
-                if 'min_lattice_angle' in constraints:
-                    self.min_lattice_angle = constraints['min_lattice_angle']
-                if 'max_lattice_angle' in constraints:
-                    self.max_lattice_angle = constraints['max_lattice_angle']
+            else:
+                print ('The maximum diameter of the cluster is not specified. '
+                        'Using default diameter of 8Å')
+                self.max_dia = 8
 
         ####################cluster parameters ends###########################
         #########################gb parameters begins#########################

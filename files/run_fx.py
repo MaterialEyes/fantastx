@@ -29,7 +29,10 @@ all_objects = inputs.make_objects(i_dict)
 reg_id = all_objects['reg_id']
 
 input_model_obj = all_objects['input_model_obj']
-gb_ops_obj = all_objects['gb_ops_obj']
+
+gb_ops_obj = None
+if 'gb_ops_obj' in all_objects:
+    gb_ops_obj = all_objects['gb_ops_obj']
 
 # kwargs for full_eval() function
 if gb_ops_obj is not None:

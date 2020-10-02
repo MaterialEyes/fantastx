@@ -94,44 +94,15 @@ class make_random_model(object):
         self.min_dist_dict = str_constraints['min_dist_dict']
         self.shape = str_constraints['shape']
 
-        if self.shape=='gb':
-            # name of the region
-            self.region=str_constraints['region']
-            """
-            make each region in gb into a separate make_random_model object
-
-            get the random structure for each region using the region specific
-            str_constraints
-
-            make a new class to combine different structures (regions) in a
-            specific order
-
-            finally check the distance and and any other constraints to the
-            overall combined structure
-
-            then go to energy evaluation
-            """
-
-        if self.shape == 'cluster':
-            self.region = None # entire structure is single region
-
         if 'box_abc' in str_constraints:
             self.box_abc = str_constraints['box_abc']
+
         # defaults
-        self.lin_sph_ratio = 0.9999999
         self.max_dia = 8
-        self.r_rand_lin = 2
-        self.tol_rand_lin = 0.25
         self.max_bond_dist = 3
 
-        if 'lin_sph_ratio' in str_constraints:
-            self.lin_sph_ratio = str_constraints['lin_sph_ratio']
         if 'max_dia' in str_constraints:
             self.max_dia = str_constraints['max_dia']
-        if 'r_rand_lin' in str_constraints:
-            self.r_rand_lin = str_constraints['r_rand_lin']
-        if 'tol_rand_lin' in str_constraints:
-            self.tol_rand_lin = str_constraints['tol_rand_lin']
         if 'max_bond_dist' in str_constraints:
             self.max_bond_dist = str_constraints['max_bond_dist']
 
@@ -176,32 +147,20 @@ class make_random_model(object):
         Add vacuum in all three directions
         """
         max_dia = self.max_dia
-        r_rand_lin = self.r_rand_lin
-        tol_rand_lin = self.tol_rand_lin
-        set_ratio = self.lin_sph_ratio
-        box_abc = self.box_abc
         min_dist_dict = self.min_dist_dict
         max_bond_dist = self.max_bond_dist
         # get species
         species, cum_sum = self.get_n_species()
         num_atoms = len(species)
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
-        # set_ratio is a fraction to decide random_spherical or random_linear
-        # set_ratio=0 means only random_spherical
-        # set_ratio=1 means only random_linear
+
         atoms_too_close = True
         while atoms_too_close is True:
-            if unif(0, 1) < set_ratio:
-                cart_coords = self.get_n_coords_linear(num_atoms, max_dia,
-                                             r=r_rand_lin, r_tol=tol_rand_lin)
-                if cart_coords is None:
-                    continue
-                cluster = Structure(latt, species, cart_coords,
-                                                     coords_are_cartesian=True)
-            else:
-                frac_coords = self.get_n_coords_spherical(num_atoms)
-                cluster = Structure(latt, species, frac_coords)
-            # TODO: add composition check flag
+            cart_coords = self.get_n_coords_linear(num_atoms, max_dia)
+            if cart_coords is None:
+                continue
+            cluster = Structure(latt, species, cart_coords,
+                                                coords_are_cartesian=True)
 
             # check distance between different pairs of species
             atoms_too_close = dc.check_all_bonds(cluster, self.min_dist_dict,
@@ -300,56 +259,6 @@ class make_random_model(object):
         # sanity check: cum_sum[-1] == len(species)
         return species, cum_sum
 
-    def get_n_coords_spherical(self, n):
-        """
-        for a given range of frac_coords for x, y, z; randomly add 'n'
-        coordinates
-
-        Args:
-        n: integer - number of coordinates needed
-
-        for i in range(n):
-            x = unif(x_min, x_max)
-            y = unif(y_min, y_max)
-            z = unif(z_min, z_max)
-
-        returns an array of 'n' frac_coords
-        """
-        # get n (fractional) coords ; all in first eighth of the lattice
-        coords = []
-        coords_added = 0
-        while coords_added < n:
-            coord = [unif(0, 0.5), unif(0, 0.5), unif(0, 0.5)]
-            coords.append(coord)
-            coords_added += 1
-
-        # make matrices to translate in x, y and z
-        tx = np.array([0.5, 0, 0])
-        ty = np.array([0, 0.5, 0])
-        tz = np.array([0, 0, 0.5])
-
-        # translate each coord into one of 8 cubes in a sequential manner
-        z0 = np.array([i*8 for i in range(len(coords)) if i*8 < len(coords)])
-        c0 = np.array([coords[i] for i in z0])
-        z1 = [i*8+1 for i in range(len(coords)) if i*8+1 < len(coords)]
-        c1 = [coords[i]+tx for i in z1]
-        z2 = [i*8+2 for i in range(len(coords)) if i*8+2 < len(coords)]
-        c2 = [coords[i]+ty for i in z2]
-        z3 = [i*8+3 for i in range(len(coords)) if i*8+3 < len(coords)]
-        c3 = [coords[i]+tz for i in z3]
-        z4 = [i*8+4 for i in range(len(coords)) if i*8+4 < len(coords)]
-        c4 = [coords[i]+tx+ty for i in z4]
-        z5 = [i*8+5 for i in range(len(coords)) if i*8+5 < len(coords)]
-        c5 = [coords[i]+ty+tz for i in z5]
-        z6 = [i*8+6 for i in range(len(coords)) if i*8+6 < len(coords)]
-        c6 = [coords[i]+tx+tz for i in z6]
-        z7 = [i*8+7 for i in range(len(coords)) if i*8+7 < len(coords)]
-        c7 = [coords[i]+tx+ty+tz for i in z7]
-
-        new_coords = np.vstack((c0, c1, c2, c3, c4, c5, c6, c7))
-
-        return new_coords
-
     def get_thickness(self, astr, axis=2):
         """
         Returns the thickness of the structure along one axis
@@ -410,7 +319,7 @@ class make_random_model(object):
 
         return astr
 
-    def get_n_coords_linear(self, num_atoms, max_dia, r=2, r_tol=0.25):
+    def get_n_coords_linear(self, num_atoms, max_dia):
         """
         Given maximum allowed diamter of a cluster, adds random coordinates
         in a linear fashion such that the new point coordinates satisfies the
@@ -419,8 +328,6 @@ class make_random_model(object):
         Args:
         num_atoms - (int) number of atoms needed in the structure
         max_dia - (float) maximum diameter of the cluster
-        r - (float) radius within which new coordinate would be added
-        r_tol - (float) tolerance for the radius
         """
         # start from origin
         old_point = np.array([0,0,0])
@@ -428,7 +335,9 @@ class make_random_model(object):
         coords_added = 0
         new_point_attempt = 0
         while coords_added < num_atoms:
-            radius = unif(r - r_tol, r + r_tol)
+            min_bond_dist = min(list(self.min_dist_dict.values()))
+            max_bond_dist = self.max_bond_dist
+            radius = unif(min_bond_dist, max_bond_dist)
             new_point = self.get_point_on_sphere(radius)
 
             # returns None if the algo cannot add a new point in 500 attempts
@@ -446,9 +355,10 @@ class make_random_model(object):
                 continue
 
             # check distances with all previous points
-            # using max of min_dists
+            # using max of min_dists for initial population
             max_of_min_dists = max(list(self.min_dist_dict.values()))
-            if not dc.one_to_many_distances(new_point, coords, max_of_min_dists):
+            if not dc.one_to_many_distances(new_point, coords,
+                                            max_of_min_dists):
                 continue
 
             # add the new_point and reset the no. of attempts
@@ -465,7 +375,8 @@ class make_random_model(object):
         random.shuffle(int_list)
         shuffled_coords = [coords[i] for i in int_list]
 
-        return shuffled_coords         # coords are cartesian
+        # coords are cartesian
+        return shuffled_coords
 
     def get_point_on_sphere(self, r):
         """
@@ -484,16 +395,3 @@ class make_random_model(object):
         point = point * r
 
         return point
-
-
-class combine_regions(object):
-    """
-    Use the random structure objects generated by make_random_model class.
-    Combine these structures into a single structure by allocating specific
-    region to each input random structures.
-
-    Input:
-    2 or more structures
-    corresponding region for each structure
-    class specific constraints (if any)
-    """

@@ -29,7 +29,10 @@ all_objects = inputs.make_objects(i_dict)
 reg_id = all_objects['reg_id']
 
 input_model_obj = all_objects['input_model_obj']
-gb_ops_obj = all_objects['gb_ops_obj']
+
+gb_ops_obj = None
+if 'gb_ops_obj' in all_objects:
+    gb_ops_obj = all_objects['gb_ops_obj']
 
 # kwargs for full_eval() function
 if gb_ops_obj is not None:
@@ -74,17 +77,17 @@ with open(data_file, 'w') as f:
 models_evald = 0
 # the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
-num_initial_pop =  5#i_dict['initial_population']['total']
-total_models_needed = 50#i_dict['structure_record']['stopper']['num_calcs']
+num_initial_pop =  i_dict['initial_population']['total']
+total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
 
-max_workers = 8 # TODO: make an option for max_workers in the input file
+max_workers = 2 # TODO: make an option for max_workers in the input file
 ###############
 cluster_job = SLURMCluster(cores=1,
-                           memory="2GB",
+                           memory="1GB",
                            project='hennig',
                            queue='hpg2-compute',
                            interface='ib0',
-                           walltime='2:00:00',
+                           walltime='1:00:00',
                            job_extra=['--ntasks 4', '--nodes=1'])
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
