@@ -118,7 +118,8 @@ class Evolve(object):
                 elif method == 3:
                     new_astr, inheritance = mate.mate_by_slicing(select, pool)
                 elif method == 4:
-                    new_astr, inheritance = mate.mate_by_random_swap(select, pool)
+                    new_astr, inheritance = mate.mate_by_random_swap(select,
+                                                                     pool)
             except:
                 continue
             if new_astr is None:
@@ -492,15 +493,15 @@ class mating(object):
         child_sites = parent1.astr.sites + parent2.astr.sites
         species = [i.species for i in child_sites]
         coords = [i.coords for i in child_sites]
-        latt = parent1.lattice
+        latt = parent1.astr.lattice
         child = Structure(latt, species, coords)
 
         # merge sites
         child.merge_sites(tol=1, mode='delete')
 
         # get composition of child within th range of both parents
-        p1_comp = parent1.composition.as_dict()
-        p2_comp = parent2.composition.as_dict()
+        p1_comp = parent1.astr.composition.as_dict()
+        p2_comp = parent2.astr.composition.as_dict()
         # get child elements such that the species exist in both parents
         # NOTE: If elements are different in both parents, child will only get
         # common elements in subsequent generations. So, make sure elements are
@@ -511,7 +512,7 @@ class mating(object):
         child_comp = {}
         for k in child_elems:
             l, h = min([p1_comp[k], p2_comp[k]]), max([p1_comp[k], p2_comp[k]])
-            child_comp[k] = np.random.randint(l, h)
+            child_comp[k] = np.random.randint(l, h+1)
 
         # get all child sites
         all_child_sites = child.sites
@@ -865,7 +866,7 @@ class basinhopping(object):
                 # Check distance and replace with new coords
                 if not gb and dc.satisfies_all_dists(new_cart,
                                           species[i].name,
-                                          parent.gb_iface,
+                                          parent.astr,
                                           self.min_dist_dict,
                                           self.species_dict,
                                           remove_index=i):
