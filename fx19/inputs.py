@@ -135,8 +135,7 @@ def make_objects(i_dict):
     basinhopping_params = {}
     if 'basinhopping_constraints' in i_dict:
         basinhopping_params = i_dict['basinhopping_constraints']
-    # NOTE: contains 'perturb_box', 'indices_fraction', 'scale_fraction',
-    # 'max_perturbation' and 'scale_direction'
+    # NOTE: contains  'indices_fraction' and 'max_perturbation'
     basinhopping_params['min_dist_dict'] = str_constraints['min_dist_dict']
     basinhopping_params['species_dict'] = i_dict['structure_record']['species']
     hop = structure_operations.basinhopping(basinhopping_params)
@@ -301,9 +300,7 @@ def get_mating_params(i_dict, str_constraints):
     mating_params = {}
     if 'mating_constraints' in i_dict:
         mating_params = i_dict['mating_constraints']
-
-    # NOTE: mating_constraints contain 'num_parents_fraction' and
-    # 'attach_type_fraction'
+        # contains 'mirror_slice_before_join' boolean parameter if provided
 
     # Add other necessary constraints from before
     mating_params['min_dist_dict'] = str_constraints['min_dist_dict']
@@ -328,17 +325,9 @@ def get_evolve_params(i_dict, str_constraints):
     str_constraints - (dict) dictionary of all the constraints for making
                       random models
     """
-
     evolve_params = {}
     if 'evolve_probabilities' in i_dict:
-        probs_dict = i_dict['evolve_probabilities']
-        for key in probs_dict.keys():
-            if key not in [1, 2, 3, 4]:
-                print ('Specified probability key to method does not exist. '
-                        'Keys should be only 1, 2, 3 or 4.')
-        if sum(probs_dict.values()) != 1:
-            print ('Error: Sum of probabilities should be equal to 1')
-        evolve_params['probabilities'] = probs_dict
+        evolve_params = i_dict['evolve_probabilities']
         evolve_params['num_species'] = str_constraints['num_species']
         # species dicts
         keys = ['species1', 'species2', 'species3', 'species4', 'species5']

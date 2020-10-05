@@ -40,23 +40,31 @@ class Evolve(object):
         self.mate = mate
         self.hop = hop
 
-        self.probabilities = {1 : 0.375, # 1, 2 are of basinhopping methods
-                              2 : 0.125, # 3, 4 are mating methods (0.5 and 0.5)
-                              3 : 0.375, # Divide probs by 0.5 to get their
-                              4 : 0.125} # mating and basinhopping probs resp'ly
+        # probability given as fraction to choose evolve method
+        self.basinhopping_fraction = 0.34
+        self.mate_by_slice_fraction = 0.33
+        self.mate_by_swap_fraction = 0.33
 
-        keys_needed = self.probabilities.keys()
-        if 'probabilities' in evolve_params:
-            keys_given = evolve_params['probabilities'].keys()
-            if keys_needed != keys_given:
-                print ('Warning: Please provide probabilities for all 7 '
-                        'methods.\nUsing defaults only!')
-            else:
-                for key in keys_given:
-                    self.probabilities[key] = evolve_params['probabilities'][key]
+        if 'basinhopping_fraction' in evolve_params:
+            self.basinhopping_fraction = evolve_params['basinhopping_fraction']
+
+        if 'mate_by_slice_fraction' in evolve_params:
+            self.mate_by_slice_fraction = \
+                                    evolve_params['mate_by_slice_fraction']
+
+        if 'mate_by_swap_fraction' in evolve_params:
+            self.mate_by_swap_fraction = evolve_params['mate_by_swap_fraction']
+
+        if not self.basinhopping_fraction + self.mate_by_slice_fraction + \
+                                    self.mate_by_swap_fraction == 1:
+            print ('Sum of the provided evolve method fractions is not equal'
+            ' to 1. So, using default values of 0.33, 0.33, 0.34 for hop, mate'
+            '_by_swap and mate_by_slice respectively.')
+            self.basinhopping_fraction = 0.34
+            self.mate_by_slice_fraction = 0.33
+            self.mate_by_swap_fraction = 0.33
 
         self.num_species = evolve_params['num_species']
-
         # Make species dicts as attributes
         self.species1 = evolve_params['species1']
         # save species2 data if exists
@@ -73,7 +81,7 @@ class Evolve(object):
             self.species5 = evolve_params['species5']
 
 
-    def get_model(self, select, pool, reg_id, method=0):
+    def get_model(self, select, pool, reg_id):
         """
         get new model using mating or basinhopping
 
@@ -81,32 +89,13 @@ class Evolve(object):
         select (obj): Select object
         pool (obj): Pool object
         reg_id(obj): register_id object
-        method (string): mention the methodby which to create new structure
-                         takes
-                         0 : choose one method based on their probabilities
-                         1 : 'perturb_sites'
-                         2 : 'scale_lattice'
-                         3 : 'mate_by_slicing'
-                         4 : 'mate_by_random_swap'
 
         """
         hop = self.hop
         mate = self.mate
-
-        methods_dict = {1 : 'perturb_sites',
-                        2 : 'scale_lattice',
-                        3 : 'mate_by_slicing',
-                        4 : 'mate_by_random_swap'}
-
-        if method not in range(5):
-            print ('Error: Provided method index not in known methods.')
-
-        if method == 0:
-            keys = [1, 2, 3, 4]
-            vals = []
-            for key in keys:
-                vals.append(self.probabilities[key])
-            method = np.random.choice(keys, p=vals)
+        method = np.random.choice([1, 2, 3], p=[self.basinhopping_fraction,
+                                                self.mate_by_slice_fraction,
+                                                self.mate_by_swap_fraction])
 
         correct_comp = False
         while correct_comp is False:
@@ -114,17 +103,16 @@ class Evolve(object):
                 if method == 1:
                     new_astr, inheritance = hop.perturb_sites(select, pool)
                 elif method == 2:
-                    new_astr, inheritance = hop.scale_lattice(select, pool)
-                elif method == 3:
                     new_astr, inheritance = mate.mate_by_slicing(select, pool)
-                elif method == 4:
+                elif method == 3:
                     new_astr, inheritance = mate.mate_by_random_swap(select,
                                                                      pool)
+
             except:
                 continue
             if new_astr is None:
                 continue
-            if any(np.isnan(astr.cart_coords.flatten())):
+            if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
             new_astr.sort()
             new_comp = new_astr.composition
@@ -175,48 +163,6 @@ class Evolve(object):
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
         new_model.made_by = methods_dict[method]
-
-        #print ('New model made using {} method on parent models {}'.format(
-        #                                   methods_dict[method], inheritance))
-
-        return new_model
-
-
-    def hop_specific_model(self, select, pool, reg_id, model_id, hop_method=0):
-        """
-        Use basinhopping to make new model
-
-        Args:
-
-        select (obj): Select object
-        pool (obj): Pool object
-        reg_id (obj): register_id object
-        model_id (int): the model label of an existing model
-        hop_method (string): specify which of basinhopping methods to use to
-                             make new model
-                             0 : choose one method based on their probabilities
-                             1 : 'perturb_sites'
-                             2 : 'scale_lattice'
-        """
-        hop = self.hop
-
-        if hop_method not in range(7):
-            print ('Error: Provided method index not in known methods.')
-
-        if hop_method == 0:
-            keys = [1, 2]
-            vals = []
-            for key in keys:
-                prob = (self.probabilities[key]) / 0.5
-                vals.append(prob)
-            hop_method = np.random.choice(keys, p=vals)
-
-        if method == 1:
-            new_astr = hop.perturb_sites(select, pool, model_id=model_id)
-        elif method == 2:
-            new_astr = hop.scale_lattice(select, pool, model_id=model_id)
-
-        new_model = structure_record.model(new_astr, reg_id)
 
         return new_model
 
@@ -714,11 +660,10 @@ class basinhopping(object):
         basinhopping parameters
 
 
-        Eg: {'perturb_box': [[0.4,0.9], [0.9,0.7], [0.1,0.7]]
+        Eg: {
             # list of range of frac_coords in each direction to perturb
             'indices_fraction': 0.6 # fraction of total atoms to perturb
-            'scale_fraction': 0.1 # (Deprecated) fraction to perturb lattice
-            'scale_direction': 'up' # up for stretching ; down for compression
+
             'max_perturbation': 0.5, # maximum perturbation distance in Å
             'min_dist_dict': # dictionary of minimum bond distances
              {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
@@ -732,30 +677,11 @@ class basinhopping(object):
                'max_num': 30,
                'mu': -6.76069604253}}}
         """
-        self.perturb_box = [[0,1], [0,1], [0,1]]
-        self.indices_fraction = None
-        # if indices_fraction is given, box perturbation is skipped completely
-        self.scale_direction = None
-        self.scale_fraction = 0.15
+        # default indices_fraction is 1 ; perturb all atoms (indices)
+        self.indices_fraction = 1
         self.max_perturbation = 0.15
         self.min_dist_dict = basinhopping_params['min_dist_dict']
         self.species_dict = basinhopping_params['species_dict']
-
-        if 'perturb_box' in basinhopping_params:
-            input_box = basinhopping_params['perturb_box']
-            # confirm the box satisfies the format
-            if len(input_box) != 3:
-                print ('Error1: Provided box is not valid one. Using default..')
-                self.perturb_box = [[0,1], [0,1], [0,1]]
-            elif any(len(input_box[i]) != 2 for i in range(3)):
-                print ('Error2: Provided box is not valid one. Using default..')
-                self.perturb_box = [[0,1], [0,1], [0,1]]
-            elif False in ((0 <= input_box[i][j] <= 1) \
-                            for j in range(2) for i in range(3)):
-                print ('Error3: Provided box is not valid one. Using default..')
-                self.perturb_box = [[0,1], [0,1], [0,1]]
-            else:  # if box provided is in the correct format
-                self.perturb_box = input_box
 
         if 'indices_fraction' in basinhopping_params:
             if 0 < basinhopping_params['indices_fraction'] <= 1:
@@ -763,22 +689,6 @@ class basinhopping(object):
             else:
                 print ('Provided indices_fraction out of range (0,1]. '
                         'Using default..')
-
-        if 'scale_direction' in basinhopping_params:
-            if not basinhopping_params['scale_direction'] in ['up', 'down']:
-                print ('scale_direction should be either \'up\' or \'down\'.'
-                       ' If not mentioned, either of them would be used '
-                       'with equal probability.')
-            else:
-                self.scale_direction = basinhopping_params['scale_direction']
-
-        if 'scale_fraction' in basinhopping_params:
-            if not 0 < basinhopping_params['scale_fraction'] <= 0.5:
-                print ('scale_fraction should be between (0, 0.5]. More than '
-                       '0.5 would be unphysical to squeeze or stretch the '
-                       'lattice. Using default value of 0.15')
-            else:
-                self.scale_fraction = basinhopping_params['scale_fraction']
 
         if 'max_perturbation' in basinhopping_params:
             if not 0 < basinhopping_params['max_perturbation'] <= 0.5:
@@ -789,11 +699,10 @@ class basinhopping(object):
         else:
             self.max_perturbation = basinhopping_params['max_perturbation']
 
-
-
     def perturb_sites(self, select, pool, model_id=None, gb=False):
         """
-        displaces atoms in a parent box (cluster) using uniform distribution
+        Displaces atoms in a parent (cluster or gb_iface) using uniform
+        distribution
 
         Args:
 
@@ -802,7 +711,6 @@ class basinhopping(object):
         model_id (int): If given, basinhopping is done on this specific model
         gb (bool): True if the search is 'gb'
         """
-        D_box = self.perturb_box
         indices_fraction = self.indices_fraction
 
         if model_id is None:
@@ -825,20 +733,12 @@ class basinhopping(object):
             frac_coords = parent.gb_iface.frac_coords
             species = parent.gb_iface.species
 
-        # Get frac_coords within D_box
-        D_coords, D_inds = [], []
-        for i, coords in enumerate(frac_coords):
-            if self.coords_in_the_box(coords):
-                D_coords.append(coords)
-                D_inds.append(i)
-
-        # If random indices fraction given, overwrite D_coords
-        if indices_fraction:
-            if 0 < indices_fraction < 1:
-                total_atoms = parent.astr.num_sites
-                num_fraction = int(total_atoms * indices_fraction)
-                D_inds = random.sample(range(0, total_atoms), num_fraction)
-                D_coords = [frac_coords[i] for i in inds]
+        # Get frac_coords to perturb
+        total_num_atoms = len(frac_coords)
+        # use indices_fraction; default to 1
+        num_atoms_to_perturb = int(total_num_atoms * indices_fraction)
+        D_inds = random.sample(range(0, total_num_atoms), num_atoms_to_perturb)
+        D_coords = [frac_coords[i] for i in inds]
 
         num_perturbed = 0
         jumps_needed = int(0.5 * len(D_coords))
@@ -893,45 +793,6 @@ class basinhopping(object):
         else:
             return None, None
 
-
-    def coords_in_the_box(self, coords):
-        """
-        For a given coords and a D_box,
-        Returns True if the coords are within the box with respect to PBC.
-
-        Args:
-
-        coords (list/array): fractional coordinates of a point to be perturbed
-        """
-        D_box = self.perturb_box
-
-        Dx, Dy, Dz = False, False, False
-        if D_box[0][0] < D_box[0][1] and \
-                    D_box[0][0] <= coords[0] <= D_box[0][1]:
-            Dx = True
-        elif D_box[0][1] < D_box[0][0] and \
-                    not D_box[0][0] < coords[0] < D_box[0][1]:
-            Dx = True
-
-        if D_box[1][0] < D_box[1][1] and \
-                    D_box[1][0] <= coords[1] <= D_box[1][1]:
-            Dy = True
-        elif D_box[1][1] < D_box[1][0] and \
-                    not D_box[1][0] < coords[1] < D_box[1][1]:
-            Dy = True
-
-        if D_box[2][0] < D_box[2][1] and \
-                    D_box[2][0] <= coords[0] <= D_box[2][1]:
-            Dz = True
-        elif D_box[2][1] < D_box[2][0] and \
-                    not D_box[2][0] < coords[0] < D_box[2][1]:
-            Dz = True
-
-        if all([Dx, Dy, Dz]):
-            return True
-        else:
-            return False
-
     def get_point_on_sphere(self, r):
         """
         Returns a random point on a sphere of radius r
@@ -949,39 +810,6 @@ class basinhopping(object):
         point = point * r
 
         return point
-
-    def scale_lattice(self, select, pool, model_id=None):
-        """
-        Stretch or squeeze the lattice within given scale_fraction
-
-        Args:
-
-        select (obj): Select object
-        pool (obj): Pool object
-        model_id (int): If given, basinhopping is done on this specific model
-        """
-        scale_fraction = self.scale_fraction
-        direction = self.scale_direction
-
-        if direction is None:
-            direction = ['up', 'down'][random.randint(0, 1)]
-        if direction == 'up':
-            dxn = 1
-        else:
-            dxn = -1
-
-        if model_id is None:
-            parent = select.get_a_parent(pool)
-            inheritance = [parent.label]
-        else:
-            for model in pool.good_pool:
-                if model.label == model_id:
-                    parent = model
-                    inheritance = [parent.label]
-                    break
-        parent.astr.apply_strain(dxn * scale_fraction)
-
-        return parent.astr, inheritance
 
 
 class gb_ops(object):
