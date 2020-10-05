@@ -191,6 +191,7 @@ class lammps_code(object):
                                                 model.label, model.label))
             print ('LAMMPS relaxation on model {} NOT successful'.format(
                                                 model.label))
+            quit()
         else:
             model.tot_en = total_energy
             # For lammps, assume always converged after relaxation
