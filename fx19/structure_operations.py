@@ -230,9 +230,8 @@ class mating(object):
 
         mating_params (dict): a dictionary of all the parameters required for
                               performing mating on parents
-        Eg: {'num_parents_fraction': 0.1, # ratio of 3 parents to 2 parents
-        'attach_type_fraction': 0.3, # ratio of direct_attatch to mirror attach
-        'hop_mate_frac': 0.5, # ratio of hop to mate
+        Eg: {
+        'mirror_slice_before_join': True
         'min_dist_dict': dictionary of minimum bond distances
                         {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
         'species_dict': # dictionary of species
@@ -246,19 +245,16 @@ class mating(object):
            'mu': -6.76069604253}},
         """
         # Defaults for the parameters
-        self.num_parents_fraction = 0.333 # 66% 2 parents
-        self.attach_type_fraction = 0.333 # 66% mirror and attach
+        self.mirror_slice_before_join = True
 
-        if 'num_parents_fraction' in mating_params:
-            if 0 <= mating_params['num_parents_fraction'] <= 1:
-                self.num_parents_fraction = mating_params['num_parents_fraction']
+        if 'mirror_slice_before_join' in mating_params:
+            if isinstance(mating_params['mirror_slice_before_join'], bool):
+                self.mirror_slice_before_join = \
+                                    mating_params['mirror_slice_before_join']
             else:
-                print ('Error: Provied num_parents_fraction not in range (0,1)')
-        if 'attach_type_fraction' in mating_params:
-            if 0 <= mating_params['attach_type_fraction'] <= 1:
-                self.attach_type_fraction = mating_params['attach_type_fraction']
-            else:
-                print ('Error: Provied attach_type_fraction not in range (0,1)')
+                print ('mirror_slice_before_join parameter should be a boolean.'
+                        ' Setting to defaults True')
+
 
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
@@ -279,36 +275,17 @@ class mating(object):
         if self.num_species > 4:
             self.species5 = mating_params['species5']
 
-    def get_num_parents(self, num_parents_fraction):
-        """
-        Function to get number of parents to select for mating
-
-        Args:
-
-        num_parents_fraction (float): between 0, 1
-                                      0 -> 2 parents ; 1 -> 3 parents
-        """
-        # Decide number of parents for this child
-        if random.random() > num_parents_fraction:
-            num_parents = 2
-        else:
-            num_parents = 3
-
-        return num_parents
-
-    def get_attach_type(self, attach_type_fraction):
+    def get_attach_type(self):
         """
         Function to get the attach type - mirror and attach, or direct attach
 
-        Args:
-
-        attach_type_fraction (float): between 0, 1
-                                      0 -> 'mirror' ; 1 -> 'direct'
         """
-        if random.random() > attach_type_fraction:
-            attach_type = 'mirror'
-        else:
-            attach_type = 'direct'
+        attach_type = 'direct'
+
+        # if True, return either mirror and direct attach type
+        if self.mirror_slice_before_join:
+            if random.random() > 0.5:
+                attach_type = 'mirror'
 
         return attach_type
 
@@ -329,22 +306,17 @@ class mating(object):
             childAtoms (ASE Atoms): Returns the offspring ASE atoms object
         """
         # Get num_parents and select them parents
-        num_parents = self.get_num_parents(self.num_parents_fraction)
+        num_parents = 2
         # NOTE: deepcopy already done in get_a_parent()
         parents = select.get_parents(pool, num_parents)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
-        if num_parents == 3:
-            parent3 = parents[2]
-            inheritance.append(parent3.label)
-            temp3 = self.rotate_astr(parent3.astr)
-            slice3 = self.fraction_slice(temp3, num_parents)
 
         # rotate all parents randomly and slice them
         temp1 = self.rotate_astr(parent1.astr)
-        slice1 = self.fraction_slice(temp1, num_parents)
+        slice1 = self.fraction_slice(temp1)
         temp2 = self.rotate_astr(parent2.astr)
-        slice2 = self.fraction_slice(temp2, num_parents)
+        slice2 = self.fraction_slice(temp2)
 
         # Attach two slices at a time
         if random.randint(0, 2) == 0:
@@ -352,13 +324,6 @@ class mating(object):
         else:
             attach_type = 'mirror'
         child = self.attach_slices(slice1, slice2, attach_type=attach_type)
-
-        if num_parents == 3:
-            if random.randint(0, 2) == 0:
-                attach_type = 'direct'
-            else:
-                attach_type = 'mirror'
-            child = self.attach_slices(child, slice3, attach_type=attach_type)
 
         return child, inheritance
 
@@ -410,15 +375,16 @@ class mating(object):
 
         return temp_astr
 
-    def fraction_slice(self, astr, num_parents):
+    def fraction_slice(self, astr):
         """
         For a given astr, this function slices at (1/num_parents) from bottom
         and returns the bottom part
 
         Args:
         astr (obj): pymatgen structure object
-        num_parents (int): number of parents to use for mating
         """
+        # Fixed num_parents to 2.
+        num_parents = 2
         z_mids = astr.cart_coords[:, 2]
         # Determine z_cut to get ~ equal fractions from all parents
         z_cut = (max(z_mids) + min(z_mids)) / num_parents
@@ -510,7 +476,7 @@ class mating(object):
         pool (obj): Pool object
         """
         # Get num_parents and select them parents
-        num_parents = self.get_num_parents(self.num_parents_fraction)
+        num_parents = 2
         parents = select.get_parents(pool, num_parents)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
@@ -522,60 +488,50 @@ class mating(object):
         all_inds = [i for i in range(len(child.cart_coords))]
         child.remove_sites(all_inds)
 
-        # NOTE: Works only for fixed composition searches.
-        # Currently, child num atoms would be equal to that of parent1
-        # Need robust construction to allow for multiple sizes as in
-        # initial_population.
-        num_atoms_child = parent1.astr.num_sites
+        # add atoms from both parents in to one structure
+        child_sites = parent1.astr.sites + parent2.astr.sites
+        species = [i.species for i in child_sites]
+        coords = [i.coords for i in child_sites]
+        latt = parent1.lattice
+        child = Structure(latt, species, coords)
 
-        inds = [i for i in range(num_atoms_child)]
-        random.shuffle(inds)
+        # merge sites
+        child.merge_sites(tol=1, mode='delete')
 
-        if num_parents == 3:
-            parent3 = parents[2]
-            inheritance.append(parent3.label)
-            p3_sites = parent3.astr.sites
-            list_of_p_sites.append(p3_sites)
-            # First add first random atom from parent3
-            child.append(p3_sites[inds[0]].specie, p3_sites[inds[0]].coords,
-                                                coords_are_cartesian=True)
-        else:
-            # First add first random atom from parent2
-            child.append(p2_sites[inds[0]].specie, p2_sites[inds[0]].coords,
-                                                coords_are_cartesian=True)
+        # get composition of child within th range of both parents
+        p1_comp = parent1.composition.as_dict()
+        p2_comp = parent2.composition.as_dict()
+        # get child elements such that the species exist in both parents
+        # NOTE: If elements are different in both parents, child will only get
+        # common elements in subsequent generations. So, make sure elements are
+        # same in both parents
+        child_elems = [i for i in p1_comp.keys() if i in p2_comp.keys()]
 
-        # Remove index 0 from inds; it is already added from parent3 or parent2
-        inds.pop(0)
-        num_while_loops = 0
-        # Add sites randomly and get indices that failed distance and repeat
-        while num_while_loops < 10:
-            random.shuffle(inds)
-            rem_inds = self.add_random_sites(child, list_of_p_sites, inds)
-            inds = rem_inds
-            num_while_loops += 1
-            if len(inds) == 0:
-                break
+        # get child composition
+        child_comp = {}
+        for k in child_elems:
+            l, h = min([p1_comp[k], p2_comp[k]]), max([p1_comp[k], p2_comp[k]])
+            child_comp[k] = np.random.randint(l, h)
 
-        if len(child.sites) == num_atoms_child:
-            return child
+        # get all child sites
+        all_child_sites = child.sites
+        child_elem_sites = []
+        for k in child_elems:
+            elem_sites = [i for i in all_child_sites if i.specie.name == k]
+            if len(elem_sites) > child_comp[k]:
+                random.shuffle(elem_sites)
+                child_elem_sites += elem_sites[:child_comp[k]]
+            else:
+                return None, None
 
-        # If still some inds remain, move coords and repeat above loop
-        num_while_loops = 0
-        while num_while_loops < 100:
-            random.shuffle(inds)
-            rem_inds = self.add_random_sites(child, list_of_p_sites, inds,
-                                             move=True)
-            inds = rem_inds
-            num_while_loops += 1
-            if len(inds) == 0:
-                break
+        # replace child with new atoms
+        child_sps = [i.specie for i in child_elem_sites]
+        child_coords = [i.coords for i in child_elem_sites]
+        child = Structure(latt, child_sps, child_coords,
+                                coords_are_cartesian=True)
 
-        if not len(child.sites) == num_atoms_child:
-            print ('Random swap failed to create child structure.')
-            return None
-
-        child.sort()
         return child, inheritance
+
 
     def add_random_sites(self, child, list_of_parent_sites, indices,
                          move=False):
@@ -594,36 +550,17 @@ class mating(object):
         rem_inds = []
 
         # If 2 parents
-        if len(list_of_parent_sites) == 2:
-            num_parents = 2
-            inds1, inds2 = self.divide_index_list(indices, num_parents)
-            # Add sites from each parent sites in circular fashion
-            for i in range(len(inds1)):
-                if not self.add_site(child, p1_sites, inds1[i], move=move):
-                    rem_inds.append(inds1[i])
-                if i < len(inds2):
-                    if not self.add_site(child, p2_sites, inds2[i], move=move):
-                        rem_inds.append(inds2[i])
-
-        # If 3 parents
-        if len(list_of_parent_sites) == 3:
-            num_parents = 3
-            p3_sites = list_of_parent_sites[2]
-            inds1, inds2, inds3 = self.divide_index_list(indices, num_parents)
-            # Add sites from each parent sites in circular fashion
-            # Always inds1 will be the longest.
-            for i in range(len(inds1)):
-                if not self.add_site(child, p1_sites, inds1[i], move=move):
-                    rem_inds.append(inds1[i])
-                if i < len(inds2):
-                    if not self.add_site(child, p2_sites, inds2[i], move=move):
-                        rem_inds.append(inds2[i])
-                if i < len(inds3):
-                    if not self.add_site(child, p3_sites, inds3[i], move=move):
-                        rem_inds.append(inds3[i])
+        num_parents = 2
+        inds1, inds2 = self.divide_index_list(indices)
+        # Add sites from each parent sites in circular fashion
+        for i in range(len(inds1)):
+            if not self.add_site(child, p1_sites, inds1[i], move=move):
+                rem_inds.append(inds1[i])
+            if i < len(inds2):
+                if not self.add_site(child, p2_sites, inds2[i], move=move):
+                    rem_inds.append(inds2[i])
 
         return rem_inds
-
 
     def add_site(self, child, parent_sites, index, move=False):
         """
@@ -674,34 +611,21 @@ class mating(object):
 
         return point
 
-    def divide_index_list(self, indices, num_parents):
+    def divide_index_list(self, indices):
         """
         Returns 2 or 3 lists of indices for 2 or 3 parents
         Function separated for clarity
 
         Args:
         indices (list): Indices that are shuffled randomly for num_atoms_child
-        num_parents (int): Number of parents to used for mating
         """
-        if num_parents == 2:
-            A = indices[ : len(indices)//2 ]
-            B = indices[ len(indices)//2 : ]
-            if len(A) > len(B):
-                list_1, list_2 = A, B
-            else:
-                list_1, list_2 = B, A
-            return list_1, list_2
-
-        if num_parents == 3:
-            cut = len(indices) // 3
-            rem = len(indices) % 3
-            list_1, list_2, list_3 = indices[: cut], indices[cut : 2*cut], \
-                                                     indices[2*cut : 3*cut]
-            if rem > 0:
-                list_1.append(indices[3*cut])
-            if rem == 2:
-                list_2.append(indices[3*cut + 1])
-            return list_1, list_2, list_3
+        A = indices[ : len(indices)//2 ]
+        B = indices[ len(indices)//2 : ]
+        if len(A) > len(B):
+            list_1, list_2 = A, B
+        else:
+            list_1, list_2 = B, A
+        return list_1, list_2
 
     def check_atoms_for_all_species(self, astr):
         """
