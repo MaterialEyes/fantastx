@@ -77,8 +77,8 @@ with open(data_file, 'w') as f:
 models_evald = 0
 # the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
-num_initial_pop =  i_dict['initial_population']['total']
-total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
+num_initial_pop =  i_dict['population_limits']['initial_population']
+total_models_needed = i_dict['population_limits']['total_population']
 
 max_workers = 2 # TODO: make an option for max_workers in the input file
 ###############

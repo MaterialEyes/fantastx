@@ -170,8 +170,8 @@ if input_model_obj is not None:
     print ('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
-num_initial_pop =  i_dict['initial_population']['total']
-total_models_needed = i_dict['structure_record']['stopper']['num_calcs']
+num_initial_pop =  i_dict['population_limits']['initial_population']
+total_models_needed = i_dict['population_limits']['total_population']
 working_jobs = get_working_jobs(evald_futures)
 
 start_time = time.time()

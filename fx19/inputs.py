@@ -97,7 +97,7 @@ def make_objects(i_dict):
 
     # Pool object (contains good_pool and bad_pool)
     pool_params = {}
-    pool_params['capacity'] = i_dict['pool_capacity']
+    pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
     pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
@@ -158,11 +158,7 @@ def make_objects(i_dict):
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
-
-    ################### Develop the below objects
-
-    #Stopper
-    #stopper = structure_record.Stopper(str_record)
+    ################### Develop any other below objects
 
     return all_objects
 
