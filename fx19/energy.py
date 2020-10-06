@@ -55,8 +55,6 @@ class lammps_code(object):
         self.relax_path = None
         # path to copy input files for each calculation
         self.energy_files_path = energy_params['files_path']
-        # energy objective function
-        self.energy_obj_fn = energy_params['energy_obj_fn']
         # lammps execution command as a string
         # Ex: 'lmp_mpi -in in.min'
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
@@ -440,8 +438,6 @@ class vasp_code(object):
         self.relax_path = None
         # path to copy input files for each calculation
         self.energy_files_path = energy_params['files_path']
-        # energy objective function
-        self.energy_obj_fn = energy_params['energy_obj_fn']
         # vasp execution command as a string
         # Ex: 'mpirun <path_to_vasp_binary>'
         self.energy_exec_cmd = energy_params['energy_exec_cmd']

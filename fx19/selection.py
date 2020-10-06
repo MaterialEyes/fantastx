@@ -68,7 +68,7 @@ class Pool(object):
             return select
 
         # call update selection probs which uses linear method for < 1000 models
-        if len(self.all_models) <= self.num_models_before_pareto:
+        if len(self.all_models) <= select.num_models_before_pareto:
             self.good_pool = select.update_all_selection_probs(self.all_models,
                                                            self.capacity,
                                                            sim_ids=sim_ids)
