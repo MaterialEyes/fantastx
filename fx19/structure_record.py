@@ -159,6 +159,7 @@ class structure_constraints(object):
         self.def_min_dist = 2 # minimum distance between atoms in angstroms
         self.min_num_atoms = 30
         self.max_num_atoms = 101
+        self.max_bond_dist = 4
 
         if 'max_bond_dist' in str_record:
             self.max_bond_dist = str_record['max_bond_dist']
@@ -309,7 +310,9 @@ class structure_constraints(object):
             self.iface_latt = Lattice([gb_latt_matrix[0],
                                       gb_latt_matrix[1],
                                       [0, 0, self.iface_thickness]])
-            self.num_slices = str_record['gb']['num_slices']
+            self.num_slices = 2
+            if 'num_slices' in str_record['gb']:
+                self.num_slices = str_record['gb']['num_slices']
 
             """
             We get best matched gb interface structure from ingrained.

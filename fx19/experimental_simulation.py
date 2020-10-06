@@ -404,17 +404,6 @@ class gb_ingrained(object):
         match_ssim = iop.score_ssim(sim_img[132:300], self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
 
-    def scale_gb_astr(self, tested_scales, factor=0.01):
-        """
-        Once we evaluate the gb_astr, if residual is greater than the threshold,
-        we stretch or squeeze the model.
-
-        tested_scales: a list of (float) values that have already been tested
-        on the model
-        factor: the factor by which to scale the model
-        """
-        pass
-
     def evaluate_obj(self, model):
         """
         This function is a must for overall Fantastx run. All classes in this

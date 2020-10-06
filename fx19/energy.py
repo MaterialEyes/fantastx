@@ -460,6 +460,29 @@ class vasp_code(object):
                         pdict[x] = a_pot
         self.pot_dict = pdict
 
+        # Save species names for identification
+        # and also chemical potentials of each species
+        self.sym1 = energy_params['element_syms'][1]
+        self.mu1 = energy_params['mu'][1]
+
+        self.sym2 = None
+        self.sym3 = None
+        self.sym4 = None
+        self.sym5 = None
+        self.mu2, self.mu3, self.mu4, self.mu5 = 0, 0, 0, 0
+        if len(energy_params['element_syms']) > 1:
+            self.sym2 = energy_params['element_syms'][2]
+            self.mu2 = energy_params['mu'][2]
+        if len(energy_params['element_syms']) > 2:
+            self.sym3 = energy_params['element_syms'][3]
+            self.mu3 = energy_params['mu'][3]
+        if len(energy_params['element_syms']) > 3:
+            self.sym4 = energy_params['element_syms'][4]
+            self.mu4 = energy_params['mu'][4]
+        if len(energy_params['element_syms']) > 4:
+            self.sym5 = energy_params['element_syms'][5]
+            self.mu5 = energy_params['mu'][5]
+
 
         # default parameters for INCAR (only if necessary)
         # Or directly use the input files the user provided.
