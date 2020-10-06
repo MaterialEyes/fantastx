@@ -185,12 +185,6 @@ def get_energy_params(i_dict):
     else:
         energy_params['energy_code'] = i_dict['energy_code']
 
-    # energy obj_fn
-    if 'energy_obj_fn' not in i_dict:
-        print ('Please provide objective function as string. This is mandatory')
-    else:
-        energy_params['energy_obj_fn'] = i_dict['energy_obj_fn']
-
     # energy code execution command (Mandatory)
     if 'energy_exec_cmd' not in i_dict:
         print ('Please provide the execution command for the energy '
@@ -200,21 +194,20 @@ def get_energy_params(i_dict):
 
     # chemical potentials
     mu = {1:0, 2:0, 3:0, 4:0, 5:0}
-    if i_dict['energy_obj_fn'] == 'mu_based':
-        species_dict = i_dict['structure_record']['species']
-        try:
-            mu[1] = species_dict['species1']['mu']
-            if 'species2' in species_dict:
-                mu[2] = species_dict['species2']['mu']
-            if 'species3' in species_dict:
-                mu[3] = species_dict['species3']['mu']
-            if 'species4' in species_dict:
-                mu[4] = species_dict['species4']['mu']
-            if 'species5' in species_dict:
-                mu[5] = species_dict['species5']['mu']
-        except:
-            print ('Error: For \'mu_based\' objective function, '
-                   'chemical potentials must be provided for every species!')
+    species_dict = i_dict['structure_record']['species']
+    try:
+        mu[1] = species_dict['species1']['mu']
+        if 'species2' in species_dict:
+            mu[2] = species_dict['species2']['mu']
+        if 'species3' in species_dict:
+            mu[3] = species_dict['species3']['mu']
+        if 'species4' in species_dict:
+            mu[4] = species_dict['species4']['mu']
+        if 'species5' in species_dict:
+            mu[5] = species_dict['species5']['mu']
+    except:
+        print ('Error: Chemical potentials must be provided as a dictionary '
+                'for each species with integer keys!')
     energy_params['mu'] = mu
 
     # Number of times to resubmit if not converged (for vasp)

@@ -36,8 +36,6 @@ class lammps_code(object):
             Eg: {'main_path': <path to direcctory in which fantastx is ran>,
                  'shape': 'gb',
                  'energy_files_path': <path_to_input_files>,
-                 'energy_obj_fn': 'mu_based' for chemical potentials based or
-                                  'epa' for energy per atom,
                  'energy_exec_cmd': 'lmp_mpi -in in.min',
                  'sym1': 'Al',
                  'sym2': 'O',
@@ -233,10 +231,7 @@ class lammps_code(object):
             N = np.array([n1, n2, n3, n4, n5])
             Mu = np.array([self.mu1, self.mu2, self.mu3, self.mu4, self.mu5])
             free_en = total_energy - sum(N * Mu)
-            if self.energy_obj_fn == 'epa':
-                model.obj0_val = float(total_energy/len(relaxed_astr.species))
-            elif self.energy_obj_fn == 'mu_based':
-                model.obj0_val = float(free_en)
+            model.obj0_val = float(free_en)
 
 
         # Following are done in relax:
@@ -424,9 +419,6 @@ class vasp_code(object):
             Eg: {'main_path': <path to direcctory in which fantastx is ran>,
                  'shape': 'gb',
                  'energy_files_path': <path_to_input_files>,
-                 'energy_obj_fn': 'mu_based' for chemical potentials based or
-                                  'epa' for energy per atom or
-                                  'total_energy',
                  'energy_exec_cmd': 'srun <path_to_vasp_binary>',
                  'sym1': 'Al',
                  'sym2': 'O',
@@ -640,32 +632,28 @@ class vasp_code(object):
                 print ('Relaxed structure not available in CONTCAR')
 
             # evaluate objective function and save as model attribute
-            if self.obj_fn == 'epa':
-                model.obj0val = total_energy / model.astr.num_sites
-            elif self.obj_fn == 'total_energy':
-                model.obj0val = total_energy
-            elif self.obj_fn == 'mu_based':
-                comp_dict = relaxed_astr.composition.as_dict()
-                astr_elems = [i.name for i in \
-                                relaxed_astr.composition.elements]
-                n1, n2, n3, n4, n5 = 0, 0, 0, 0, 0
-                if self.sym1 in astr_elems:
-                    n1 = comp_dict[self.sym1]
-                if self.sym2 is not None and self.sym2 in astr_elems:
-                    n2 = comp_dict[self.sym2]
-                if self.sym3 is not None and self.sym3 in astr_elems:
-                    n3 = comp_dict[self.sym3]
-                if self.sym4 is not None and self.sym4 in astr_elems:
-                    n4 = comp_dict[self.sym4]
-                if self.sym5 is not None and self.sym5 in astr_elems:
-                    n5 = comp_dict[self.sym5]
+            comp_dict = relaxed_astr.composition.as_dict()
+            astr_elems = [i.name for i in \
+                            relaxed_astr.composition.elements]
+            n1, n2, n3, n4, n5 = 0, 0, 0, 0, 0
+            if self.sym1 in astr_elems:
+                n1 = comp_dict[self.sym1]
+            if self.sym2 is not None and self.sym2 in astr_elems:
+                n2 = comp_dict[self.sym2]
+            if self.sym3 is not None and self.sym3 in astr_elems:
+                n3 = comp_dict[self.sym3]
+            if self.sym4 is not None and self.sym4 in astr_elems:
+                n4 = comp_dict[self.sym4]
+            if self.sym5 is not None and self.sym5 in astr_elems:
+                n5 = comp_dict[self.sym5]
 
-                N = np.array([n1, n2, n3, n4, n5])
-                Mu = np.array([self.mu1, self.mu2, self.mu3,
-                               self.mu4, self.mu5])
-                free_en = total_energy - sum(N * Mu)
-                model.obj0_val = float(free_en)
-            #elif other objective functions should be evaluated here.
+            N = np.array([n1, n2, n3, n4, n5])
+            Mu = np.array([self.mu1, self.mu2, self.mu3,
+                           self.mu4, self.mu5])
+            free_en = total_energy - sum(N * Mu)
+            model.obj0_val = float(free_en)
+
+            # other objective functions should be evaluated here.
 
     def move_atoms_inside(self, astr):
         """
