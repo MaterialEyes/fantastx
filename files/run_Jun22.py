@@ -85,7 +85,7 @@ if workers['cluster'] == 'SLURM':
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                project=workers['project_name'],
-                               queue=workers['submit_to_queue'],
+                               queue=workers['submit_queue'],
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'])
@@ -93,7 +93,7 @@ elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                project=workers['project_name'],
-                               queue=workers['submit_to_queue'],
+                               queue=workers['submit_queue'],
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'])
