@@ -108,18 +108,18 @@ def make_objects(i_dict):
                 ' keyword specifying single or multiobjective optimization.')
     else:
         select_params = i_dict['select_params']
-    if not 'objective' in select_params.keys():
+    if not 'objective_fn_type' in select_params.keys():
         print ('Error: Please provide select_params keyword and objective'
                 ' keyword specifying single or multiobjective optimization.')
 
-    if select_params['objective'] not in ['multi', 'single']:
+    if select_params['objective_fn_type'] not in ['multi', 'single']:
         print ('Error: Select objective should be a string of either'
                                                 ' single or multi.')
-
-    select = selection.Select(select_params)
-    # weights and num_required_above_50 are in select_params if provided
-
-    if select_params['objective'] == 'single':
+    if select_params['objective_fn_type'] == 'multi':
+        select = selection.Select(select_params)
+        # weights, num_required_above_50 & num_models_before_pareto are in
+        # select_params if provided
+    else:
         select_params = {}
         select_params['type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]

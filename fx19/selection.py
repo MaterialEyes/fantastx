@@ -68,7 +68,7 @@ class Pool(object):
             return select
 
         # call update selection probs which uses linear method for < 1000 models
-        if len(self.all_models) <= 1000:
+        if len(self.all_models) <= self.num_models_before_pareto:
             self.good_pool = select.update_all_selection_probs(self.all_models,
                                                            self.capacity,
                                                            sim_ids=sim_ids)
@@ -153,9 +153,10 @@ class Select(object):
     """
 
     def __init__(self, select_obj_params):
-        self.type = select_obj_params['objective']    # 'single' or 'multi'
+        self.type = select_obj_params['objective_fn_type'] # 'single' or 'multi'
         # set defaults
         self.num_required_above_50 = 100 # default
+        self.num_models_before_pareto = 200 # default
         def_weights = [1, 1, 1, 1, 1] # [w0, w1, w2, w3, w4]
 
         if 'weights' not in select_obj_params:
@@ -166,6 +167,11 @@ class Select(object):
         if 'num_required_above_50' in select_obj_params:
             self.num_required_above_50 = \
                                 select_obj_params['num_required_above_50']
+
+        # number of models to do linear probs before switching to pareto
+        if 'num_models_before_pareto' in select_obj_params:
+            self.num_models_before_pareto = \
+                                select_obj_params['num_models_before_pareto']
 
         # Making sure that dummy weights are in place, since needed by obj fn
         if not len(self.weights) == 5:
@@ -342,7 +348,7 @@ class Select(object):
         # weighted normalized values
         weighted_norm_vals = norm_vals/weights
 
-        if len(all_models) > 1000:
+        if len(all_models) > self.num_models_before_pareto:
             s3 = time.time()
             # Get indices of points (models) which are pareto efficient
             pareto_true_inds= Select._is_pareto_efficient(weighted_norm_vals)
