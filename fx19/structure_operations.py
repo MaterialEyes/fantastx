@@ -1029,8 +1029,10 @@ class gb_ops(object):
 
         child = Structure(latt, species, coords)
         child.merge_sites(tol=1, mode='delete')
+        child = child.get_sorted_structure()
+        self.move_coords_inside(child)
 
-        return child.get_sorted_structure()
+        return child
 
     def get_rem_inds(self, child_astr):
         """

@@ -215,6 +215,7 @@ class lammps_code(object):
             comp_dict = relaxed_astr.composition.as_dict()
             astr_elems = [i.name for i in relaxed_astr.composition.elements]
             n1, n2, n3, n4, n5 = 0, 0, 0, 0, 0
+            # TODO: species should be unlimited
             if self.sym1 in astr_elems:
                 n1 = comp_dict[self.sym1]
             if self.sym2 is not None and self.sym2 in astr_elems:
