@@ -19,6 +19,7 @@ from pymatgen.core.structure import Structure
 from pymatgen.core.lattice import Lattice
 from pymatgen.io.lammps.data import LammpsData
 from pymatgen.core.periodic_table import Element
+from pymatgen.io.vasp.inputs import Poscar
 
 import os
 import shutil
@@ -59,6 +60,9 @@ class lammps_code(object):
         # Ex: 'lmp_mpi -in in.min'
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
         # Make a new folder to store all lammps.label (log files) for convenience
+        # save hollow_botz and hollow_topz for use in sd_flags
+        self.hollow_botz = None
+        self.hollow_topz = None
 
         # Save species names for identification
         # and also chemical potentials of each species
@@ -444,11 +448,14 @@ class vasp_code(object):
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
         # how many times to resubmit job if not converged
         self.resubmit = energy_params['resubmit']
+        # save hollow_botz and hollow_topz for use in sd_flags
+        self.hollow_botz = None
+        self.hollow_topz = None
 
         # This will be used to make potcars
         all_pots = [i for i in os.listdir(self.energy_files_path) if \
                                     i.startswith('POTCAR')]
-        all_pots = [self.energy_files_path + i for i in all_pots]
+        all_pots = [self.energy_files_path + '/' + i for i in all_pots]
         pdict = {}
         for a_pot in all_pots:
             with open(a_pot) as f:
@@ -483,7 +490,6 @@ class vasp_code(object):
         if len(energy_params['element_syms']) > 4:
             self.sym5 = energy_params['element_syms'][5]
             self.mu5 = energy_params['mu'][5]
-
 
         # default parameters for INCAR (only if necessary)
         # Or directly use the input files the user provided.
@@ -544,7 +550,7 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        astr.to(filename=new_poscar, fmt='poscar')
+        self.write_poscar(model, new_poscar)
         # TODO: implement selective dynamics to poscar
         shutil.copy(new_poscar, poscar)
         # copy INCAR, KPOINTS to the relax path
@@ -587,8 +593,6 @@ class vasp_code(object):
         checcks if converged, resubmits if resubmit > 0
         save output files fo previous run with _resubmited_number
         """
-
-
         if not model.converged and self.resubmit !=0:
             relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
             os.chdir(relax_path)
@@ -614,21 +618,23 @@ class vasp_code(object):
         # returns nothing
 
         vasp_exec = self.energy_exec_cmd.split()
-        devnull = open(os.devnull, 'w')
-        vasp_job = sp.call(vasp_exec, stdout=devnull, stderr=devnull)
+        log_file = open('job.log', 'w')
+        err_file = open('job.err', 'w')
+        vasp_job = sp.call(vasp_exec, stdout=log_file, stderr=err_file)
         # sp.call will wait for the calculation to finish
 
         # TODO: get energy
         # check if calculation is converged
         converged = False
-        with open ('OUTCAR') as out:
+        outcar = self.relax_path + '/OUTCAR'
+        with open (outcar) as out:
             lines = out.readlines()
             for line in lines:
                 if 'reached required accuracy' in line:
                     converged = True
                     break
-                else:
-                    print ('Energy calculation of model {} not'
+        if not converged:
+            print ('Energy calculation of model {} not'
                                     ' converged'.format(model.label))
 
         # if converged, get energy
@@ -636,15 +642,18 @@ class vasp_code(object):
             model.converged = converged
 
             # get total energy from output files
-            with open('OSZICAR') as oz:
+            oszicar = self.relax_path + '/OSZICAR'
+            with open(oszicar) as oz:
                 lines = oz.readlines()
             if lines[-1].split()[3] == 'E0=':
-                total_energy = lines[-1].split()[4]
+                total_energy = float(lines[-1].split()[4])
                 model.tot_en = total_energy
 
             # get relaxed structure
             try:
-                relaxed_astr = Structure.from_file('CONTCAR')
+                contcar = self.relax_path + '/CONTCAR'
+                shutil.copy(contcar, self.relax_path + '/POSCAR_relaxed')
+                relaxed_astr = Structure.from_file(contcar)
                 relaxed_astr.sort()
                 self.move_atoms_inside(relaxed_astr)
                 model.astr = relaxed_astr
@@ -672,7 +681,6 @@ class vasp_code(object):
                            self.mu4, self.mu5])
             free_en = total_energy - sum(N * Mu)
             model.obj0_val = float(free_en)
-
             # other objective functions should be evaluated here.
 
     def move_atoms_inside(self, astr):
@@ -695,3 +703,21 @@ class vasp_code(object):
         astr.remove_sites(all_inds)
         for sp, coords in zip(species, fc):
             astr.append(sp, coords, coords_are_cartesian=False)
+
+    def write_poscar(self, model, file_name):
+        """
+        For a newly created model, set sd_flags to each site according to its
+        z-coordinate. All interface region atoms would have [T,T,T] and others
+        would have [F,F,F]. Then, write the POSCAR file in relax_path.
+        """
+        frac_zmin, frac_zmax = self.hollow_botz, self.hollow_topz
+        frac_zs = model.astr.frac_coords[:, 2]
+        bs = []
+        for z in frac_zs:
+            b = 0
+            if frac_zmin < z < frac_zmax:
+                b = 1
+            bs.append(b)
+        sd_flags = [[bool(i), bool(i), bool(i)] for i in bs]
+        gb_poscar = Poscar(model.astr, selective_dynamics=sd_flags)
+        gb_poscar.write_file(file_name)
