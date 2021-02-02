@@ -1287,6 +1287,13 @@ class gb_ops(object):
         for i in range(len(add_fcs)):
             new_gb.append(add_sps[i], add_fcs[i])
 
+        # for sites in new_gb with no sd_flags, add [False, False, False]
+        # This will prevent errors in next step
+        for i in range(len(new_gb)):
+            if 'selective_dynamics' not in new_gb[i].properties.keys():
+                new_gb[i].properties['selective_dynamics'] = \
+                                                [False, False, False]
+                                                
         new_gb.merge_sites(tol=1, mode='delete')
         rem_inds = self.get_rem_inds(new_gb)
         new_gb.remove_sites(rem_inds)
