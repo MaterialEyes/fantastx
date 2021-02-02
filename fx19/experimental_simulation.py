@@ -399,9 +399,13 @@ class gb_ingrained(object):
         np.save(self.main_path + '/whole_exp.npy', exp_patch)
         np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
-        # Temporary hard coded cropping of image to interface region
-        self.im_ref = exp_patch[132:300]
-        match_ssim = iop.score_ssim(sim_img[132:300], self.im_ref)
+        # Temporarily "hard-coded" exp interface region for VASP runs
+        # Load prev_whole_exp.npy that is from the LAMMPS runs
+        exp_prev = np.load('prev_whole_exp.npy')
+        # in y & x directions
+        exp_patch_for_vasp = exp_prev[152:279, 12:]
+        self.im_ref = exp_patch_for_vasp
+        match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
 
     def evaluate_obj(self, model):
