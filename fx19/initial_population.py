@@ -94,75 +94,46 @@ class make_random_model(object):
         self.min_dist_dict = str_constraints['min_dist_dict']
         self.shape = str_constraints['shape']
 
-        if self.shape=='gb':
-            # name of the region
-            self.region=str_constraints['region']
-            """
-            make each region in gb into a separate make_random_model object
-
-            get the random structure for each region using the region specific
-            str_constraints
-
-            make a new class to combine different structures (regions) in a
-            specific order
-
-            finally check the distance and and any other constraints to the
-            overall combined structure
-
-            then go to energy evaluation
-            """
-
-        if self.shape == 'cluster':
-            self.region = None # entire structure is single region
-
         if 'box_abc' in str_constraints:
             self.box_abc = str_constraints['box_abc']
+
         # defaults
-        self.lin_sph_ratio = 0.9999999
         self.max_dia = 8
-        self.r_rand_lin = 2
-        self.tol_rand_lin = 0.25
         self.max_bond_dist = 3
 
-        if 'lin_sph_ratio' in str_constraints:
-            self.lin_sph_ratio = str_constraints['lin_sph_ratio']
         if 'max_dia' in str_constraints:
             self.max_dia = str_constraints['max_dia']
-        if 'r_rand_lin' in str_constraints:
-            self.r_rand_lin = str_constraints['r_rand_lin']
-        if 'tol_rand_lin' in str_constraints:
-            self.tol_rand_lin = str_constraints['tol_rand_lin']
         if 'max_bond_dist' in str_constraints:
             self.max_bond_dist = str_constraints['max_bond_dist']
 
         self.num_species = str_constraints['num_species']
-        # save specie1 data
+        # save species1 data
         # TODO: allow infinite species by reading input directly
-        self.sym_specie1 = str_constraints['species1']['name']
+        self.sym_species1 = str_constraints['species1']['name']
         self.min_num_sp1 = str_constraints['species1']['min_num']
         self.max_num_sp1 = str_constraints['species1']['max_num']
-        # save specie2 data if exists
+        # save species2 data if exists
         if self.num_species > 1:
             if 'species2' in str_constraints and str_constraints['species2']:
-                self.sym_specie2 = str_constraints['species2']['name']
+                self.sym_species2 = str_constraints['species2']['name']
                 self.min_num_sp2 = str_constraints['species2']['min_num']
                 self.max_num_sp2 = str_constraints['species2']['max_num']
-        # save specie3 data if exists
+        # save species3 data if exists
         if self.num_species > 2:
             if 'species3' in str_constraints and str_constraints['species3']:
-                self.sym_specie3 = str_constraints['species3']['name']
+                self.sym_species3 = str_constraints['species3']['name']
                 self.min_num_sp3 = str_constraints['species3']['min_num']
                 self.max_num_sp3 = str_constraints['species3']['max_num']
-        # save specie4 data if exists
+        # save species4 data if exists
         if self.num_species > 3:
             if 'species4' in str_constraints and str_constraints['species4']:
-                self.sym_specie4 = str_constraints['species4']['name']
+                self.sym_species4 = str_constraints['species4']['name']
                 self.min_num_sp4 = str_constraints['species4']['min_num']
                 self.max_num_sp4 = str_constraints['species4']['max_num']
-        # save specie5 data if exists
+        # save species5 data if exists
         if self.num_species > 4:
             if 'species5' in str_constraints and str_constraints['species5']:
-                self.sym_specie5 = str_constraints['species5']['name']
+                self.sym_species5 = str_constraints['species5']['name']
                 self.min_num_sp5 = str_constraints['species5']['min_num']
                 self.max_num_sp5 = str_constraints['species5']['max_num']
 
@@ -176,32 +147,20 @@ class make_random_model(object):
         Add vacuum in all three directions
         """
         max_dia = self.max_dia
-        r_rand_lin = self.r_rand_lin
-        tol_rand_lin = self.tol_rand_lin
-        set_ratio = self.lin_sph_ratio
-        box_abc = self.box_abc
         min_dist_dict = self.min_dist_dict
         max_bond_dist = self.max_bond_dist
         # get species
         species, cum_sum = self.get_n_species()
         num_atoms = len(species)
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
-        # set_ratio is a fraction to decide random_spherical or random_linear
-        # set_ratio=0 means only random_spherical
-        # set_ratio=1 means only random_linear
+
         atoms_too_close = True
         while atoms_too_close is True:
-            if unif(0, 1) < set_ratio:
-                cart_coords = self.get_n_coords_linear(num_atoms, max_dia,
-                                             r=r_rand_lin, r_tol=tol_rand_lin)
-                if cart_coords is None:
-                    continue
-                cluster = Structure(latt, species, cart_coords,
-                                                     coords_are_cartesian=True)
-            else:
-                frac_coords = self.get_n_coords_spherical(num_atoms)
-                cluster = Structure(latt, species, frac_coords)
-            # TODO: add composition check flag
+            cart_coords = self.get_n_coords_linear(num_atoms, max_dia)
+            if cart_coords is None:
+                continue
+            cluster = Structure(latt, species, cart_coords,
+                                                coords_are_cartesian=True)
 
             # check distance between different pairs of species
             atoms_too_close = dc.check_all_bonds(cluster, self.min_dist_dict,
@@ -246,50 +205,50 @@ class make_random_model(object):
         species = []
         count = []
         # NOTE: composition is decided here randomly
-        specie1 = self.sym_specie1
+        species1 = self.sym_species1
         if self.min_num_sp1 == self.max_num_sp1:
-            num_specie1 = self.min_num_sp1
+            num_species1 = self.min_num_sp1
         else:
-            num_specie1 = int(unif(self.min_num_sp1, self.max_num_sp1+1))
-        for i in range(num_specie1):
-            species.append(specie1)
-        count.append(num_specie1)
+            num_species1 = int(unif(self.min_num_sp1, self.max_num_sp1+1))
+        for i in range(num_species1):
+            species.append(species1)
+        count.append(num_species1)
         if self.num_species > 1:
-            specie2 = self.sym_specie2
+            species2 = self.sym_species2
             if self.min_num_sp2 == self.max_num_sp2:
-                num_specie2 = self.min_num_sp2
+                num_species2 = self.min_num_sp2
             else:
-                num_specie2 = int(unif(self.min_num_sp2, self.max_num_sp2+1))
-            for i in range(num_specie2):
-                species.append(specie2)
-            count.append(num_specie2)
+                num_species2 = int(unif(self.min_num_sp2, self.max_num_sp2+1))
+            for i in range(num_species2):
+                species.append(species2)
+            count.append(num_species2)
         if self.num_species > 2:
-            specie3 = self.sym_specie3
+            species3 = self.sym_species3
             if self.min_num_sp3 == self.max_num_sp3:
-                num_specie3 = self.min_num_sp3
+                num_species3 = self.min_num_sp3
             else:
-                num_specie3 = int(unif(self.min_num_sp3, self.max_num_sp3+1))
-            for i in range(num_specie3):
-                species.append(specie3)
-            count.append(num_specie3)
+                num_species3 = int(unif(self.min_num_sp3, self.max_num_sp3+1))
+            for i in range(num_species3):
+                species.append(species3)
+            count.append(num_species3)
         if self.num_species > 3:
-            specie4 = self.sym_specie4
+            species4 = self.sym_species4
             if self.min_num_sp4 == self.max_num_sp4:
-                num_specie4 = self.min_num_sp4
+                num_species4 = self.min_num_sp4
             else:
-                num_specie4 = int(unif(self.min_num_sp4, self.max_num_sp4+1))
-            for i in range(num_specie4):
-                species.append(specie4)
-            count.append(num_specie4)
+                num_species4 = int(unif(self.min_num_sp4, self.max_num_sp4+1))
+            for i in range(num_species4):
+                species.append(species4)
+            count.append(num_species4)
         if self.num_species > 4:
-            specie5 = self.sym_specie5
+            species5 = self.sym_species5
             if self.min_num_sp5 == self.max_num_sp5:
-                num_specie5 = self.min_num_sp5
+                num_species5 = self.min_num_sp5
             else:
-                num_specie5 = int(unif(self.min_num_sp5, self.max_num_sp5+1))
-            for i in range(num_specie5):
-                species.append(specie5)
-            count.append(num_specie5)
+                num_species5 = int(unif(self.min_num_sp5, self.max_num_sp5+1))
+            for i in range(num_species5):
+                species.append(species5)
+            count.append(num_species5)
 
         # For fixed composition, we do not change total num_atoms
         # So, min and max should be same for each species and,
@@ -299,56 +258,6 @@ class make_random_model(object):
         # get species ; length of species is the num_atoms
         # sanity check: cum_sum[-1] == len(species)
         return species, cum_sum
-
-    def get_n_coords_spherical(self, n):
-        """
-        for a given range of frac_coords for x, y, z; randomly add 'n'
-        coordinates
-
-        Args:
-        n: integer - number of coordinates needed
-
-        for i in range(n):
-            x = unif(x_min, x_max)
-            y = unif(y_min, y_max)
-            z = unif(z_min, z_max)
-
-        returns an array of 'n' frac_coords
-        """
-        # get n (fractional) coords ; all in first eighth of the lattice
-        coords = []
-        coords_added = 0
-        while coords_added < n:
-            coord = [unif(0, 0.5), unif(0, 0.5), unif(0, 0.5)]
-            coords.append(coord)
-            coords_added += 1
-
-        # make matrices to translate in x, y and z
-        tx = np.array([0.5, 0, 0])
-        ty = np.array([0, 0.5, 0])
-        tz = np.array([0, 0, 0.5])
-
-        # translate each coord into one of 8 cubes in a sequential manner
-        z0 = np.array([i*8 for i in range(len(coords)) if i*8 < len(coords)])
-        c0 = np.array([coords[i] for i in z0])
-        z1 = [i*8+1 for i in range(len(coords)) if i*8+1 < len(coords)]
-        c1 = [coords[i]+tx for i in z1]
-        z2 = [i*8+2 for i in range(len(coords)) if i*8+2 < len(coords)]
-        c2 = [coords[i]+ty for i in z2]
-        z3 = [i*8+3 for i in range(len(coords)) if i*8+3 < len(coords)]
-        c3 = [coords[i]+tz for i in z3]
-        z4 = [i*8+4 for i in range(len(coords)) if i*8+4 < len(coords)]
-        c4 = [coords[i]+tx+ty for i in z4]
-        z5 = [i*8+5 for i in range(len(coords)) if i*8+5 < len(coords)]
-        c5 = [coords[i]+ty+tz for i in z5]
-        z6 = [i*8+6 for i in range(len(coords)) if i*8+6 < len(coords)]
-        c6 = [coords[i]+tx+tz for i in z6]
-        z7 = [i*8+7 for i in range(len(coords)) if i*8+7 < len(coords)]
-        c7 = [coords[i]+tx+ty+tz for i in z7]
-
-        new_coords = np.vstack((c0, c1, c2, c3, c4, c5, c6, c7))
-
-        return new_coords
 
     def get_thickness(self, astr, axis=2):
         """
@@ -410,7 +319,7 @@ class make_random_model(object):
 
         return astr
 
-    def get_n_coords_linear(self, num_atoms, max_dia, r=2, r_tol=0.25):
+    def get_n_coords_linear(self, num_atoms, max_dia):
         """
         Given maximum allowed diamter of a cluster, adds random coordinates
         in a linear fashion such that the new point coordinates satisfies the
@@ -419,8 +328,6 @@ class make_random_model(object):
         Args:
         num_atoms - (int) number of atoms needed in the structure
         max_dia - (float) maximum diameter of the cluster
-        r - (float) radius within which new coordinate would be added
-        r_tol - (float) tolerance for the radius
         """
         # start from origin
         old_point = np.array([0,0,0])
@@ -428,7 +335,9 @@ class make_random_model(object):
         coords_added = 0
         new_point_attempt = 0
         while coords_added < num_atoms:
-            radius = unif(r - r_tol, r + r_tol)
+            min_bond_dist = min(list(self.min_dist_dict.values()))
+            max_bond_dist = self.max_bond_dist
+            radius = unif(min_bond_dist, max_bond_dist)
             new_point = self.get_point_on_sphere(radius)
 
             # returns None if the algo cannot add a new point in 500 attempts
@@ -446,9 +355,10 @@ class make_random_model(object):
                 continue
 
             # check distances with all previous points
-            # using max of min_dists
+            # using max of min_dists for initial population
             max_of_min_dists = max(list(self.min_dist_dict.values()))
-            if not dc.one_to_many_distances(new_point, coords, max_of_min_dists):
+            if not dc.one_to_many_distances(new_point, coords,
+                                            max_of_min_dists):
                 continue
 
             # add the new_point and reset the no. of attempts
@@ -465,7 +375,8 @@ class make_random_model(object):
         random.shuffle(int_list)
         shuffled_coords = [coords[i] for i in int_list]
 
-        return shuffled_coords         # coords are cartesian
+        # coords are cartesian
+        return shuffled_coords
 
     def get_point_on_sphere(self, r):
         """
@@ -484,16 +395,3 @@ class make_random_model(object):
         point = point * r
 
         return point
-
-
-class combine_regions(object):
-    """
-    Use the random structure objects generated by make_random_model class.
-    Combine these structures into a single structure by allocating specific
-    region to each input random structures.
-
-    Input:
-    2 or more structures
-    corresponding region for each structure
-    class specific constraints (if any)
-    """

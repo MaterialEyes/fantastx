@@ -97,25 +97,31 @@ def make_objects(i_dict):
 
     # Pool object (contains good_pool and bad_pool)
     pool_params = {}
-    pool_params['capacity'] = i_dict['pool_capacity']
+    pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
     pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
-    if not 'select_objective' in i_dict:
-        print ('Error: Please provide single or multi objective function')
-    elif i_dict['select_objective'] == 'multi':
-        select_params = {}
-        select_params['type'] = 'multi'
-        if 'weights' in i_dict: # defaults assumed in selection module
-            select_params['weights'] = i_dict['weights']
-        if 'temp' in i_dict:
-            select_params['temp'] = i_dict['temp']
+    if not 'select_params' in i_dict:
+        print ('Error: Please provide select_params keyword and objective'
+                ' keyword specifying single or multiobjective optimization.')
+    else:
+        select_params = i_dict['select_params']
+    if not 'objective_fn_type' in select_params.keys():
+        print ('Error: Please provide select_params keyword and objective'
+                ' keyword specifying single or multiobjective optimization.')
+
+    if select_params['objective_fn_type'] not in ['multi', 'single']:
+        print ('Error: Select objective should be a string of either'
+                                                ' single or multi.')
+    if select_params['objective_fn_type'] == 'multi':
         select = selection.Select(select_params)
-    elif i_dict['select_objective'] == 'single':
+        # weights, num_required_above_50 & num_models_before_pareto are in
+        # select_params if provided
+    else:
         select_params = {}
-        select_params['type'] = 'single'
+        select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
         select = selection.Select(select_params)
     all_objects['select'] = select
@@ -129,10 +135,13 @@ def make_objects(i_dict):
     basinhopping_params = {}
     if 'basinhopping_constraints' in i_dict:
         basinhopping_params = i_dict['basinhopping_constraints']
-    # NOTE: contains 'perturb_box', 'indices_fraction', 'scale_fraction',
-    # 'max_perturbation' and 'scale_direction'
+    # NOTE: contains  'indices_fraction' and 'max_perturbation'
     basinhopping_params['min_dist_dict'] = str_constraints['min_dist_dict']
     basinhopping_params['species_dict'] = i_dict['structure_record']['species']
+    basinhopping_params['shape'] = str_constraints['shape']
+    if str_constraints['shape'] == 'cluster':
+        basinhopping_params['max_dia'] = str_constraints['max_dia']
+        basinhopping_params['box_abc'] = str_constraints['box_abc']
     hop = structure_operations.basinhopping(basinhopping_params)
     # all_objects['hop'] = hop
 
@@ -143,16 +152,17 @@ def make_objects(i_dict):
         gb_ops_obj = structure_operations.gb_ops(hop, str_constraints)
         all_objects['gb_ops_obj'] = gb_ops_obj
 
+        energy_code.hollow_botz = gb_ops_obj.hollow_botz
+        energy_code.hollow_topz = gb_ops_obj.hollow_topz
+        all_objects['energy_code'] = energy_code
+
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(i_dict, str_constraints)
-    evolve = structure_operations.Evolve(mate, hop, evolve_params)
-    all_objects['evolve'] = evolve
+    if not evolve_params == {}:
+        evolve = structure_operations.Evolve(mate, hop, evolve_params)
+        all_objects['evolve'] = evolve
 
-
-    ################### Develop the below objects
-
-    #Stopper
-    #stopper = structure_record.Stopper(str_record)
+    ################### Develop any other below objects
 
     return all_objects
 
@@ -175,12 +185,6 @@ def get_energy_params(i_dict):
     else:
         energy_params['energy_code'] = i_dict['energy_code']
 
-    # energy obj_fn
-    if 'energy_obj_fn' not in i_dict:
-        print ('Please provide objective function as string. This is mandatory')
-    else:
-        energy_params['energy_obj_fn'] = i_dict['energy_obj_fn']
-
     # energy code execution command (Mandatory)
     if 'energy_exec_cmd' not in i_dict:
         print ('Please provide the execution command for the energy '
@@ -190,21 +194,20 @@ def get_energy_params(i_dict):
 
     # chemical potentials
     mu = {1:0, 2:0, 3:0, 4:0, 5:0}
-    if i_dict['energy_obj_fn'] == 'mu_based':
-        species_dict = i_dict['structure_record']['species']
-        try:
-            mu[1] = species_dict['species1']['mu']
-            if 'species2' in species_dict:
-                mu[2] = species_dict['species2']['mu']
-            if 'species3' in species_dict:
-                mu[3] = species_dict['species3']['mu']
-            if 'species4' in species_dict:
-                mu[4] = species_dict['species4']['mu']
-            if 'species5' in species_dict:
-                mu[5] = species_dict['species5']['mu']
-        except:
-            print ('Error: For \'mu_based\' objective function, '
-                   'chemical potentials must be provided for every species!')
+    species_dict = i_dict['structure_record']['species']
+    try:
+        mu[1] = species_dict['species1']['mu']
+        if 'species2' in species_dict:
+            mu[2] = species_dict['species2']['mu']
+        if 'species3' in species_dict:
+            mu[3] = species_dict['species3']['mu']
+        if 'species4' in species_dict:
+            mu[4] = species_dict['species4']['mu']
+        if 'species5' in species_dict:
+            mu[5] = species_dict['species5']['mu']
+    except:
+        print ('Error: Chemical potentials must be provided as a dictionary '
+                'for each species with integer keys!')
     energy_params['mu'] = mu
 
     # Number of times to resubmit if not converged (for vasp)
@@ -294,14 +297,16 @@ def get_mating_params(i_dict, str_constraints):
     mating_params = {}
     if 'mating_constraints' in i_dict:
         mating_params = i_dict['mating_constraints']
-
-    # NOTE: mating_constraints contain 'num_parents_fraction' and
-    # 'attach_type_fraction'
+        # contains 'mirror_slice_before_join' boolean parameter if provided
 
     # Add other necessary constraints from before
     mating_params['min_dist_dict'] = str_constraints['min_dist_dict']
     mating_params['species_dict'] = i_dict['structure_record']['species']
     mating_params['num_species'] = str_constraints['num_species']
+    mating_params['shape'] = str_constraints['shape']
+    if mating_params['shape'] == 'cluster':
+        mating_params['box_abc'] = str_constraints['box_abc']
+        mating_params['max_dia'] = str_constraints['max_dia']
 
     # species dicts
     keys = ['species1', 'species2', 'species3', 'species4', 'species5']
@@ -321,23 +326,15 @@ def get_evolve_params(i_dict, str_constraints):
     str_constraints - (dict) dictionary of all the constraints for making
                       random models
     """
-
     evolve_params = {}
     if 'evolve_probabilities' in i_dict:
-        probs_dict = i_dict['evolve_probabilities']
-        for key in probs_dict.keys():
-            if key not in [1, 2, 3, 4]:
-                print ('Specified probability key to method does not exist. '
-                        'Keys should be only 1, 2, 3 or 4.')
-        if sum(probs_dict.values()) != 1:
-            print ('Error: Sum of probabilities should be equal to 1')
-    evolve_params['probabilities'] = probs_dict
-    evolve_params['num_species'] = str_constraints['num_species']
-    # species dicts
-    keys = ['species1', 'species2', 'species3', 'species4', 'species5']
-    for specie in keys:
-        if specie in str_constraints:
-            evolve_params[specie] = str_constraints[specie]
+        evolve_params = i_dict['evolve_probabilities']
+        evolve_params['num_species'] = str_constraints['num_species']
+        # species dicts
+        keys = ['species1', 'species2', 'species3', 'species4', 'species5']
+        for specie in keys:
+            if specie in str_constraints:
+                evolve_params[specie] = str_constraints[specie]
     return evolve_params
 
 # assume experimental pdf is given

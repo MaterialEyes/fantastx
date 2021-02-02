@@ -16,6 +16,11 @@ from time import sleep
 from dask_jobqueue import SLURMCluster
 from dask.distributed import Client
 
+# change worker unresponsive time to 3h (Assuming max elapsed time for one calc)
+import dask
+import dask.distributed
+dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
+
 main_path = os.getcwd()
 # read input file and make input dictionary
 with open('gb_input.yaml') as ifile:
@@ -29,7 +34,10 @@ all_objects = inputs.make_objects(i_dict)
 reg_id = all_objects['reg_id']
 
 input_model_obj = all_objects['input_model_obj']
-gb_ops_obj = all_objects['gb_ops_obj']
+
+gb_ops_obj = None
+if 'gb_ops_obj' in all_objects:
+    gb_ops_obj = all_objects['gb_ops_obj']
 
 # kwargs for full_eval() function
 if gb_ops_obj is not None:
@@ -40,12 +48,13 @@ else:
     evolve = all_objects['evolve']
 
 energy_code = all_objects['energy_code']
+sim_ids = None
 if 'Xsim_1' in all_objects.keys():
     Xsim_1 = all_objects['Xsim_1']
-    sims = [1]
+    sim_ids = [1]
 else:
     Xsim_1 = None
-# TODO: add Xsim2 and Xsim3 etc.. and count in sims
+# TODO: add Xsim2 and Xsim3 etc.. and count in sim_ids
 
 pool = all_objects['pool']
 select = all_objects['select']
@@ -74,20 +83,18 @@ with open(data_file, 'w') as f:
 models_evald = 0
 # the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
-num_initial_pop =  5#i_dict['initial_population']['total']
-total_models_needed = 10#i_dict['structure_record']['stopper']['num_calcs']
+num_initial_pop =  i_dict['population_limits']['initial_population']
+total_models_needed = i_dict['population_limits']['total_population']
 
-# Start the ProcessPoolExecutor with num_parallel as max_workers
-# NOTE: ~ total_cores/max_workers is the num cores used to do one calculation
 max_workers = 2 # TODO: make an option for max_workers in the input file
 ###############
 cluster_job = SLURMCluster(cores=1,
-                           memory="2GB",
+                           memory="4GB",
                            project='hennig',
                            queue='hpg2-compute',
                            interface='ib0',
-                           walltime='2:00:00',
-                           job_extra=['--ntasks 4', '--nodes=1'])
+                           walltime='4:00:00',
+                           job_extra=['--ntasks 16', '--nodes=1'])
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
 
@@ -147,7 +154,7 @@ if input_model_obj is not None:
 
     # evaluate the input models
     for input_model in input_models:
-        new_model = make_model(random_model_obj, evolve, select, pool,
+        new_model, select = make_model(random_model_obj, evolve, select, pool,
                                 reg_id, model_type='inputs', model=input_model)
         # relax the model in dask-workers
         out = client.submit(relax, new_model, reg_id, energy_code)
@@ -162,36 +169,32 @@ start_time = time.time()
 while models_evald < total_models_needed:
     working_jobs = get_working_jobs(evald_futures)
     # In some cases (lammps based), working_jobs always < max_workers
-    while working_jobs < max_workers and models_evald < total_models_needed:
+    # Ensure some structures are always in the queue for each worker so that
+    # workers wont be idle if some step on master becomes bottle neck
+    while working_jobs < 2*max_workers and models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
-            new_model = make_model(random_model_obj, evolve, select, pool,
-                                        reg_id, model_type='random')
+            new_model, select = make_model(random_model_obj, evolve, select,
+                                            pool, reg_id, model_type='random')
         else:
-            new_model = make_model(random_model_obj, evolve, select, pool,
-                                        reg_id, model_type='evolved')
+            new_model, select = make_model(random_model_obj, evolve, select,
+                                            pool, reg_id, model_type='evolved')
 
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
-        evald_futures, pool, models_evald = new_update_pool(evald_futures,
+        evald_futures, models_evald, pool, select = update_pool( evald_futures,
                                                             models_evald,
                                                             pool, select,
-                                                            data_file, sims)
+                                                            data_file, sim_ids)
         working_jobs = get_working_jobs(evald_futures)
-        #temp_selection_probs(pool)
 
 # process extra calculations running in last batch
 while len(evald_futures) > 0:
-    evald_futures, pool, models_evald = new_update_pool(evald_futures,
+    evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                             models_evald,
                                                             pool, select,
-                                                            data_file, sims)
-
-sorted_pool = pool.get_sorted_pool()
-with open('sorted_data', 'a') as f:
-    for model in sorted_pool:
-        f.write('{0}\t {1}\n'.format(model.label, model.obj0_val))
+                                                            data_file, sim_ids)
 
 #client.shutdown()
 

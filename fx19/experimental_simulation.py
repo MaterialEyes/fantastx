@@ -225,6 +225,7 @@ class pdf_of_model(object):
                                              method=self.minimize_method,
                                              tol=1e-3,
                                              options={'maxiter':20})
+            fitted_params = result.x
             residual = Fit.scalarResidual(fitted_params)
             return (residual / 600) ** .5
         else:
@@ -398,21 +399,14 @@ class gb_ingrained(object):
         np.save(self.main_path + '/whole_exp.npy', exp_patch)
         np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
-        # Temporary hard coded cropping of image to interface region
-        self.im_ref = exp_patch[132:300]
-        match_ssim = iop.score_ssim(sim_img[132:300], self.im_ref)
+        # Temporarily "hard-coded" exp interface region for VASP runs
+        # Load prev_whole_exp.npy that is from the LAMMPS runs
+        exp_prev = np.load('prev_whole_exp.npy')
+        # in y & x directions
+        exp_patch_for_vasp = exp_prev[152:279, 12:]
+        self.im_ref = exp_patch_for_vasp
+        match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
-
-    def scale_gb_astr(self, tested_scales, factor=0.01):
-        """
-        Once we evaluate the gb_astr, if residual is greater than the threshold,
-        we stretch or squeeze the model.
-
-        tested_scales: a list of (float) values that have already been tested
-        on the model
-        factor: the factor by which to scale the model
-        """
-        pass
 
     def evaluate_obj(self, model):
         """
@@ -440,12 +434,12 @@ class gb_ingrained(object):
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
         if model.Xsim1 == 'GB_STEM':
-            model.obj1_val = float((1 - score)*100) # Minimizing the obj vals
+            model.obj1_val = float((score)*100) # Minimizing the obj vals
         elif model.Xsim2 == 'GB_STEM':
-            model.obj2_val = float((1 - score)*100)
+            model.obj2_val = float((score)*100)
         elif model.Xsim3 == 'GB_STEM':
-            model.obj3_val = float((1 - score)*100)
+            model.obj3_val = float((score)*100)
         elif model.Xsim4 == 'GB_STEM':
-            model.obj4_val = float((1 - score)*100)
+            model.obj4_val = float((score)*100)
 
         return model, score

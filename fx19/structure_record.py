@@ -156,16 +156,11 @@ class structure_constraints(object):
         under structure_record
         """
 
-        self.def_min_dist = 1.5 # minimum distance between atoms in angstroms
+        self.def_min_dist = 2 # minimum distance between atoms in angstroms
         self.min_num_atoms = 30
         self.max_num_atoms = 101
+        self.max_bond_dist = 4
 
-        if 'lin_sph_ratio' in str_record:
-            self.lin_sph_ratio = str_record['lin_sph_ratio']
-        if 'radius_rand_linear' in str_record:
-            self.r_rand_lin = str_record['radius_rand_linear']
-        if 'tol_rand_linear' in str_record:
-            self.tol_rand_lin = str_record['tol_rand_linear']
         if 'max_bond_dist' in str_record:
             self.max_bond_dist = str_record['max_bond_dist']
 
@@ -204,73 +199,73 @@ class structure_constraints(object):
         self.min_dist_dict = min_dist
 
         # see that all attributes for all species are present by placing
-        # defaults for specie1 and that of specie1 for the rest
+        # defaults for species1 and that of species1 for the rest
         element_syms = {}
         if 'species1' not in species_dict:
-            print ('Please provide specie1 under species in input file.')
+            print ('Please provide species1 under species in input file.')
         else:
-            self.specie1 = species_dict['species1']
-            if 'name' not in self.specie1:
+            self.species1 = species_dict['species1']
+            if 'name' not in self.species1:
                 print ('Please specify element name (Ex: \'Al\') of specie 1.')
-            element_syms[1] = self.specie1['name']
-            if 'min_num' not in self.specie1:
-                self.specie1['min_num'] = self.min_num_atoms
+            element_syms[1] = self.species1['name']
+            if 'min_num' not in self.species1:
+                self.species1['min_num'] = self.min_num_atoms
             else:
-                self.min_num_atoms = self.specie1['min_num']
-            if 'max_num' not in self.specie1:
-                self.specie1['max_num'] = self.max_num_atoms
+                self.min_num_atoms = self.species1['min_num']
+            if 'max_num' not in self.species1:
+                self.species1['max_num'] = self.max_num_atoms
             else:
-                self.max_num_atoms = self.specie1['max_num']
+                self.max_num_atoms = self.species1['max_num']
 
         if self.num_species > 1:
             if 'species2' in species_dict:
-                self.specie2 = species_dict['species2']
-                if 'name' not in self.specie2:
+                self.species2 = species_dict['species2']
+                if 'name' not in self.species2:
                     print ('Please specify element name (Ex: \'Al\') of specie 2.')
-                element_syms[2] = self.specie2['name']
-                if 'min_num' not in self.specie2:
-                    self.specie2['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie2:
-                    self.specie2['max_num'] = self.max_num_atoms
+                element_syms[2] = self.species2['name']
+                if 'min_num' not in self.species2:
+                    self.species2['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species2:
+                    self.species2['max_num'] = self.max_num_atoms
             else:
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 2:
             if 'species3' in species_dict:
-                self.specie3 = species_dict['species3']
-                if 'name' not in self.specie3:
+                self.species3 = species_dict['species3']
+                if 'name' not in self.species3:
                     print ('Please specify element name (Ex: \'Al\') of specie 3.')
-                element_syms[3] = self.specie3['name']
-                if 'min_num' not in self.specie3:
-                    self.specie3['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie3:
-                    self.specie3['max_num'] = self.max_num_atoms
+                element_syms[3] = self.species3['name']
+                if 'min_num' not in self.species3:
+                    self.species3['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species3:
+                    self.species3['max_num'] = self.max_num_atoms
             else:
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 3:
             if 'species4' in species_dict:
-                self.specie4 = species_dict['species4']
-                if 'name' not in self.specie4:
+                self.species4 = species_dict['species4']
+                if 'name' not in self.species4:
                     print ('Please specify element name (Ex: \'Al\') of specie 4.')
-                element_syms[4] = self.specie4['name']
-                if 'min_num' not in self.specie4:
-                    self.specie4['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie3:
-                    self.specie4['max_num'] = self.max_num_atoms
+                element_syms[4] = self.species4['name']
+                if 'min_num' not in self.species4:
+                    self.species4['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species3:
+                    self.species4['max_num'] = self.max_num_atoms
             else:
                 print ('Error: Please check the input format for species')
 
         if self.num_species > 4:
             if 'species5' in species_dict:
-                self.specie5 = species_dict['species5']
-                if 'name' not in self.specie5:
+                self.species5 = species_dict['species5']
+                if 'name' not in self.species5:
                     print ('Please specify element name (Ex: \'Al\') of specie 5.')
-                element_syms[5] = self.specie5['name']
-                if 'min_num' not in self.specie5:
-                    self.specie5['min_num'] = self.min_num_atoms
-                if 'max_num' not in self.specie5:
-                    self.specie5['max_num'] = self.max_num_atoms
+                element_syms[5] = self.species5['name']
+                if 'min_num' not in self.species5:
+                    self.species5['min_num'] = self.min_num_atoms
+                if 'max_num' not in self.species5:
+                    self.species5['max_num'] = self.max_num_atoms
 
         self.element_syms = element_syms
 
@@ -281,35 +276,21 @@ class structure_constraints(object):
         elif 'gb' in str_record:
             self.shape = 'gb'
         # TODO: add other shapes here
-        if self.shape == 'cluster':
-            # defaults
-            self.min_lattice_length = 3 # angstroms
-            self.max_lattice_length = 21
-            self.min_lattice_angle = 30 # degrees
-            self.max_lattice_angle = 150
 
-            self.box_abc = None
+        if self.shape == 'cluster':
             if 'box_abc' in str_record['cluster']:
-                #if str_record['cluster']['box_abc'] not None:
                 self.box_abc = str_record['cluster']['box_abc']
+            else:
+                print ('The lattice lengths of the box are not specified.'
+                        ' Using default orthogonal box of a=b=c=20Å')
+                self.box_abc = [20, 20, 20]
+
             if 'max_dia' in str_record['cluster']:
                 self.max_dia = str_record['cluster']['max_dia']
-
-            if self.box_abc:
-                self.min_lattice_length = min(self.box_abc) - 0.1 # tol
-                self.max_lattice_length = max(self.box_abc) + 0.1
-                self.min_lattice_angle = 88 # 2 degrees tol
-                self.max_lattice_angle = 92
-
-            if not self.box_abc:
-                if 'min_lattice_length' in constraints:
-                    self.min_lattice_length = constraints['min_lattice_length']
-                if 'max_lattice_length' in constraints:
-                    self.max_lattice_length = constraints['max_lattice_length']
-                if 'min_lattice_angle' in constraints:
-                    self.min_lattice_angle = constraints['min_lattice_angle']
-                if 'max_lattice_angle' in constraints:
-                    self.max_lattice_angle = constraints['max_lattice_angle']
+            else:
+                print ('The maximum diameter of the cluster is not specified. '
+                        'Using default diameter of 8Å')
+                self.max_dia = 8
 
         ####################cluster parameters ends###########################
         #########################gb parameters begins#########################
@@ -329,7 +310,9 @@ class structure_constraints(object):
             self.iface_latt = Lattice([gb_latt_matrix[0],
                                       gb_latt_matrix[1],
                                       [0, 0, self.iface_thickness]])
-            self.num_slices = str_record['gb']['num_slices']
+            self.num_slices = 2
+            if 'num_slices' in str_record['gb']:
+                self.num_slices = str_record['gb']['num_slices']
 
             """
             We get best matched gb interface structure from ingrained.
@@ -351,52 +334,3 @@ class structure_constraints(object):
         """
 
         return self.__dict__
-
-
-class Stopper(object):
-    """
-    This is to stop Fantastx search when the user defined criteria are met.
-    """
-    def __init__(self, str_record):
-
-        # defaults used only when nothing is given
-        self.num_calcs = 200000
-        self.auc = 0
-        self.best_str_since = 30000
-        self.same_area_since = 30000
-
-        # if stopper specified, only given stopper params will be considered
-        if 'Stopper' in str_record:
-            if 'num_calcs' in str_record['Stopper']:
-                self.num_calcs = str_record['Stopper']['num_calcs']
-            else:
-                self.num_calcs = None
-            if 'auc' in str_record['Stopper']:
-                self.auc = str_record['Stopper']['auc']
-            else:
-                self.auc = None
-            if 'best_str_since' in str_record['Stopper']:
-                self.best_str_since = str_record['Stopper']['best_str_since']
-            else:
-                self.best_str_since = None
-            if 'same_area_since' in str_record['Stopper']:
-                self.same_area_since = str_record['Stopper']['same_area_since']
-            else:
-                self.same_area_since = None
-
-    def check_num_calcs(self):
-        """
-        returns True if total number of structure evaluations is more than
-        num_calcs
-        """
-
-    def check_auc(self):
-        """
-        returns True if then calculated auc is lower than area_under_curve
-        """
-
-    def check_progress(self):
-        """
-        Check if either of best_str_since or same_area_since are met are returns
-        True
-        """
