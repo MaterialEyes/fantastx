@@ -16,6 +16,11 @@ from time import sleep
 from dask_jobqueue import SLURMCluster
 from dask.distributed import Client
 
+# change worker unresponsive time to 3h (Assuming max elapsed time for one calc)
+import dask
+import dask.distributed
+dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
+
 main_path = os.getcwd()
 # read input file and make input dictionary
 with open('gb_input.yaml') as ifile:
@@ -43,6 +48,7 @@ else:
     evolve = all_objects['evolve']
 
 energy_code = all_objects['energy_code']
+sim_ids = None
 if 'Xsim_1' in all_objects.keys():
     Xsim_1 = all_objects['Xsim_1']
     sim_ids = [1]
@@ -83,12 +89,12 @@ total_models_needed = i_dict['population_limits']['total_population']
 max_workers = 2 # TODO: make an option for max_workers in the input file
 ###############
 cluster_job = SLURMCluster(cores=1,
-                           memory="1GB",
+                           memory="4GB",
                            project='hennig',
                            queue='hpg2-compute',
                            interface='ib0',
-                           walltime='1:00:00',
-                           job_extra=['--ntasks 4', '--nodes=1'])
+                           walltime='4:00:00',
+                           job_extra=['--ntasks 16', '--nodes=1'])
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
 

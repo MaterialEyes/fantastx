@@ -16,6 +16,11 @@ from time import sleep
 from dask_jobqueue import SLURMCluster, PBSCluster
 from dask.distributed import Client
 
+# change worker unresponsive time to 3h (Assuming max elapsed time for one calc)
+import dask
+import dask.distributed
+dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
+
 main_path = os.getcwd()
 # read input file and make input dictionary
 with open('gb_input.yaml') as ifile:
@@ -43,6 +48,7 @@ else:
     evolve = all_objects['evolve']
 
 energy_code = all_objects['energy_code']
+sim_ids = None
 if 'Xsim_1' in all_objects.keys():
     Xsim_1 = all_objects['Xsim_1']
     sim_ids = [1]
