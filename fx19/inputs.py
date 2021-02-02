@@ -121,7 +121,7 @@ def make_objects(i_dict):
         # select_params if provided
     else:
         select_params = {}
-        select_params['type'] = 'single'
+        select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
         select = selection.Select(select_params)
     all_objects['select'] = select
@@ -151,6 +151,10 @@ def make_objects(i_dict):
         str_constraints['hop_mate_frac'] = str_record['gb']['hop_mate_frac']
         gb_ops_obj = structure_operations.gb_ops(hop, str_constraints)
         all_objects['gb_ops_obj'] = gb_ops_obj
+
+        energy_code.hollow_botz = gb_ops_obj.hollow_botz
+        energy_code.hollow_topz = gb_ops_obj.hollow_topz
+        all_objects['energy_code'] = energy_code
 
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(i_dict, str_constraints)
