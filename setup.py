@@ -15,7 +15,7 @@ if __name__ == "__main__":
         install_requires=['pymatgen'],
         package_data={},
         author='V. S. Chaitanya Kolluru',
-        author_email='kvs.chaitanya@ufl.edu',
+        author_email='vkolluru@anl.gov',
         url='https://gitlab.com/MaterialEyes/fantastx/tree/master/Fantastx-19',
-        scripts=[os.path.join(module_dir, 'files/run_Jun22.py')]
+        scripts=[os.path.join(module_dir, 'files/run_fx.py')]
     )
