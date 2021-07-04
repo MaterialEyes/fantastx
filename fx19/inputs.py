@@ -120,7 +120,6 @@ def make_objects(i_dict):
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
-        select_params = {}
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
         select = selection.Select(select_params)

@@ -9,11 +9,11 @@ parent structures
 import numpy as np
 import random
 from math import sqrt, exp
-import time
+# import time
 
 from sklearn.preprocessing import MinMaxScaler
 from scipy.optimize import minimize
-from scipy.spatial import ConvexHull, convex_hull_plot_2d
+from scipy.spatial import ConvexHull #, convex_hull_plot_2d
 
 class Pool(object):
     """
@@ -67,42 +67,38 @@ class Pool(object):
 
             return select
 
-        # call update selection probs which uses linear method for < 1000 models
-        if len(self.all_models) <= select.num_models_before_pareto:
-            self.good_pool = select.update_all_selection_probs(self.all_models,
+        # If multi-objective search, use linear method before dist_from_pareto
+        # call update selection probs which uses linear method before pareto
+        if select.type == 'multi':
+            if len(self.all_models) <= select.num_models_before_pareto:
+                self.good_pool = select.update_all_selection_probs(
+                                                           self.all_models,
                                                            self.capacity,
                                                            sim_ids=sim_ids)
-            print ('New model {} added: pool and probs are updated based'
-                        ' on their values only!'.format(model.label))
+                print ('New model {} added: probs updated based on sum of'
+                            ' normalized obj. values!'.format(model.label))
 
-            return select
+                return select
 
-        # check if model changes existing selection probs
-        to_good_pool, model = select.add_new_model(model, sim_ids=sim_ids)
-
-        if to_good_pool is None:
-            # model is pareto optimal
-            self.good_pool = select.update_all_selection_probs(self.all_models,
-                                                           self.capacity,
-                                                           sim_ids=sim_ids)
-            if len(self.good_pool) == 0:
-                # if update fails due to too few points for convex hull
-                print ('New Model {} added to good pool'.format(model.label))
-                self.good_pool = self.all_models
+        if select.type == 'single':
+            # Get updated cutoff value to skip probs for a bad model
+            cutoff_value = select.update_probs_single_obj(self.all_models,
+                                    self.capacity, update_cutoff_only=True)
+            if cutoff_value >= model.obj0_val:
+                to_good_pool = True
             else:
-                print ('New Model {} is pareto efficient!'.format(model.label))
-
-            return select
-
-        if to_good_pool == False:
-            print ('New Model {} not added to good_pool'.format(model.label))
-
-            return select
+                to_good_pool = False
+        else:
+            # check if model changes existing selection probs
+            to_good_pool, model = select.add_new_model(model, sim_ids=sim_ids)
 
         if to_good_pool == True:
             # Add model to good_pool
             self.good_pool.append(model)
             good_pool_values = np.array([i.overall_val for i in self.good_pool])
+            if select.type == 'single':
+                good_pool_values = np.array([i.obj0_val for i in \
+                                                            self.good_pool])
 
             if len(self.good_pool) > self.capacity:
                 # remove worst model from good_pool
@@ -120,7 +116,7 @@ class Pool(object):
             scaled_values = scaler.fit_transform(good_pool_values)[:,0]
 
             # optimize k for every 100th model (labels are continuous)
-            if model.label % 100 == 0:
+            if model.label % select.adjust_k_every == 0:
                 initial_k = select.optimum_k
                 # optimize k
                 res = minimize(Select._optimize_exponential_constant, initial_k,
@@ -136,6 +132,25 @@ class Pool(object):
             # Assign probabilities to the models
             for m, prob in zip(self.good_pool, exponential_probs):
                 m.selection_prob = prob
+
+            return select
+
+        if to_good_pool == False:
+            print ('New Model {} not added to good_pool'.format(model.label))
+
+            return select
+
+        if to_good_pool is None:
+            # model is pareto optimal
+            self.good_pool = select.update_all_selection_probs(self.all_models,
+                                                           self.capacity,
+                                                           sim_ids=sim_ids)
+            if len(self.good_pool)==0 or select.type=='single':
+                # if update fails due to too few points for convex hull
+                print ('New Model {} added to good pool'.format(model.label))
+                self.good_pool = self.all_models
+            else:
+                print ('New Model {} is pareto efficient!'.format(model.label))
 
             return select
 
@@ -181,6 +196,7 @@ class Select(object):
         # Store pareto points & convex hull points here
         self.pareto_points = None
         self.hull_points = None
+        self.cutoff_value = None
 
         # Store min, max of obj0 & obj1
         self.minmax_obj0 = None
@@ -188,6 +204,9 @@ class Select(object):
 
         # store optimized k; gets updated every 100th model
         self.optimum_k = -1 # default
+        self.adjust_k_every = 100 # default
+        if 'adjust_k_every' in select_obj_params:
+            self.adjust_k_every = select_obj_params['adjust_k_every']
 
         # store the parent ids to control number of times a model can be parent
         self.all_parent_labels = []
@@ -254,6 +273,78 @@ class Select(object):
         to_good_pool = True
         return to_good_pool, model
 
+    def update_probs_single_obj(self, all_models, good_pool_capacity,
+                                      update_cutoff_only=False):
+        """
+        For a search with only one objective function, updates selection
+        probabliites based on an exponential function.
+
+        Args:
+        all_models: (list) of all models evaluated so far
+
+        good_pool_capacity: (int) maximum number of models in good pool
+        """
+        # Get all models obj0_val
+        model_labels, all_v0 = [], []
+        for model in all_models:
+            model_labels.append(model.label)
+            all_v0.append(model.obj0_val)
+        self.minmax_obj0 = min(all_v0), max(all_v0)
+
+        # Get cutoff value for good pool
+        if len(all_v0) < good_pool_capacity:
+            self.cutoff_value = max(all_v0)
+        else:
+            copy_v0 = all_v0.copy()
+            copy_v0.sort()
+            self.cutoff_value = copy_v0[good_pool_capacity - 1]
+
+        # NOTE: When using the function for cutoff_value only; return
+        if update_cutoff_only:
+            return self.cutoff_value
+
+        # Make an array of objective function values and transpose
+        vals = np.array([all_v0])
+        vals = vals.T # n_models x n_obj_fns
+
+        # normalize using MinMaxScaler
+        scaler = MinMaxScaler()
+        norm_vals = scaler.fit_transform(vals)
+        norm_vals = norm_vals.T[0]
+
+        # get good pool --> pick top (good_pool_capacity) models
+        good_pool_labels = [i for _, i in sorted(zip(norm_vals, model_labels))]
+        good_pool_labels = good_pool_labels[:good_pool_capacity]
+        good_pool = [m for m in all_models if m.label in good_pool_labels]
+        norm_vals.sort()
+        good_pool_vals = norm_vals[:good_pool_capacity]
+
+        # optimize contant (k) in the exponential function e^(-kx) such that
+        # required number of models have probability greater than 0.5
+        initial_k = [-1]
+        if len(good_pool_labels) > self.adjust_k_every and \
+                len(good_pool_labels) > self.num_required_above_50:
+            res = minimize(Select._optimize_exponential_constant, initial_k,
+                           args=(self.num_required_above_50, norm_vals),
+                           method='Nelder-Mead', options={'maxiter':100})
+            opt_k = res.x[0]
+            self.optimum_k = opt_k
+            # Get probabilities by min max exponential function
+            # using the opt_k
+            exponential_probs = [(exp(opt_k * i) - exp(opt_k)) / \
+                        (1 - exp(opt_k)) for i in good_pool_vals]
+        else:
+            opt_k = initial_k[0]
+            # Get probabilities by simple exponential function
+            # using opt_k = -1
+            exponential_probs = [exp(opt_k * i) for i in good_pool_vals]
+        selection_probs = exponential_probs
+
+        # Assign probabilities to the models
+        for model, prob in zip(good_pool, selection_probs):
+            model.selection_prob = prob
+
+        return good_pool
 
     def update_all_selection_probs(self, all_models,
                                 good_pool_capacity, sim_ids=None):
@@ -310,7 +401,6 @@ class Select(object):
         14. Assign probabilites to models in good pool
 
         """
-        s1 = time.time()
         # NOTE: Currently only supports pareto distance in 2D (with 2 objective
         # functions). So, dist_from_pareto is distance from a line in 2D. It
         # becomes distance from a plane in 3D and so on.. as objective function
@@ -319,6 +409,10 @@ class Select(object):
         # Skip whole process if less points,
         if len(all_models) < 10:
             return []
+
+        # Call a function to get probs based only on obj0_val (single obj)
+        if self.type == 'single':
+            return self.update_probs_single_obj(all_models, good_pool_capacity)
 
         # Store all models objective function values separately
         model_labels = []
@@ -338,7 +432,6 @@ class Select(object):
             vals = np.array([all_v0, all_v1]) # n_obj_fns x n_models
         vals = vals.T # n_models x n_obj_fns
 
-        s2 = time.time()
         # normalize using MinMaxScaler
         scaler = MinMaxScaler()
         norm_vals = scaler.fit_transform(vals)
@@ -349,7 +442,6 @@ class Select(object):
         weighted_norm_vals = norm_vals/weights
 
         if len(all_models) > self.num_models_before_pareto:
-            s3 = time.time()
             # Get indices of points (models) which are pareto efficient
             pareto_true_inds= Select._is_pareto_efficient(weighted_norm_vals)
             pareto_true_inds.tolist()
@@ -370,7 +462,6 @@ class Select(object):
             pareto_points.sort()
             pareto_points = np.array(pareto_points)
 
-            s4 = time.time()
             try:
                 # Make convex hull with pareto points
                 hull = ConvexHull(pareto_points, qhull_options='QG0')
@@ -399,7 +490,6 @@ class Select(object):
             # slope of line between Px, Py
             m_pxpy = (Px[1] - Py[1]) / (Px[0] - Py[0])
 
-            s5 = time.time()
             distances_from_hull = []
             for data_of_model in weighted_norm_vals:
                 # get equation of the line perpendicular to the line PxPy and
@@ -419,7 +509,6 @@ class Select(object):
                                                              data_of_model))
                 distances_from_hull.append(min(distances))
 
-            s6 = time.time()
             # Get the cutoff value (distance_from_hull) for good_pool
             # TODO: Use a better way to get the cutoff_value
             if len(all_models) <= good_pool_capacity:
@@ -427,7 +516,7 @@ class Select(object):
             else:
                 copy_vals = distances_from_hull.copy()
                 copy_vals.sort()
-                cutoff_value = copy_vals[good_pool_capacity]
+                cutoff_value = copy_vals[good_pool_capacity - 1]
             self.cutoff_value = cutoff_value
 
             # Make good_pool with models with less than cutoff value
@@ -446,12 +535,11 @@ class Select(object):
             scaled_good_pool_values = \
                                 scaler.fit_transform(good_pool_values)[:,0]
 
-            s7 = time.time()
             # optimize contant (k) in the exponential function e^(-kx) such that
             # required number of models have probability greater than 0.5
             initial_k = [-1]
-            if len(good_pool) > 100 and len(good_pool) > \
-                                                self.num_required_above_50:
+            if len(good_pool) > self.adjust_k_every and \
+                    len(good_pool) > self.num_required_above_50:
                 res = minimize(Select._optimize_exponential_constant, initial_k,
                                args=(self.num_required_above_50,
                                      scaled_good_pool_values),
@@ -501,7 +589,6 @@ class Select(object):
         for model, prob in zip(good_pool, selection_probs):
             model.selection_prob = prob
 
-        s8 = time.time()
 
         return good_pool
 
