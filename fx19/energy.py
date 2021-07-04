@@ -131,7 +131,9 @@ class lammps_code(object):
         atom_style = self.atom_style
         # write model structure to POSCAR and store it in /relax
         new_poscar = relax_path + '/POSCAR_unrelaxed'
-        astr.to(filename=new_poscar, fmt='poscar')
+        sd_flags = [[0, 0, 0] for i in range(len(astr))]
+        gb_poscar = Poscar(astr, selective_dynamics=sd_flags)
+        gb_poscar.write_file(new_poscar)
         # check if both files exist.
         file_list = os.listdir(files_path)
         # For LAMMPS: check for in.min file in the files_path
