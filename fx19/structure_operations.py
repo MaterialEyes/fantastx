@@ -9,7 +9,7 @@ Geometry of search
 Mating_probability and no. of parents
 Mutation probability, mutation fractions (% atoms and magnitude)
 """
-from pymatgen import Structure, Lattice
+from pymatgen.core.structure import Structure, Lattice
 from pymatgen.transformations.standard_transformations import \
                                             RotationTransformation
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -1293,7 +1293,7 @@ class gb_ops(object):
             if 'selective_dynamics' not in new_gb[i].properties.keys():
                 new_gb[i].properties['selective_dynamics'] = \
                                                 [False, False, False]
-                                                
+
         new_gb.merge_sites(tol=1, mode='delete')
         rem_inds = self.get_rem_inds(new_gb)
         new_gb.remove_sites(rem_inds)

@@ -13,7 +13,7 @@ import numpy as np
 from time import sleep
 
 # dask import
-from dask_jobqueue import SLURMCluster
+from dask_jobqueue import SLURMCluster, PBSCluster
 from dask.distributed import Client
 
 # change worker unresponsive time to 3h (Assuming max elapsed time for one calc)

@@ -7,7 +7,7 @@ attributes and evaluated data
 
 Also contains general functions (if any required)
 """
-from pymatgen import Structure, Lattice
+from pymatgen.core.structure import Structure, Lattice
 
 class register_id(object):
     def __init__(self):

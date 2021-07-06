@@ -17,17 +17,19 @@ module load python
 
 If above methods fail, download Anaconda for the system [here](https://docs.conda.io/en/latest/miniconda.html). Follow default instructions and install Anaconda. Restart the terminal so that the installation takes effect.
 
-Add conda-forge to the Anaconda channels & set higher priority. Skip this step if conda-forge is already added before. Install everything from conda-forge to be consistent & reduce compatibility issues across different pacakges.
+Update conda and add conda-forge to the Anaconda channels & set higher priority. Skip this step if conda-forge is already added before. Install everything from conda-forge to be consistent & reduce compatibility issues across different pacakges.
 ```sh
+conda update -n base -c defaults conda
 conda config --add channels conda-forge
 ```
 
-Create a new conda environment with python 3
+Create a new conda environment with path. Provide path to the new conda environment. Add the new environment to the system path. Install python 3.
 
 ```sh
-conda create --name fantastx
-source activate fantastx
-conda install python=3.7
+conda create -yp /home/xxxxx/miniconda3/envs/fantastx
+conda activate /home/xxxxx/miniconda3/envs/fantastx
+export PATH=/home/xxxxx/miniconda3/envs/fx_521/bin:$PATH
+conda install python=3
 ```
 
 Install following dependencies in this order -
@@ -51,6 +53,14 @@ conda install -c conda-forge dask dask-jobqueue
 
 Ingrained (For TEM simulation)
 Follow instructions [here](https://github.com/MaterialEyes/ingrained/blob/master/README.md)
+
+Install Fantastx by cloning this repository. Enter username and password when prompted. Install using 'develop' for ease of updating the code during development phase.
+
+```sh
+git clone https://github.com/MaterialEyes/fantastx.git
+
+python setup.py develop
+```
 
 ## Usage
 
