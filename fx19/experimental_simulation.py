@@ -378,7 +378,7 @@ class gb_ingrained(object):
 
         # Get solutions from text file
         if self.progress_file:
-            progress = np.genfromtxt(progress_file, delimiter=',')
+            progress = np.genfromtxt(self.progress_file, delimiter=',')
             best_idx = int(np.argmin(progress[:,-1]))
             x = progress[best_idx]
             xfit = x[1:-1]
