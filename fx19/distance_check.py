@@ -2,7 +2,8 @@
 from __future__ import division, unicode_literals, print_function
 
 import numpy as np
-import math, copy
+import math
+import copy
 
 """
 This class checks the distance between all the atoms, the angles between
@@ -11,22 +12,25 @@ https://medium.com/@andriylazorenko/closest-pair-of-points-in-python-79e2409fc0b
 and been modified
 """
 
+
 def solution(x, y, z, min_dist, close_coords):
     x, y, z = list(x), list(y), list(z)
     a = list(zip(x, y, z))  # This produces list of tuples
     ax = sorted(a, key=lambda x: x[0])  # Presorting x-wise
     ay = sorted(a, key=lambda x: x[1])  # Presorting y-wise
-    p1, p2, mi = closest_pair(ax, ay, min_dist, close_coords)  # Recursive D&C function
+    # Recursive D&C function
+    p1, p2, mi = closest_pair(ax, ay, min_dist, close_coords)
     return p1, p2, mi, close_coords
+
 
 def dist(p1, p2):
     """
     calculates and returns the distance between two 3D points
     """
-    if len(p1)==len(p2)==3: #if points are in 3D
+    if len(p1) == len(p2) == 3:  # if points are in 3D
         d = math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2 +
                       (p1[2] - p2[2]) ** 2)
-    #elif len(p1)==len(p2)==2: # if points are in 2D
+    # elif len(p1)==len(p2)==2: # if points are in 2D
     #    d = math.sqrt((p1[0] - p2[0])** 2 + (p1[1] - p2[1])** 2)
     return d
 
@@ -42,7 +46,7 @@ def brute(ax, min_dist, close_coords):
     p1 = ax[0]
     p2 = ax[1]
     if mi < min_dist:
-        close_coords.append([p1,p2])
+        close_coords.append([p1, p2])
     ln_ax = len(ax)
     if ln_ax == 2:
         return p1, p2, mi
@@ -66,20 +70,21 @@ def closest_pair(ax, ay, min_dist, close_coords):
     """
     ln_ax = len(ax)  # It's quicker to assign variable
     if ln_ax <= 3:
-        return brute(ax, min_dist, close_coords)  # A call to bruteforce comparison
+        # A call to bruteforce comparison
+        return brute(ax, min_dist, close_coords)
     mid = ln_ax // 2  # Division without remainder, need int
     Qx = ax[:mid]  # Two-part split into Q and R
     Rx = ax[mid:]
 
     # Qx and Qy are sorted lists of Q, w.r.t x and y coords respectively
+    qx = set(Qx)
     Qy = list()
     Ry = list()
     for x in ay:  # split ay into 2 arrays using midpoint
-        qx = set(Qx)
         if x in qx:
-           Qy.append(x)
+            Qy.append(x)
         else:
-           Ry.append(x)
+            Ry.append(x)
 
     # Call recursively both arrays after split
     (p1, q1, mi1) = closest_pair(Qx, Qy, min_dist, close_coords)
@@ -116,7 +121,7 @@ def closest_split_pair(p_x, p_y, delta, best_pair, min_dist, close_coords):
                 best_pair = p, q
                 best = dst
             if dst < min_dist:
-                close_coords.append([p,q])
+                close_coords.append([p, q])
     return best_pair[0], best_pair[1], best
 
 
@@ -129,6 +134,7 @@ def check_angles(astr, min_angle, max_angle):
     """
     pass
 
+
 def astr_min_dist(astr, min_dist):
     """
     Returns True if atoms are too close
@@ -136,11 +142,12 @@ def astr_min_dist(astr, min_dist):
     close_coords = []
     coords = astr.cart_coords
     p1, p2, dist, recheck_coords = solution(
-                coords[:,0], coords[:,1], coords[:,2], min_dist, close_coords)
+        coords[:, 0], coords[:, 1], coords[:, 2], min_dist, close_coords)
     if dist < min_dist:
         return True, recheck_coords
     else:
         return False, None
+
 
 def coords_min_dist(coords, min_dist):
     """
@@ -149,11 +156,12 @@ def coords_min_dist(coords, min_dist):
     coords: array of cartesian coords
     min_dist: min_dist for the given array
     """
-    p1, p2, dist = solution(coords[:,0], coords[:,1], coords[:,2])
+    p1, p2, dist = solution(coords[:, 0], coords[:, 1], coords[:, 2])
     if dist < min_dist:
         return True
     else:
         return False
+
 
 def check_all_bonds(astr, min_dist_dict, cum_sum):
     """
@@ -171,7 +179,6 @@ def check_all_bonds(astr, min_dist_dict, cum_sum):
     # atoms_too_close is False if recheck_coords is None
     if recheck_coords is None:
         return atoms_too_close
-
 
     sp1_coords = np.round(astr.cart_coords[:cum_sum[0]], 3)
     if len(cum_sum) > 1:
@@ -228,6 +235,7 @@ def check_all_bonds(astr, min_dist_dict, cum_sum):
     atoms_too_close = False
     return atoms_too_close
 
+
 def one_to_many_distances(one_point, many_points, min_dist):
     """
     Checks the distances of one point to a list of many points
@@ -244,6 +252,7 @@ def one_to_many_distances(one_point, many_points, min_dist):
         if d < min_dist:
             return False
     return True
+
 
 def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
                         remove_index=None):
@@ -282,7 +291,8 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
             all_sites = copy.deepcopy(astr.sites)
             if remove_index:
                 del all_sites[remove_index]
-            coords_set = [i.coords for i in all_sites if i.specie.name==sp_name]
+            coords_set = [
+                i.coords for i in all_sites if i.specie.name == sp_name]
             min_dists.append(dist_set)
             coords_sets.append(coords_set)
             del all_sites
