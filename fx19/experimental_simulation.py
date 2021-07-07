@@ -2,7 +2,7 @@
 from __future__ import division, unicode_literals, print_function
 
 import scipy
-from scipy import optimize
+#from scipy import optimize
 from pymatgen.core.structure import Structure
 from pymatgen.io.cif import CifWriter
 from diffpy.Structure import loadStructure
@@ -10,7 +10,7 @@ from diffpy.srfit.pdf import PDFContribution
 from diffpy.srfit.fitbase import FitRecipe, FitResults
 
 # For preprocessing experimental image
-from skimage.transform import rescale
+#from skimage.transform import rescale
 from skimage import restoration
 from skimage.exposure import equalize_adapthist
 
@@ -18,6 +18,7 @@ from ingrained.structure import Bicrystal
 from ingrained.optimize import CongruityBuilder
 import ingrained.image_ops as iop
 
+from math import floor
 import numpy as np
 import os, cv2
 
@@ -298,7 +299,6 @@ class pdf_of_model(object):
         os.mkdir(pdf_sim)
         self.pdf_sim_dir = pdf_sim
 
-        init_stretch = np.array([self.stretch])
         # minimize the stretch_residual and fit best stretch
         opt_stretch = scipy.optimize.minimize_scalar(
                                               self.get_stretch_residual,
@@ -402,7 +402,7 @@ class gb_ingrained(object):
         # Temporarily "hard-coded" exp interface region for VASP runs
         # Load prev_whole_exp.npy that is from the LAMMPS runs
         exp_prev = np.load('prev_whole_exp.npy')
-        # in y & x directions
+        # in y & x directions # TODO: remove hard-coded values
         exp_patch_for_vasp = exp_prev[152:279, 12:]
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
@@ -425,11 +425,16 @@ class gb_ingrained(object):
         im_model, __ = bicrys_model.simulate_image(sim_params=self.opt_params)
         np.save(relax_path + '/model_sim.npy',im_model)
 
-        im_model = im_model[132:300]
+        # im_model = im_model[132:300] # TODO: remove hard-coded values
+        try:
+            score = iop.score_ssim(im_model, self.im_ref)
+        except ValueError:
+            im_model, im_ref = self.crop_dims(im_model, self.im_ref)
+            score = iop.score_ssim(im_model, im_ref)
+            print ('Adjusted image dimensions for model {}'.format(model.label))
+
         filename = relax_path+"/gb_im_model.jpg"
         cv2.imwrite(filename, im_model)
-
-        score = iop.score_ssim(im_model, self.im_ref)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
@@ -443,3 +448,34 @@ class gb_ingrained(object):
             model.obj4_val = float((score)*100)
 
         return model, score
+
+    def crop_dims(self, img, ref):
+        """
+        Goal:
+        1. Both images should have same dimensions
+        2. All simulated images should be similar in dimensions
+
+        NOTE: Since, the lattice in POSCAR is maintained same across all models
+        (ISIF=2), the simulated image should be same (or only different by
+        couple of pixels)
+
+        In such cases, use this function -
+
+        > which has less pixels - img or target
+        > find diff_pix in x & y
+        > remove the diff_pix/2 from both ends in x & y
+        """
+        diff_pix_x = img.shape[0] - ref.shape[0]
+        diff_pix_y = img.shape[1] - ref.shape[1]
+
+        if diff_pix_x < 0: # img is smaller & ref should be cropped
+            ref = ref[floor(-1*diff_pix_x/2) : floor(diff_pix_x/2), :]
+        elif diff_pix_x > 0: # ref is smaller & img should be cropped
+            img = img[floor(diff_pix_x/2) : floor(-1*diff_pix_x/2), :]
+
+        if diff_pix_y < 0: # img is smaller & ref should be cropped
+            ref = ref[:, floor(-1*diff_pix_y/2) : floor(diff_pix_y/2)]
+        if diff_pix_y > 0: # ref is smaller & img should be cropped
+            img = img[:, floor(diff_pix_y/2) : floor(-1*diff_pix_y/2)]
+
+        return img, ref
