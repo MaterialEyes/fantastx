@@ -289,7 +289,26 @@ def check_all_bonds(astr, min_dist_dict, cum_sum):
     return atoms_too_close
 
 
-def one_to_many_distances(one_point, many_points, min_dist, lattice):
+def one_to_many_distances(one_point, many_points, min_dist):
+    """
+    Checks the non-periodic distances of one point to a list of many points
+
+    one_point : cartesian coordinates of single point as list or an array
+    many_points: list of cartesian coordinates of all other points
+    min_dist: the minimum distance that is to be satisfied for all distances
+    lattice: the lattice object corresponding to the pymatgen structure
+
+    Returns False if the point is at less distance than min_dist. If satisfies
+    min_dist requirement for all points in list, returns True.
+    """
+    for each_point in many_points:
+        d = dist(one_point, each_point)
+        if d < min_dist:
+            return False
+    return True
+
+
+def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
     """
     Checks the distances of one point to a list of many points
 
@@ -309,7 +328,7 @@ def one_to_many_distances(one_point, many_points, min_dist, lattice):
 
 
 def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
-                        remove_index=None):
+                        remove_index=None, periodic=True):
     """
     Checks if new point satisfies all minimum distances specifically with
     each other atom already present in the astr.
@@ -353,7 +372,12 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
 
     bools = []
     for d, set in zip(min_dists, coords_sets):
-        bools.append(one_to_many_distances(new_point, set, d, astr.lattice))
+        if periodic:
+            bools.append(one_to_many_distances_periodic(
+                new_point, set, d, astr.lattice))
+        else:
+            bools.append(one_to_many_distances(
+                new_point, set, d))
 
     if not all(bools):
         return False

@@ -542,7 +542,7 @@ class mating(object):
             coords_to_add = coords_to_add + translate
 
         if dc.satisfies_all_dists(coords_to_add, specie_to_add, child,
-                                  self.min_dist_dict, self.species_dict):
+                                  self.min_dist_dict, self.species_dict, periodic=True):
             child.append(specie_to_add, coords_to_add,
                          coords_are_cartesian=True)
             return True
@@ -689,7 +689,7 @@ class mating(object):
                 # Check distance and replace with new coords
                 if dc.satisfies_all_dists(new_cart, species[i].name,
                                           child, self.min_dist_dict,
-                                          self.species_dict, remove_index=i):
+                                          self.species_dict, remove_index=i, periodic=False):
                     child.replace(i, species[i], new_cart,
                                   coords_are_cartesian=True)
                     replaced = True
@@ -832,7 +832,8 @@ class basinhopping(object):
                                                      parent.astr,
                                                      self.min_dist_dict,
                                                      self.species_dict,
-                                                     remove_index=i):
+                                                     remove_index=i,
+                                                     periodic=False):
                     parent.astr.replace(i, species[i], new_cart,
                                         coords_are_cartesian=True)
                     replaced = True
@@ -842,7 +843,8 @@ class basinhopping(object):
                                                  parent.gb_iface,
                                                  self.min_dist_dict,
                                                  self.species_dict,
-                                                 remove_index=i):
+                                                 remove_index=i,
+                                                 periodic=True):
                     parent.gb_iface.replace(i, species[i], new_cart,
                                             coords_are_cartesian=True)
                     replaced = True
@@ -1174,7 +1176,7 @@ class gb_ops(object):
             new_c = [unif(0, 1), unif(0, 1), unif(zmin, zmax)]
             new_c = child_astr.lattice.get_cartesian_coords(new_c)
             if dc.satisfies_all_dists(new_c, sp, dc_astr,
-                                      self.min_dist_dict, self.species_dict):
+                                      self.min_dist_dict, self.species_dict, periodic=True):
                 child_astr.append(sp, new_c, coords_are_cartesian=True)
                 num_added += 1
         del dc_astr

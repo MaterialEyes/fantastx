@@ -14,7 +14,6 @@ from pymatgen.core.structure import Structure
 from pymatgen.core.lattice import Lattice
 
 import os
-import random
 import numpy as np
 from numpy.random import uniform as unif
 
@@ -332,7 +331,7 @@ class make_random_model(object):
         coords_added = 0
         new_point_attempt = 0
         while coords_added < num_atoms:
-            min_bond_dist = min(list(self.min_dist_dict.values()))
+            min_bond_dist = min(self.min_dist_dict.values())
             max_bond_dist = self.max_bond_dist
             radius = unif(min_bond_dist, max_bond_dist)
             new_point = self.get_point_on_sphere(radius)
@@ -353,7 +352,7 @@ class make_random_model(object):
 
             # check distances with all previous points
             # using max of min_dists for initial population
-            max_of_min_dists = max(list(self.min_dist_dict.values()))
+            max_of_min_dists = max(self.min_dist_dict.values())
             if not dc.one_to_many_distances(new_point, coords,
                                             max_of_min_dists):
                 continue
@@ -366,14 +365,13 @@ class make_random_model(object):
 
         # move coords relative to center of cube
         coords = np.array(coords)
-        coords = np.array([max_dia/2, max_dia/2, max_dia/2]) + coords
+        coords = np.full((3,), max_dia/2) + coords
+
         # shuffle the coords
-        int_list = [i for i in range(num_atoms)]
-        random.shuffle(int_list)
-        shuffled_coords = [coords[i] for i in int_list]
+        np.random.shuffle(coords)
 
         # coords are cartesian
-        return shuffled_coords
+        return coords
 
     def get_point_on_sphere(self, r):
         """
