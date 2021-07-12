@@ -11,11 +11,12 @@ Mutation probability, mutation fractions (% atoms and magnitude)
 """
 from pymatgen.core.structure import Structure, Lattice
 from pymatgen.transformations.standard_transformations import \
-                                            RotationTransformation
+    RotationTransformation
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from numpy.random import uniform as unif
 import numpy as np
-import random, copy
+import random
+import copy
 import math
 
 from fx19 import structure_record
@@ -28,6 +29,7 @@ class Evolve(object):
     generate a single model. Will decide whether to do mating (GA) or
     mutation (basinhopping) to generate a new structure.
     """
+
     def __init__(self, mate, hop, evolve_params):
         """
         mate (obj): a mating object
@@ -50,16 +52,16 @@ class Evolve(object):
 
         if 'mate_by_slice_fraction' in evolve_params:
             self.mate_by_slice_fraction = \
-                                    evolve_params['mate_by_slice_fraction']
+                evolve_params['mate_by_slice_fraction']
 
         if 'mate_by_swap_fraction' in evolve_params:
             self.mate_by_swap_fraction = evolve_params['mate_by_swap_fraction']
 
         if not self.basinhopping_fraction + self.mate_by_slice_fraction + \
-                                    self.mate_by_swap_fraction == 1:
-            print ('Sum of the provided evolve method fractions is not equal'
-            ' to 1. So, using default values of 0.33, 0.33, 0.34 for hop, mate'
-            '_by_swap and mate_by_slice respectively.')
+                self.mate_by_swap_fraction == 1:
+            print('Sum of the provided evolve method fractions is not equal'
+                  ' to 1. So, using default values of 0.33, 0.33, 0.34 for hop, mate'
+                  '_by_swap and mate_by_slice respectively.')
             self.basinhopping_fraction = 0.34
             self.mate_by_slice_fraction = 0.33
             self.mate_by_swap_fraction = 0.33
@@ -79,7 +81,6 @@ class Evolve(object):
         # save species2 data if exists
         if self.num_species > 4:
             self.species5 = evolve_params['species5']
-
 
     def get_model(self, select, pool, reg_id):
         """
@@ -125,7 +126,7 @@ class Evolve(object):
             sp1 = self.species1
             sp1_ok = False
             sym_sp1, min_sp1, max_sp1 = sp1['name'], sp1['min_num'], \
-                                                    sp1['max_num']
+                sp1['max_num']
             if min_sp1 <= new_comp[sym_sp1] <= max_sp1:
                 sp1_ok = True
             all_ok.append(sp1_ok)
@@ -133,7 +134,7 @@ class Evolve(object):
                 sp2 = self.species2
                 sp2_ok = False
                 sym_sp2, min_sp2, max_sp2 = sp2['name'], sp2['min_num'], \
-                                                         sp2['max_num']
+                    sp2['max_num']
                 if min_sp2 <= new_comp[sym_sp2] <= max_sp2:
                     sp2_ok = True
                 all_ok.append(sp2_ok)
@@ -141,7 +142,7 @@ class Evolve(object):
                 sp3 = self.species3
                 sp3_ok = False
                 sym_sp3, min_sp3, max_sp3 = sp3['name'], sp3['min_num'], \
-                                                         sp3['max_num']
+                    sp3['max_num']
                 if min_sp3 <= new_comp[sym_sp3] <= max_sp3:
                     sp3_ok = True
                 all_ok.append(sp3_ok)
@@ -149,7 +150,7 @@ class Evolve(object):
                 sp4 = self.species4
                 sp4_ok = False
                 sym_sp4, min_sp4, max_sp4 = sp4['name'], sp4['min_num'], \
-                                                         sp4['max_num']
+                    sp4['max_num']
                 if min_sp4 <= new_comp[sym_sp4] <= max_sp4:
                     sp4_ok = True
                 all_ok.append(sp4_ok)
@@ -157,7 +158,7 @@ class Evolve(object):
                 sp5 = self.species5
                 sp5_ok = False
                 sym_sp5, min_sp5, max_sp5 = sp5['name'], sp5['min_num'], \
-                                                         sp5['max_num']
+                    sp5['max_num']
                 if min_sp5 <= new_comp[sym_sp5] <= max_sp5:
                     sp5_ok = True
                 all_ok.append(sp5_ok)
@@ -201,14 +202,14 @@ class mating(object):
         if 'mirror_slice_before_join' in mating_params:
             if isinstance(mating_params['mirror_slice_before_join'], bool):
                 self.mirror_slice_before_join = \
-                                    mating_params['mirror_slice_before_join']
+                    mating_params['mirror_slice_before_join']
             else:
-                print ('mirror_slice_before_join parameter should be a boolean.'
-                        ' Setting to defaults True')
+                print('mirror_slice_before_join parameter should be a boolean.'
+                      ' Setting to defaults True')
 
         if mating_params['shape'] == 'cluster':
             self.max_dia = mating_params['max_dia']
-            self.box_abc = mating_params['box_abc']
+            self.box_abc = np.array(mating_params['box_abc'])
 
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
@@ -292,12 +293,13 @@ class mating(object):
         """
         species = astr.species
         first_coords = astr.cart_coords
-        if rotate_type=='random':
+        if rotate_type == 'random':
             # perfrom random rotation transformation
-            hkl = [random.randint(0, 3), random.randint(0, 3), random.randint(0, 3)]
+            hkl = [random.randint(0, 3), random.randint(
+                0, 3), random.randint(0, 3)]
             rotate = RotationTransformation(hkl, unif(0, 360))
             temp_astr = rotate.apply_transformation(astr)
-        elif rotate_type=='mirror':
+        elif rotate_type == 'mirror':
             hkl = [random.randint(0, 3), random.randint(0, 3), 0]
             rotate = RotationTransformation(hkl, 180)
             temp_astr = rotate.apply_transformation(astr)
@@ -322,7 +324,7 @@ class mating(object):
         # Get conventional structure (2 ways)
         # 1. modify_lattice from parent1 (straight forward)
         # 2. use SpacegroupAnalyzer
-        temp_astr.lattice = astr.lattice # Approach 1
+        temp_astr.lattice = astr.lattice  # Approach 1
         # If the above causes any issues, use this approach 2
         # sp = SpacegroupAnalyzer(temp_parent)
         # prepped_parent = sp.get_conventional_standard_structure()
@@ -385,7 +387,7 @@ class mating(object):
         astr = copy.deepcopy(slice1)
         new_slice2 = copy.deepcopy(slice2)
         # If mirror one slice before attachment,
-        if attach_type=='mirror':
+        if attach_type == 'mirror':
             new_slice2 = self.rotate_astr(slice2, rotate_type='mirror')
         slice1_coords = astr.cart_coords
         slice2_coords = new_slice2.cart_coords
@@ -393,15 +395,16 @@ class mating(object):
         max_z_1 = max(slice1_coords[:, 2])
         min_z_2 = min(slice2_coords[:, 2])
         # Get translate vector along z i.e., x, y are 0
-        z_trans = np.array([0, 0, (max_z_1 - min_z_2) + 1])   # tolerance of z+1
+        z_trans = np.array([0, 0, (max_z_1 - min_z_2) + 1]
+                           )   # tolerance of z+1
         add_coords = slice2_coords + z_trans
         # center add_coords on slice1 i.e., align centers along x and y
         range_x1, range_y1 = slice1_coords[:, 0], slice1_coords[:, 1]
         range_x2, range_y2 = slice2_coords[:, 0], slice2_coords[:, 1]
         cent_x1, cent_y1 = (max(range_x1) + min(range_x1))/2, \
-                                 (max(range_y1) + min(range_y1))/2
+            (max(range_y1) + min(range_y1))/2
         cent_x2, cent_y2 = (max(range_x2) + min(range_x2))/2, \
-                                 (max(range_y2) + min(range_y2))/2
+            (max(range_y2) + min(range_y2))/2
         xy_trans = np.array([(cent_x1 - cent_x2), (cent_y1 - cent_y2), 0])
         add_coords = add_coords + xy_trans
 
@@ -447,6 +450,7 @@ class mating(object):
         species = [i.species for i in child_sites]
         coords = [i.coords for i in child_sites]
         latt = parent1.astr.lattice
+        # aren't these be cartesian coords?
         child = Structure(latt, species, coords)
 
         # merge sites
@@ -482,11 +486,11 @@ class mating(object):
         child_sps = [i.specie for i in child_elem_sites]
         child_coords = [i.coords for i in child_elem_sites]
         child = Structure(latt, child_sps, child_coords,
-                                coords_are_cartesian=True)
+                          coords_are_cartesian=True)
 
         return child, inheritance
 
-    def add_random_sites(self,child, list_of_parent_sites, indices, move=False):
+    def add_random_sites(self, child, list_of_parent_sites, indices, move=False):
         """
         child structure to which sites to be added randomly from different set
         of parent_sites.
@@ -528,7 +532,7 @@ class mating(object):
         index (int): index of the parent site to add
         move (bool): Whether to move and try to add a site coords when adding
         """
-        child_coords =  child.cart_coords
+        child_coords = child.cart_coords
         specie_to_add = parent_sites[index].specie.name
         coords_to_add = parent_sites[index].coords
 
@@ -538,9 +542,9 @@ class mating(object):
             coords_to_add = coords_to_add + translate
 
         if dc.satisfies_all_dists(coords_to_add, specie_to_add, child,
-                                  self.min_dist_dict,self.species_dict):
+                                  self.min_dist_dict, self.species_dict):
             child.append(specie_to_add, coords_to_add,
-                                  coords_are_cartesian=True)
+                         coords_are_cartesian=True)
             return True
         else:
             return False
@@ -571,8 +575,8 @@ class mating(object):
         Args:
         indices (list): Indices that are shuffled randomly for num_atoms_child
         """
-        A = indices[ : len(indices)//2 ]
-        B = indices[ len(indices)//2 : ]
+        A = indices[: len(indices)//2]
+        B = indices[len(indices)//2:]
         if len(A) > len(B):
             list_1, list_2 = A, B
         else:
@@ -663,13 +667,13 @@ class mating(object):
         child (obj): pymatgen structure object
         """
         radius, abc = self.max_dia/2, self.box_abc
-        origin = [abc[0]/2, abc[1]/2, abc[2]/2]
+        origin = abc/2
 
         # get atom indices that needs to be moved
         child_sites = child.sites
         species = child.species
-        move_inds = [i for i, site in enumerate(child_sites) \
-                                if dc.dist(origin, site.coords) > radius]
+        move_inds = [i for i, site in enumerate(child_sites)
+                     if dc.dist(origin, site.coords) > radius]
 
         # move those atoms in same way as in perturb_sites
         remove_inds = []
@@ -678,9 +682,8 @@ class mating(object):
             replaced = False
             while not replaced and tries < 1000:
                 tries += 1
-                new_cart = [unif(origin[0] - radius, origin[0] + radius),
-                            unif(origin[1] - radius, origin[1] + radius),
-                            unif(origin[2] - radius, origin[2] + radius)]
+                new_cart = unif(origin[0] - radius,
+                                origin[0] + radius, size=(3,))
                 if dc.dist(origin, new_cart) > radius:
                     continue
                 # Check distance and replace with new coords
@@ -688,7 +691,7 @@ class mating(object):
                                           child, self.min_dist_dict,
                                           self.species_dict, remove_index=i):
                     child.replace(i, species[i], new_cart,
-                                        coords_are_cartesian=True)
+                                  coords_are_cartesian=True)
                     replaced = True
             # remove those atoms that cannot be replaced
             if not replaced:
@@ -700,6 +703,7 @@ class basinhopping(object):
     """
     Class that handles making child models using basinhopping methods
     """
+
     def __init__(self, basinhopping_params):
         """
         Args:
@@ -736,22 +740,23 @@ class basinhopping(object):
             if 0 < basinhopping_params['indices_fraction'] <= 1:
                 self.indices_fraction = basinhopping_params['indices_fraction']
             else:
-                print ('Provided indices_fraction out of range (0,1]. '
-                        'Using default..')
+                print('Provided indices_fraction out of range (0,1]. '
+                      'Using default..')
 
         if 'max_perturbation' in basinhopping_params:
             if not 0 < basinhopping_params['max_perturbation'] <= 0.5:
-                print ('max_perturbation should be between (0, 0.5]. '
-                    'More than 0.5 would be throw the atoms too far. Check the'
-                    ' jump distance by lattice vectors * max_perturbation. '
-                    'Using default value of 0.15')
+                print('max_perturbation should be between (0, 0.5]. '
+                      'More than 0.5 would be throw the atoms too far. Check the'
+                      ' jump distance by lattice vectors * max_perturbation. '
+                      'Using default value of 0.15')
             else:
                 self.max_perturbation = basinhopping_params['max_perturbation']
 
         # maximum diameter and box lattice parameters of the cluster (geometry)
         if shape == 'cluster':
-            self.max_dia = basinhopping_params['max_dia'] # default is 8 Å
-            self.box_abc = basinhopping_params['box_abc'] # default a=b=c=20 Å
+            self.max_dia = basinhopping_params['max_dia']  # default is 8 Å
+            self.box_abc = np.array(
+                basinhopping_params['box_abc'])  # default a=b=c=20 Å
 
     def perturb_sites(self, select, pool, model_id=None, gb=False):
         """
@@ -808,40 +813,38 @@ class basinhopping(object):
             tries = 0
             while not replaced and tries < 1000:
                 tries += 1
-                jump = self.max_perturbation #unif(0, self.max_perturbation)
+                jump = self.max_perturbation  # unif(0, self.max_perturbation)
                 perturb = self.get_point_on_sphere(jump)
                 new_frac = one_coords + perturb
-                if not gb: # cluster
+                if not gb:  # cluster
                     new_cart = parent.astr.lattice.get_cartesian_coords(
-                                                                    new_frac)
+                        new_frac)
                     # check if new cart is inside the cluster radius
-                    origin = (self.box_abc[0]/2,
-                              self.box_abc[1]/2,
-                              self.box_abc[2]/2)
+                    origin = self.box_abc/2
                     if dc.dist(origin, new_cart) > self.max_dia/2:
                         continue
                 else:
                     new_cart = parent.gb_iface.lattice.get_cartesian_coords(
-                                                                    new_frac)
+                        new_frac)
                 # Check distance and replace with new coords
                 if not gb and dc.satisfies_all_dists(new_cart,
-                                          species[i].name,
-                                          parent.astr,
-                                          self.min_dist_dict,
-                                          self.species_dict,
-                                          remove_index=i):
+                                                     species[i].name,
+                                                     parent.astr,
+                                                     self.min_dist_dict,
+                                                     self.species_dict,
+                                                     remove_index=i):
                     parent.astr.replace(i, species[i], new_cart,
                                         coords_are_cartesian=True)
                     replaced = True
                     num_perturbed += 1
                 if gb and dc.satisfies_all_dists(new_cart,
-                                          species[i].name,
-                                          parent.gb_iface,
-                                          self.min_dist_dict,
-                                          self.species_dict,
-                                          remove_index=i):
+                                                 species[i].name,
+                                                 parent.gb_iface,
+                                                 self.min_dist_dict,
+                                                 self.species_dict,
+                                                 remove_index=i):
                     parent.gb_iface.replace(i, species[i], new_cart,
-                                        coords_are_cartesian=True)
+                                            coords_are_cartesian=True)
                     replaced = True
                     num_perturbed += 1
 
@@ -881,6 +884,7 @@ class gb_ops(object):
     Here the initial population is not random. Grain 1 and grain 2 are
     made to overlap and remove extra atoms.
     """
+
     def __init__(self, hop, str_constraints):
         """
         Args:
@@ -893,26 +897,26 @@ class gb_ops(object):
         # hop.perturb_sites() is used for child generation
         self.hop = hop
         # basinhopping vs mating fraction : only used for gb geometry search
-        self.hop_mate_frac = 0.3 # 30% hop, 70% mate
+        self.hop_mate_frac = 0.3  # 30% hop, 70% mate
         if 'hop_mate_frac' in str_constraints:
             self.hop_mate_frac = str_constraints['hop_mate_frac']
         if 'init_gb_astr' not in str_constraints:
-            print ('Error: Initial grain boudanry not provided. ')
+            print('Error: Initial grain boudanry not provided. ')
         else:
             self.init_gb_astr = str_constraints['init_gb_astr']
 
         if 'iface_thickness' not in str_constraints:
-            print ('Error: Thickness of interface region not provided. ')
+            print('Error: Thickness of interface region not provided. ')
         else:
             self.iface_thickness = str_constraints['iface_thickness']
 
         if 'iface_z_mid' not in str_constraints:
-            print ('Error: Mid point of grain boundary not provided. ')
+            print('Error: Mid point of grain boundary not provided. ')
         else:
             self.iface_z_mid = str_constraints['iface_z_mid']
 
         if 'num_slices' not in str_constraints:
-            print ('Error: NUmber of slices to cut for mating not provided. ')
+            print('Error: NUmber of slices to cut for mating not provided. ')
         else:
             self.num_slices = str_constraints['num_slices']
 
@@ -964,7 +968,8 @@ class gb_ops(object):
         g_sites = copy_g.sites
         sor_sites = sorted(g_sites, key=lambda x: x.coords[2])
 
-        half_zrange = (self.iface_thickness / (self.init_gb_astr.lattice.c * 2))
+        half_zrange = (self.iface_thickness /
+                       (self.init_gb_astr.lattice.c * 2))
         min_z_t = self.iface_z_mid + half_zrange
         max_z_b = self.iface_z_mid - half_zrange
         self.hollow_botz = max_z_b
@@ -976,7 +981,7 @@ class gb_ops(object):
             if site.c >= min_z_t and not top_i:
                 top_i = i
                 break
-        mids = sor_sites[bot_i : top_i]
+        mids = sor_sites[bot_i: top_i]
         rem_i = []
         for i, site in enumerate(copy_g.sites):
             if site in mids:
@@ -1021,9 +1026,9 @@ class gb_ops(object):
                     top_sites.append(site)
 
         new_bot_sps, new_bot_fc = self.new_sites_coords(bot_sites,
-                                [cut_bot, cut_bot + window_frac], [0, 1], 2)
+                                                        [cut_bot, cut_bot + window_frac], [0, 1], 2)
         new_top_sps, new_top_fc = self.new_sites_coords(top_sites,
-                                [top_cut - window_frac, top_cut], [0, 1], 2)
+                                                        [top_cut - window_frac, top_cut], [0, 1], 2)
         species = new_bot_sps + new_top_sps
         coords = new_bot_fc + new_top_fc
 
@@ -1059,9 +1064,9 @@ class gb_ops(object):
         iface_inds_in_gb = []
         for i, site in enumerate(child_astr.sites):
             if self.hollow_botz <= site.c <= self.hollow_topz:
-                 iface_inds_in_gb.append(i)
-        iface_sites = [site for i, site in enumerate(child_astr_sites) \
-                                    if i in iface_inds_in_gb]
+                iface_inds_in_gb.append(i)
+        iface_sites = [site for i, site in enumerate(child_astr_sites)
+                       if i in iface_inds_in_gb]
         site_sps = [site.specie for site in iface_sites]
         site_sps = [i.name for i in site_sps]
         iface_sps = set(site_sps)
@@ -1149,7 +1154,7 @@ class gb_ops(object):
         """
         # This is half the thickness (- 1 Å tolerance)
         half_z_thickness = (self.iface_thickness - 0.3) /   \
-                                (self.init_gb_astr.lattice.c * 2)
+            (self.init_gb_astr.lattice.c * 2)
         zmin = self.iface_z_mid - half_z_thickness
         zmax = self.iface_z_mid + half_z_thickness
 
@@ -1163,7 +1168,7 @@ class gb_ops(object):
         dc_astr.remove_sites(rem_inds)
 
         num_added, tries = 0, 0
-        while num_added < diff: #and tries < 1000: #(leave this structure)
+        while num_added < diff:  # and tries < 1000: #(leave this structure)
             tries += 1
             coords = child_astr.cart_coords
             new_c = [unif(0, 1), unif(0, 1), unif(zmin, zmax)]
@@ -1191,7 +1196,7 @@ class gb_ops(object):
 
         sorted_sites = sorted(sites, key=lambda x: x.coords[axis])
         axis_min, axis_max = sites[0].frac_coords[axis], \
-                                sites[-1].frac_coords[axis]
+            sites[-1].frac_coords[axis]
         old_min, old_max = old_axis_bounds
         new_min, new_max = new_axis_bounds
 
@@ -1204,10 +1209,10 @@ class gb_ops(object):
                 x = site.b
             elif axis == 2:
                 x = site.c
-            new_x = (x - old_min) / (old_max - old_min) # normalize
-            new_x = new_x * (new_max - new_min) + new_min # transform
+            new_x = (x - old_min) / (old_max - old_min)  # normalize
+            new_x = new_x * (new_max - new_min) + new_min  # transform
 
-            if axis ==0:
+            if axis == 0:
                 add_fcs.append([new_x, site.b, site.c])
             elif axis == 1:
                 add_fcs.append([site.a, new_x, site.c])
@@ -1244,7 +1249,7 @@ class gb_ops(object):
             if site.c >= min_z_top and not top_ind:
                 top_ind = i
                 break
-        mid_sites = sorted_sites[bot_ind : top_ind]
+        mid_sites = sorted_sites[bot_ind: top_ind]
         rem_inds = []
         for i, site in enumerate(copy_gb.sites):
             if site in mid_sites:
@@ -1270,7 +1275,7 @@ class gb_ops(object):
         max_z_bot = iface_z_mid - (iface_thickness / (gb_c * 2))
 
         # Add sites from iface_to_implant to hollow_init_gb
-        zmin, zmax = 0, 1 # limits for fractional coordinates along z direction
+        zmin, zmax = 0, 1  # limits for fractional coordinates along z direction
 
         # Maintain a tolerance of 0.2 Å between implant and hollow_gb
         ztol = 0.2 / gb_c
@@ -1278,8 +1283,8 @@ class gb_ops(object):
 
         add_fcs, add_sps = [], []
         for site in iface_to_implant.sites:
-            newc = (site.c - zmin)/(zmax - zmin) # normalize
-            newc = newc * (newz_max - newz_min) + newz_min # transform
+            newc = (site.c - zmin)/(zmax - zmin)  # normalize
+            newc = newc * (newz_max - newz_min) + newz_min  # transform
             add_fcs.append([site.a, site.b, newc])
             add_sps.append(site.species)
 
@@ -1292,7 +1297,7 @@ class gb_ops(object):
         for i in range(len(new_gb)):
             if 'selective_dynamics' not in new_gb[i].properties.keys():
                 new_gb[i].properties['selective_dynamics'] = \
-                                                [False, False, False]
+                    [False, False, False]
 
         new_gb.merge_sites(tol=1, mode='delete')
         rem_inds = self.get_rem_inds(new_gb)
@@ -1355,20 +1360,20 @@ class gb_ops(object):
         top_z_max, top_z_min = 1, min_z_top - 1.5/gb_c
 
         #new_bot_fc, new_bot_sps = [], []
-        #for site in bot_sites:
+        # for site in bot_sites:
         #    newc = (site.c - bot_z_min) / (bot_z_max - bot_z_min)
         #    new_bot_fc.append([site.a, site.b, newc])
         #    new_bot_sps.append(site.species)
 
         new_mid_fc, new_mid_sps = [], []
         for site in mid_sites:
-            newc = (site.c - mid_z_min ) / (mid_z_max - mid_z_min + 0.2/gb_c)
+            newc = (site.c - mid_z_min) / (mid_z_max - mid_z_min + 0.2/gb_c)
             newc = newc + 0.1/(iface_thickness + 0.2)
             new_mid_fc.append([site.a, site.b, newc])
             new_mid_sps.append(site.species)
 
         #new_top_fc, new_top_sps = [], []
-        #for site in top_sites:
+        # for site in top_sites:
         #    newc = (site.c - top_z_min) / (top_z_max - top_z_min)
         #    new_top_fc.append([site.a, site.b, newc])
         #    new_top_sps.append(site.species)
@@ -1436,7 +1441,7 @@ class gb_ops(object):
 
         blocks = []
         for i in range(len(cut_atom_inds)-1):
-            bl = sorted_sites[cut_atom_inds[i] : cut_atom_inds[i+1]]
+            bl = sorted_sites[cut_atom_inds[i]: cut_atom_inds[i+1]]
             bl_bounds = [cut_locs[i], cut_locs[i+1]]
             block = [bl, bl_bounds]
             blocks.append(block)
@@ -1485,7 +1490,7 @@ class gb_ops(object):
         for ax_bnds, block in zip(mold_ax_bounds, random_blocks):
             block_sites, block_bounds = block
             new_sps, new_fcs = self.new_sites_coords(block_sites, block_bounds,
-                                                                ax_bnds, axis)
+                                                     ax_bnds, axis)
             for sp, fc in zip(new_sps, new_fcs):
                 species.append(sp)
                 coords.append(fc)
@@ -1573,11 +1578,11 @@ class gb_ops(object):
                 if random.random() <= self.hop_mate_frac:
                     # Do hop.perturb_sites()
                     perturbed_iface, inheritance = hop.perturb_sites(
-                                                        select, pool, gb=True)
+                        select, pool, gb=True)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     maker = 'perturb_sites'
-                else: # Do gb_ops_obj.mate()
+                else:  # Do gb_ops_obj.mate()
                     new_astr, inheritance = self.mate(select, pool)
                     maker = 'fraction_slice'
             except:
@@ -1593,7 +1598,7 @@ class gb_ops(object):
         new_model.inheritance = inheritance
         new_model.made_by = maker
 
-        #print ('New model made using {} method on parent models {}'.format(
+        # print ('New model made using {} method on parent models {}'.format(
         #                                    maker, inheritance))
 
         return new_model
@@ -1611,7 +1616,7 @@ class gb_ops(object):
         """
         species = astr.species
         fc = astr.frac_coords
-        fc = np.where((fc<0) | (fc>1), fc - np.floor(fc), fc)
+        fc = np.where((fc < 0) | (fc > 1), fc - np.floor(fc), fc)
 
         # replace all the coords in astr
         all_inds = [i for i in range(len(species))]
@@ -1636,35 +1641,35 @@ class gb_ops(object):
         sp1_ok = False
         sym1 = self.sym_species1
         if self.min_num_sp1 <= new_comp[sym1] - hollow_comp[sym1] <= \
-                                                        self.max_num_sp1:
+                self.max_num_sp1:
             sp1_ok = True
         all_ok.append(sp1_ok)
         if self.num_species > 1:
             sp2_ok = False
             sym2 = self.sym_species2
             if self.min_num_sp2 <= new_comp[sym2] - hollow_comp[sym2] <= \
-                                                        self.max_num_sp2:
+                    self.max_num_sp2:
                 sp2_ok = True
             all_ok.append(sp2_ok)
         if self.num_species > 2:
             sp3_ok = False
             sym3 = self.sym_species3
             if self.min_num_sp3 <= new_comp[sym3] - hollow_comp[sym3] <= \
-                                                        self.max_num_sp3:
+                    self.max_num_sp3:
                 sp3_ok = True
             all_ok.append(sp3_ok)
         if self.num_species > 3:
             sp4_ok = False
             sym4 = self.sym_species4
             if self.min_num_sp4 <= new_comp[sym4] - hollow_comp[sym4] <= \
-                                                        self.max_num_sp4:
+                    self.max_num_sp4:
                 sp4_ok = True
             all_ok.append(sp4_ok)
         if self.num_species > 4:
             sp5_ok = False
             sym5 = self.sym_species5
             if self.min_num_sp5 <= new_comp[sym5] - hollow_comp[sym5] <= \
-                                                        self.max_num_sp5:
+                    self.max_num_sp5:
                 sp5_ok = True
             all_ok.append(sp5_ok)
 
@@ -1674,4 +1679,4 @@ class gb_ops(object):
 
         return correct_comp
 
-         #####
+        #####

@@ -35,12 +35,12 @@ class make_model_from_input(object):
         self.model_files_path = model_files_path
         all_files = os.listdir(model_files_path)
         if len(all_files) == 0:
-            print ('Provided files path is empty')
+            print('Provided files path is empty')
         poscars = [i for i in all_files if i.startswith('POSCAR')]
         cifs = [i for i in all_files if i.endswith('.cif')]
         if len(poscars) + len(cifs) == 0:
-            print ('Provied files path do not have files in either poscar or'
-                    ' cif format. Other formats are not supported currently.')
+            print('Provied files path do not have files in either poscar or'
+                  ' cif format. Other formats are not supported currently.')
         self.all_files = poscars + cifs
 
     def read_structure(self, reg_id):
@@ -57,17 +57,15 @@ class make_model_from_input(object):
         if len(self.all_files) > 0:
             s = self.model_files_path + self.all_files.pop()
             try:
-                astr_from_file = Structure.from_file(s)
-                astr_from_file.sort()
+                astr_from_file = Structure.from_file(s, sort=True)
                 input_model = structure_record.model(astr_from_file, reg_id)
                 input_model.inheritance = 'from_file'
                 return input_model
             except:
-                print ('Pymatgen failed to make structure from {}'.format(s))
+                print('Pymatgen failed to make structure from {}'.format(s))
                 return None
         else:
             return 0
-
 
     def from_other_exp(exp_input):
         """
@@ -137,7 +135,6 @@ class make_random_model(object):
                 self.min_num_sp5 = str_constraints['species5']['min_num']
                 self.max_num_sp5 = str_constraints['species5']['max_num']
 
-
     def get_cluster_in_box(self):
         """
         Returns strucutre object of a random cluster
@@ -160,11 +157,11 @@ class make_random_model(object):
             if cart_coords is None:
                 continue
             cluster = Structure(latt, species, cart_coords,
-                                                coords_are_cartesian=True)
+                                coords_are_cartesian=True)
 
             # check distance between different pairs of species
             atoms_too_close = dc.check_all_bonds(cluster, self.min_dist_dict,
-                                                                    cum_sum)
+                                                 cum_sum)
 
             # check if atleast one nearest neighbor (nn) less than max_bond_dist
             for i in range(len(cluster.sites)):
@@ -268,7 +265,7 @@ class make_random_model(object):
         axis - (int) 0, 1, 2 for x, y, and z axes respectively
         """
         cart_coords = astr.cart_coords
-        axis_coords = cart_coords[:,axis]
+        axis_coords = cart_coords[:, axis]
         axis_thickness = max(axis_coords) - min(axis_coords)
 
         return axis_thickness
@@ -287,11 +284,11 @@ class make_random_model(object):
         frac_coords = astr.frac_coords
         species = astr.species
         # for convenience
-        ct = cluster_thickness # along the axis of interest
-        bt = self.box_abc[axis] # short for box thickness
+        ct = cluster_thickness  # along the axis of interest
+        bt = self.box_abc[axis]  # short for box thickness
 
         # array of axis coords
-        axis_coords = frac_coords[:,axis]
+        axis_coords = frac_coords[:, axis]
 
         # convert axis coords according to box axis length
         axis_new_coords = (axis_coords - min(axis_coords)) * \
@@ -330,7 +327,7 @@ class make_random_model(object):
         max_dia - (float) maximum diameter of the cluster
         """
         # start from origin
-        old_point = np.array([0,0,0])
+        old_point = np.array([0, 0, 0])
         coords = []
         coords_added = 0
         new_point_attempt = 0
@@ -365,7 +362,7 @@ class make_random_model(object):
             coords.append(new_point)
             new_point_attempt = 0
             old_point = new_point
-            coords_added +=1
+            coords_added += 1
 
         # move coords relative to center of cube
         coords = np.array(coords)

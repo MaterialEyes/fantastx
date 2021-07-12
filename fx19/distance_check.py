@@ -25,13 +25,66 @@ def solution(x, y, z, min_dist, close_coords):
 
 def dist(p1, p2):
     """
-    calculates and returns the distance between two 3D points
+    Calculates and returns the distance between two 3D points
     """
     if len(p1) == len(p2) == 3:  # if points are in 3D
         d = math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2 +
                       (p1[2] - p2[2]) ** 2)
     # elif len(p1)==len(p2)==2: # if points are in 2D
     #    d = math.sqrt((p1[0] - p2[0])** 2 + (p1[1] - p2[1])** 2)
+    return d
+
+
+def dist_pbc(p1, p2, lattice):
+    """
+    Calculates and returns the distance between two points
+    in periodic boundary conditions, using minimum image representation.
+
+    Arguments:
+    p1 and p2: cartesian coordinates of the PeriodicSites
+    lattice: pymatgen lattice object of the structure
+    """
+    if not type(p1) is np.ndarray or not type(p2) is np.ndarray:
+        p1 = np.array(p1)
+        p2 = np.array(p2)
+
+    # convert each point into fractional lattice coordinates using pymatgen
+    p1_frac = lattice.get_fractional_coords(p1)
+    p2_frac = lattice.get_fractional_coords(p2)
+
+    # alternately, solve it by hand
+    # p1_frac = np.linalg.solve(lattice.matrix, p1)
+    # p2_frac = np.linalg.solve(lattice.matrix, p2)
+
+    # get vector connecting points, in the minimum image representation
+    # will break if not all boundaries are periodic,
+    # or if the norm of the vectors is larger than 0.5 * the min cell length
+    v = p1_frac - p2_frac
+    v -= np.floor(v + 0.5)
+    v_minimage = np.dot(v, lattice.matrix)
+    d = np.linalg.norm(v_minimage)
+
+    return d
+
+
+def dist_pbc_pymatgen(p1, p2, lattice):
+    """
+    Calculates and returns the distance between two points
+    in periodic boundary conditions, using pymatgen lattice functions.
+    Slower than dist_pbc(), but more robust
+
+    Arguments:
+    p1 and p2: cartesian coordinates of the PeriodicSites
+    lattice: pymatgen lattice object of the structure
+    """
+    # convert each point into fractional lattice coordinates
+    f1 = lattice.get_fractional_coords(p1)
+    f2 = lattice.get_fractional_coords(p2)
+
+    # get distance between the two fractional coordinates, returning the
+    # distance and number of lattice translations required to shift the image
+    (d, jimage) = lattice.get_distance_and_image(f1, f2, None)
+
     return d
 
 
@@ -236,19 +289,20 @@ def check_all_bonds(astr, min_dist_dict, cum_sum):
     return atoms_too_close
 
 
-def one_to_many_distances(one_point, many_points, min_dist):
+def one_to_many_distances(one_point, many_points, min_dist, lattice):
     """
     Checks the distances of one point to a list of many points
 
-    one_point : coordinates of single point as list or an array
-    many_points: list of other points
+    one_point : cartesian coordinates of single point as list or an array
+    many_points: list of cartesian coordinates of all other points
     min_dist: the minimum distance that is to be satisfied for all distances
+    lattice: the lattice object corresponding to the pymatgen structure
 
     Returns False if the point is at less distance than min_dist. If satisfies
     min_dist requirement for all points in list, returns True.
     """
     for each_point in many_points:
-        d = dist(one_point, each_point)
+        d = dist_pbc(one_point, each_point, lattice)
         if d < min_dist:
             return False
     return True
@@ -262,9 +316,9 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
 
     Args:
 
-    new_point: (list/array) the coordinates of a the point which is checked
-    new_sp: (str) species of the new coordniate
-    astr: structure object wihtin which new coordinate will be checked
+    new_point: (list/array) the cartesian coordinates of the point which is checked
+    new_sp: (str) species of the new coordinate
+    astr: structure object within which the new coordinate will be checked
     min_dist_dict: dictionary of minimum distances with respect to different
                    species; from inputs
     species_dict: dictionary of species; from inputs
@@ -299,7 +353,7 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
 
     bools = []
     for d, set in zip(min_dists, coords_sets):
-        bools.append(one_to_many_distances(new_point, set, d))
+        bools.append(one_to_many_distances(new_point, set, d, astr.lattice))
 
     if not all(bools):
         return False
