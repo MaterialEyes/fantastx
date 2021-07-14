@@ -88,13 +88,22 @@ total_models_needed = i_dict['population_limits']['total_population']
 
 max_workers = 2 # TODO: make an option for max_workers in the input file
 ###############
-cluster_job = SLURMCluster(cores=1,
-                           memory="4GB",
-                           project='hennig',
-                           queue='hpg2-compute',
-                           interface='ib0',
-                           walltime='4:00:00',
-                           job_extra=['--ntasks 16', '--nodes=1'])
+#cluster_job = SLURMCluster(cores=1,
+#                           memory="4GB",
+#                           project='hennig',
+#                           queue='hpg2-compute',
+#                           interface='ib0',
+#                           walltime='4:00:00',
+#                           job_extra=['--ntasks 16', '--nodes=1'])
+
+cluster_job = PBSCluster(cores=1,
+                         memory="4GB",
+                         project='cnm72851', ### Enter the project number
+                         walltime='4:00:00',
+                         interface='ib0',
+                         job_extra=['-l nodes=1:ppn=2:gen6'],
+                         header_skip=['-l select=1'])
+
 cluster_job.scale(jobs=max_workers) # number of parallel jobs
 client  = Client(cluster_job)
 
@@ -163,6 +172,12 @@ if input_model_obj is not None:
     # Post-processing & Xsim are done along with random models for input models
 
 working_jobs = get_working_jobs(evald_futures)
+
+# Test for one model
+new_model, select = make_model(random_model_obj, evolve, select,
+                                pool, reg_id, model_type='random')
+out = client.submit(full_eval, new_model)
+evald_futures.append(out)
 
 start_time = time.time()
 # Make random models & evolved models
