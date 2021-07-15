@@ -10,7 +10,6 @@ Mating_probability and no. of parents
 Mutation probability, mutation fractions (% atoms and magnitude)
 """
 from pymatgen.core.structure import Structure, Lattice
-from pymatgen.core.composition import Composition
 from pymatgen.transformations.standard_transformations import \
                                             RotationTransformation
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -1686,26 +1685,72 @@ class surface_ops(object):
     """
     def __init__(self, surface_ops_params):
         """
-        Thickness of the surface layer from top of the surface (in Å)
+        Args:
 
+        surface_ops_params: A dictionary with mandatory and other optional
+                            keywords as required. The keywords are -
+
+        init_slabs_dict: A dictionary of paths to surface slab configurations.
+                         The slabs may be of different areas. New surface
+                         configurations are investigated on these different
+                         area substrates.
+
+
+        surface_thickness (float): Thickness of the surface layer from top of
+                                   the surface (in Å)
+
+        substrate_thickness (float): Thickness of the substrate considered from
+                                     the bottom of the intial slab structures
+
+        separation (float): The separation between surface layer bottom z and
+                            substrate top z
+
+        constrain_z (bool): Whether z coordinate should be randomly chosen or
+                            taken from the initial slab structures. (Used in
+                            combination with XRR code)
+
+        composition (str): The composition of the surface layer (Ex: 'Al2O3')
+                           If not given, surface layer composition will satisfy
+                           only min-max atoms per species
+
+        min_dist_dict, max_dist_dict, num_slices, species_dict and element_syms
+        will be added to surface_ops_params internally for conveniece
         """
-        self.surface_thickness = surface_ops_params['surface_thickness']
-        self.substrate_thickness = surface_ops_params['substrate_thickness']
-        self.separation = surface_ops_params['separation']
-        self.constrain_z = surface_ops_params['constrain_z']
+        # Treat substrates differently based on their areas
+        if 'init_slabs_dict' not in surface_ops_params:
+            print ("Error: Please provide path to initial surface "
+                   "configuration slabs as init_slabs_dict")
+        else:
+            self.init_slabs_dict = surface_ops_params['init_slabs_dict']
+
+        self.surface_thickness = 1 # in Å
+        if 'surface_thickness' in surface_ops_params:
+            self.surface_thickness = surface_ops_params['surface_thickness']
+
+        substrate_thickness = 10 # in Å
+        if 'substrate_thickness' in surface_ops_params:
+            self.substrate_thickness = surface_ops_params['substrate_thickness']
+
+        # separation between surface layer bottom z and substrate top z
+        self.separation = 2 # Å
+        if 'separation' in surface_ops_params:
+            self.separation = surface_ops_params['separation']
+
+        constrain_z = False
+        if 'constrain_z' in surface_ops_params:
+            self.constrain_z = surface_ops_params['constrain_z']
+
+        # The composition of the surface layer
+        self.comp_dict = None
+        if 'comp_dict' in surface_ops_params:
+            self.comp_dict = surface_ops_params['comp_dict']
+
+        # Following keywords will be present in surface_ops_params
         self.min_dist_dict = surface_ops_params['min_dist_dict']
         self.max_dist_dict = surface_ops_params['max_dist_dict']
         self.num_slices = surface_ops_params['num_slices']
         self.species_dict = surface_ops_params['species_dict']
         self.element_syms = surface_ops_params['element_syms']
-
-        # The composition of the surface layer
-        composition = Composition(surface_ops_params['composition'])
-        self.comp_dict = composition.as_dict()
-
-        # Treat substrates differently based on their areas
-        self.init_slabs_dict = surface_ops_params['init_slabs_dict']
-
 
     def default_zs_to_species_dict(self, slab_astr, species_id):
         """
@@ -1835,11 +1880,10 @@ class surface_ops(object):
         """
         lattice = slab_astr.lattice
         species_dict = self.species_dict
-        comp_dict = self.comp_dict
         element_syms = self.element_syms
 
         # Get the no. of atoms per species needed in the surface layer
-        atoms_per_species = self.get_atoms_per_species(comp_dict=comp_dict)
+        atoms_per_species = self.get_atoms_per_species()
 
         # NOTE: XRR code output is strongly influenced by changes in the atoms
         # along z-direction. So, in surface_ops(), if constrain_z is True, the
@@ -1999,12 +2043,13 @@ class surface_ops(object):
         """
         pass
 
-    def get_atoms_per_species(self, comp_dict=None):
+    def get_atoms_per_species(self):
         """
         Returns a dict with number of atoms for each species.
         To be used when making a random surface layer for initial population
         """
         species_dict = self.species_dict
+        comp_dict = self.comp_dict
 
         atoms_per_species = {}
         # get num_species_1

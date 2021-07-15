@@ -8,6 +8,7 @@ attributes and evaluated data
 Also contains general functions (if any required)
 """
 from pymatgen.core.structure import Structure, Lattice
+from pymatgen.core.composition import Composition
 
 class register_id(object):
     def __init__(self):
@@ -157,6 +158,7 @@ class structure_constraints(object):
         """
 
         self.def_min_dist = 2 # minimum distance between atoms in angstroms
+        self.def_max_dist = 5
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
@@ -173,7 +175,7 @@ class structure_constraints(object):
             self.num_species = len(species_dict)
 
         # make a min_dist dictionary with default min_dist for all bonds
-        min_dist = {}
+        min_dist, max_dist = {}, {}
         keys = ['sp1_sp1', 'sp1_sp2', 'sp1_sp3', 'sp1_sp4', 'sp1_sp5',
                 'sp2_sp2', 'sp2_sp3', 'sp2_sp4', 'sp2_sp5',
                 'sp3_sp3', 'sp3_sp4', 'sp3_sp5',
@@ -189,6 +191,7 @@ class structure_constraints(object):
                 min_dist_keys.append(key)
         for key in min_dist_keys:
             min_dist[key] = self.def_min_dist
+            max_dist[key] = self.def_max_dist
 
         # check if min_dist is given for any bonds and replace
         if 'min_dist' in str_record:
@@ -197,6 +200,13 @@ class structure_constraints(object):
             for key in given_keys:
                 min_dist[key] = str_record['min_dist'][key]
         self.min_dist_dict = min_dist
+
+        if 'max_dist' in str_record:
+            given_max_dists = str_record['max_dist']
+            given_keys = given_max_dists.keys()
+            for key in given_keys:
+                max_dist[key] = str_record['max_dist'][key]
+        self.max_dist_dict = max_dist
 
         # see that all attributes for all species are present by placing
         # defaults for species1 and that of species1 for the rest
@@ -314,6 +324,10 @@ class structure_constraints(object):
             if 'num_slices' in str_record['gb']:
                 self.num_slices = str_record['gb']['num_slices']
 
+            self.hop_mate_frac = 0.5
+            if 'hop_mate_frac' in str_record['gb']:
+                self.hop_mate_frac = str_record['gb']['hop_mate_frac']
+
             """
             We get best matched gb interface structure from ingrained.
             For ingrained, this grain data needs to be provided.
@@ -326,6 +340,44 @@ class structure_constraints(object):
             #self.grain2_orientation =
             #self.grain2.tilt =
             """
+        ######################### gb parameters ends #########################
+        ##################### surface parameters begins ######################
+        if self.shape == 'surface':
+            surface_params = str_record['surface']
+            init_slabs_dir = surface_params['init_slabs_dir']
+            poscars = [init_slabs_dir + '/' + i for i in \
+                      os.listdir(init_slabs_dir) if i.startswith('POSCAR_slab')]
+            init_slabs_dict = {}
+            for p in range(len(poscars)):
+                init_slabs_dict[p+1] = poscars[p]
+
+            self.init_slabs_dict = init_slabs_dict
+
+            if 'surface_thickness' in surface_params:
+                self.surface_thickness = surface_params['surface_thickness']
+
+            if 'substrate_thickness' in surface_params:
+                self.substrate_thickness = \
+                                    surface_params['substrate_thickness']
+
+            if 'separation' in surface_params:
+                self.separation = surface_params['separation']
+
+            if 'constrain_z' in surface_params:
+                self.constrain_z = surface_params['constrain_z']
+
+            if 'composition' in surface_params:
+                composition = Composition(surface_params['composition'])
+                self.comp_dict = composition.as_dict()
+
+            self.num_slices = 2
+            if 'num_slices' in surface_params:
+                self.num_slices = surface_params['num_slices']
+
+            self.hop_mate_frac = 0.5
+            if 'hop_mate_frac' in surface_params:
+                self.hop_mate_frac = surface_params['hop_mate_frac']
+
 
     def get_constraints(self):
         """
@@ -334,3 +386,22 @@ class structure_constraints(object):
         """
 
         return self.__dict__
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+##

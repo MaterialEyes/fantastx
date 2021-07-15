@@ -147,7 +147,6 @@ def make_objects(i_dict):
     # For gb, overlap and remove sites is used for random models
     gb_ops_obj = None
     if str_constraints['shape'] == 'gb':
-        str_constraints['hop_mate_frac'] = str_record['gb']['hop_mate_frac']
         gb_ops_obj = structure_operations.gb_ops(hop, str_constraints)
         all_objects['gb_ops_obj'] = gb_ops_obj
 
@@ -160,6 +159,12 @@ def make_objects(i_dict):
     if not evolve_params == {}:
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
+
+    # For surface layer searches, create surface_ops object
+    surface_ops_obj = None
+    if str_constraints['shape'] == 'surface':
+        surface_ops_obj = structure_operations.surface_ops(hop, str_constraints)
+        all_objects['surface_ops_obj'] = surface_ops_obj
 
     ################### Develop any other below objects
 
@@ -335,6 +340,13 @@ def get_evolve_params(i_dict, str_constraints):
             if specie in str_constraints:
                 evolve_params[specie] = str_constraints[specie]
     return evolve_params
+
+def get_surface_params(i_dict, str_constraints):
+    """
+    Adds all required parameters for surface_ops class from the input file
+    """
+
+
 
 # assume experimental pdf is given
 def read_input_exp_files(filename):
