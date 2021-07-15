@@ -12,7 +12,7 @@ Mutation probability, mutation fractions (% atoms and magnitude)
 from pymatgen.core.structure import Structure, Lattice
 from pymatgen.transformations.standard_transformations import \
                                             RotationTransformation
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
+#from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from numpy.random import uniform as unif
 import numpy as np
 import random, copy
@@ -435,9 +435,9 @@ class mating(object):
         parents = select.get_parents(pool, num_parents)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
-        p1_sites = parent1.astr.sites
-        p2_sites = parent2.astr.sites
-        list_of_p_sites = [p1_sites, p2_sites]
+        #p1_sites = parent1.astr.sites
+        #p2_sites = parent2.astr.sites
+        # list_of_p_sites = [p1_sites, p2_sites]
 
         child = copy.deepcopy(parent1.astr)
         all_inds = [i for i in range(len(child.cart_coords))]
@@ -503,7 +503,7 @@ class mating(object):
         rem_inds = []
 
         # If 2 parents
-        num_parents = 2
+        # num_parents = 2
         inds1, inds2 = self.divide_index_list(indices)
         # Add sites from each parent sites in circular fashion
         for i in range(len(inds1)):
@@ -529,7 +529,7 @@ class mating(object):
         index (int): index of the parent site to add
         move (bool): Whether to move and try to add a site coords when adding
         """
-        child_coords =  child.cart_coords
+        # child_coords =  child.cart_coords
         specie_to_add = parent_sites[index].specie.name
         coords_to_add = parent_sites[index].coords
 
@@ -640,7 +640,7 @@ class mating(object):
 
         check_1 = False
         if symbol in astr_species_symbols:
-            check1 = True
+            check_1 = True
 
         # check if its atoms are within the min-max
         check_2 = False
@@ -799,9 +799,9 @@ class basinhopping(object):
         jumps_needed = int(0.5 * len(D_coords))
         for i, one_coords in zip(D_inds, D_coords):
             # Get updated cart_coords
-            all_cart_coords = parent.astr.cart_coords
-            if gb:
-                all_cart_coords = parent.gb_iface.cart_coords
+            # all_cart_coords = parent.astr.cart_coords
+            # if gb:
+            #     all_cart_coords = parent.gb_iface.cart_coords
             # remove current index from cart_coords
             # rem_cart_coords = np.delete(all_cart_coords, i, 0)
             # Randomly perturb within sphere of radius = max_perturbation
@@ -1166,7 +1166,7 @@ class gb_ops(object):
         num_added, tries = 0, 0
         while num_added < diff: #and tries < 1000: #(leave this structure)
             tries += 1
-            coords = child_astr.cart_coords
+            # coords = child_astr.cart_coords
             new_c = [unif(0, 1), unif(0, 1), unif(zmin, zmax)]
             new_c = child_astr.lattice.get_cartesian_coords(new_c)
             if dc.satisfies_all_dists(new_c, sp, dc_astr,
@@ -1190,9 +1190,9 @@ class gb_ops(object):
         axis: (int) axis along which to make slices (0, 1, 2 for x, y and z)
         """
 
-        sorted_sites = sorted(sites, key=lambda x: x.coords[axis])
-        axis_min, axis_max = sites[0].frac_coords[axis], \
-                                sites[-1].frac_coords[axis]
+        # sorted_sites = sorted(sites, key=lambda x: x.coords[axis])
+        # axis_min, axis_max = sites[0].frac_coords[axis], \
+        #                         sites[-1].frac_coords[axis]
         old_min, old_max = old_axis_bounds
         new_min, new_max = new_axis_bounds
 
@@ -1351,9 +1351,9 @@ class gb_ops(object):
 
         # translate sites in bottom, middle and top grains
         # to maintain clarity
-        bot_z_max, bot_z_min = max_z_bot + 1.5/gb_c, 0
+        # bot_z_max, bot_z_min = max_z_bot + 1.5/gb_c, 0
         mid_z_max, mid_z_min = min_z_top, max_z_bot
-        top_z_max, top_z_min = 1, min_z_top - 1.5/gb_c
+        # top_z_max, top_z_min = 1, min_z_top - 1.5/gb_c
 
         #new_bot_fc, new_bot_sps = [], []
         #for site in bot_sites:
@@ -1727,7 +1727,7 @@ class surface_ops(object):
         if 'surface_thickness' in surface_ops_params:
             self.surface_thickness = surface_ops_params['surface_thickness']
 
-        substrate_thickness = 10 # in Å
+        self.substrate_thickness = 10 # in Å
         if 'substrate_thickness' in surface_ops_params:
             self.substrate_thickness = surface_ops_params['substrate_thickness']
 
@@ -1736,7 +1736,7 @@ class surface_ops(object):
         if 'separation' in surface_ops_params:
             self.separation = surface_ops_params['separation']
 
-        constrain_z = False
+        self.constrain_z = False
         if 'constrain_z' in surface_ops_params:
             self.constrain_z = surface_ops_params['constrain_z']
 

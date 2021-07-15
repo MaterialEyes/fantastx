@@ -10,6 +10,8 @@ Also contains general functions (if any required)
 from pymatgen.core.structure import Structure, Lattice
 from pymatgen.core.composition import Composition
 
+import os
+
 class register_id(object):
     def __init__(self):
         self.label = 0
@@ -92,7 +94,7 @@ class model(object):
         sorted_coords = sorted(all_coords, key=lambda x: x[axis])
         sums = []
         bnds = [(i+1) * box_astr.lattice.abc[axis]/num_reg for i in range(num_reg)]
-        n = 0
+
         for bound in bnds:
             for i, p in enumerate(sorted_coords):
                 if p[axis] > bound:

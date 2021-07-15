@@ -22,7 +22,6 @@ from fx19 import energy
 from fx19 import experimental_simulation
 from fx19 import selection
 from fx19 import structure_operations
-from fx19.structure_operations import gb_ops
 
 
 def make_objects(i_dict):

@@ -23,7 +23,7 @@ from pymatgen.io.vasp.inputs import Poscar
 
 import os
 import shutil
-import math
+# import math
 import numpy as np
 import subprocess as sp
 
@@ -193,7 +193,7 @@ class lammps_code(object):
                                                 model.label, model.label))
             print ('LAMMPS relaxation on model {} NOT successful'.format(
                                                 model.label))
-            quit()
+            # quit()
         else:
             model.tot_en = total_energy
             # For lammps, assume always converged after relaxation
@@ -362,8 +362,8 @@ class lammps_code(object):
         # replace all the coords in astr
         all_inds = [i for i in range(len(species))]
         astr.remove_sites(all_inds)
-        for sp, coords in zip(species, fc):
-            astr.append(sp, coords, coords_are_cartesian=False)
+        for sps, coords in zip(species, fc):
+            astr.append(sps, coords, coords_are_cartesian=False)
 
 
 class gulp_code(object):
@@ -543,7 +543,7 @@ class vasp_code(object):
                 lines = p.readlines()
                 all_lines = all_lines + lines
 
-        pot_path = self.relax_path + '/POTCAR'
+        # pot_path = self.relax_path + '/POTCAR'
 
         # write model structure to POSCAR and store it in /relax
         new_poscar = relax_path + '/POSCAR_unrelaxed'
@@ -596,7 +596,7 @@ class vasp_code(object):
         save output files fo previous run with _resubmited_number
         """
         if not model.converged and self.resubmit !=0:
-            relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
+            relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
             os.chdir(relax_path)
             shutil.copy('OUTCAR', 'OUTCAR_{}'.format(self.resubmit-1))
             shutil.copy('CONTCAR', 'CONTCAR_{}'.format(self.resubmit-1))
@@ -622,7 +622,7 @@ class vasp_code(object):
         vasp_exec = self.energy_exec_cmd.split()
         log_file = open('job.log', 'w')
         err_file = open('job.err', 'w')
-        vasp_job = sp.call(vasp_exec, stdout=log_file, stderr=err_file)
+        sp.call(vasp_exec, stdout=log_file, stderr=err_file)
         # sp.call will wait for the calculation to finish
 
         # TODO: get energy
@@ -703,8 +703,8 @@ class vasp_code(object):
         # replace all the coords in astr
         all_inds = [i for i in range(len(species))]
         astr.remove_sites(all_inds)
-        for sp, coords in zip(species, fc):
-            astr.append(sp, coords, coords_are_cartesian=False)
+        for sps, coords in zip(species, fc):
+            astr.append(sps, coords, coords_are_cartesian=False)
 
     def write_poscar(self, model, file_name):
         """
