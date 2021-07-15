@@ -10,6 +10,7 @@ Mating_probability and no. of parents
 Mutation probability, mutation fractions (% atoms and magnitude)
 """
 from pymatgen.core.structure import Structure, Lattice
+from pymatgen.core.composition import Composition
 from pymatgen.transformations.standard_transformations import \
                                             RotationTransformation
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -17,6 +18,7 @@ from numpy.random import uniform as unif
 import numpy as np
 import random, copy
 import math
+from math import asin, cos, sqrt
 
 from fx19 import structure_record
 from fx19 import distance_check as dc
@@ -1675,3 +1677,627 @@ class gb_ops(object):
         return correct_comp
 
          #####
+
+class surface_ops(object):
+    """
+    Contains all the functions related to the structure manipulation of
+    surface searches of a slab. Inclues both for initial population and
+    mating and basinhopping.
+    """
+    def __init__(self, surface_ops_params):
+        """
+        Thickness of the surface layer from top of the surface (in Å)
+
+        """
+        self.surface_thickness = surface_ops_params['surface_thickness']
+        self.substrate_thickness = surface_ops_params['substrate_thickness']
+        self.separation = surface_ops_params['separation']
+        self.constrain_z = surface_ops_params['constrain_z']
+        self.min_dist_dict = surface_ops_params['min_dist_dict']
+        self.max_dist_dict = surface_ops_params['max_dist_dict']
+        self.num_slices = surface_ops_params['num_slices']
+        self.species_dict = surface_ops_params['species_dict']
+        self.element_syms = surface_ops_params['element_syms']
+
+        # The composition of the surface layer
+        composition = Composition(surface_ops_params['composition'])
+        self.comp_dict = composition.as_dict()
+
+        # Treat substrates differently based on their areas
+        self.init_slabs_dict = surface_ops_params['init_slabs_dict']
+
+
+    def default_zs_to_species_dict(self, slab_astr, species_id):
+        """
+        Returns boolean whether default cartesian z-coordinates for the surface
+        species were added to the species_dict attribute of that species
+
+        Args:
+
+        species_id (int): It is 1 or 2 or 3 dpepending on whether it is
+                          species1 or species2 or species3 and so on..
+        """
+        surface_thickness = self.surface_thickness
+        element_syms = self.element_syms
+        species_dict = self.species_dict
+
+        slab_sites = slab_astr.sites
+        z_cart_max = slab_astr.cart_coords[:, 2].max()
+
+        surface_sites = [site for site in slab_sites if \
+                        site.coords[2] > (z_cart_max - surface_thickness)]
+        z_carts = np.unique([site.coords[2] for site in surface_sites \
+                        if site.specie.name == element_syms[species_id]])
+
+        if len(z_carts) == 0:
+            print ('{} atoms are not present in the surface layer '
+                    'of init_slab_astr'.format(element_syms[species_id]))
+        added = False
+        for k in species_dict.keys():
+            if species_dict[k]['name'] == element_syms[species_id]:
+                self.species_dict[k]['z_carts'] = z_carts
+                added = True
+
+        return added
+
+    def get_zs_for_species(self, species_name, atoms_per_species):
+        """
+        Returns a list of cartesian z-coordinates for the species
+
+        Args:
+
+        species_name (str): The symbol of the species in the surface layer for
+                            which z-coordinates are required
+
+        num_species (int): The number of atoms for the species (or z-
+                           coordinates required)
+        """
+        #TODO: Add a tolerance parameter to slightly vary z-coords
+        species_dict = self.species_dict
+        num_species = atoms_per_species[species_name]
+
+        for k in species_dict.keys():
+            if species_dict[k]['name'] == species_name:
+                species_z_carts = species_dict[k]['z_carts']
+                break
+
+        species_zs = []
+        copy_z_carts = list(species_z_carts.copy())
+        while len(species_zs) < num_species:
+            if len(copy_z_carts) > 0:
+                random.shuffle(copy_z_carts)
+                z = copy_z_carts.pop()
+                species_zs.append(z)
+            else:
+                copy_z_carts = list(species_z_carts.copy())
+                continue
+
+        return species_zs
+
+    def choose_init_slab(self, ab=None, abs_tol=0.2):
+        """
+        Returns a slab_astr (pymatgen structure) object by choosing randomly
+        from the init_slabs_dict
+
+        Args:
+
+        ab (array/list (2, 3)): Two lattice vectors a, b given as an array/list
+
+        abs_tol (float): The maximum value for the sum of absolute difference
+                         between the "ab" given and "slab_ab"
+        """
+        init_slabs_dict = self.init_slabs_dict
+        keys = list(init_slabs_dict.keys())
+        random.shuffle(keys)
+
+        if not ab:
+            # return first match since keys are already shuffled
+            return Structure.from_file(init_slabs_dict[keys[0]])
+        else:
+            for key in keys:
+                astr = Structure.from_file(init_slabs_dict[key])
+                slab_ab = astr.lattice.matrix[:2]
+                diff = np.array(ab) - slab_ab
+                # return first match since keys are already shuffled
+                if np.absolute(diff).sum() < abs_tol:
+                    return astr
+
+    def random_surface_layer(self, slab_astr):
+        """
+        Returns a random surface layer for initial population
+
+        Algorithm:
+
+        1. Get the no. of atoms for each species
+
+        Update: Alternatively, if constrain_z, get the fixed z-coordinates for
+        each atom of each species at this step. Later get x, y coordinates
+        using the get_random_coords() and get_connected_coords() function. This
+        way, the min and max distances will be satisfied together with the z-
+        constraints.
+
+        2. Decide whether fully random or semi-random
+
+        3. For fully random:
+               a. Add random coordinates for each atom to the lattice
+           For semi-random:
+               a. Add species 1 coords randomly (use get_coords_random())
+               b. Add species 2 coords using get_connected_coords()
+               c. Add species 3 coords using either of the functions
+
+        4. If constrain_z is True, check for the set of z-coordinates
+
+        5. Modify the atoms such that they all have the required z-coordinates
+
+        Join the surface layer on top of same sized substrate at a given
+        separation distance
+        Return the slab+surface structure
+        """
+        lattice = slab_astr.lattice
+        species_dict = self.species_dict
+        comp_dict = self.comp_dict
+        element_syms = self.element_syms
+
+        # Get the no. of atoms per species needed in the surface layer
+        atoms_per_species = self.get_atoms_per_species(comp_dict=comp_dict)
+
+        # NOTE: XRR code output is strongly influenced by changes in the atoms
+        # along z-direction. So, in surface_ops(), if constrain_z is True, the
+        # z-coordinates are taken from the init_slabs surface layers.
+        # If constrain_z is False, the atoms in surface layer are randomly
+        # populated.
+
+        # Add z-carts from the slab_astr to species_dict for each species
+        z_carts = None
+        if self.constrain_z:
+            for key in self.element_syms.keys():
+                self.default_zs_to_species_dict(slab_astr, key)
+            z_carts = self.get_zs_for_species(element_syms[1],
+                                                atoms_per_species)
+
+        # Add random coords for species 1
+        num_sp1_needed = atoms_per_species[element_syms[1]]
+        min_dist = self.min_dist_dict['sp1_sp1']
+        max_dist = self.max_dist_dict['sp1_sp1']
+        sp1_random_coords = self.get_random_coords_for_species(
+                                        num_sp1_needed, lattice, min_dist,
+                                        max_dist=max_dist, z_carts=z_carts)
+        sps = [element_syms[1] for i in range(len(sp1_random_coords))]
+        coords = sp1_random_coords
+
+        # Fix the species 1 coords and
+        # Get species 2, 3 either as bonded or random
+        if 2 in element_syms.keys():
+            num_sp2_needed = atoms_per_species[element_syms[2]]
+            # Get bond distance limits for species 1-2 & 2-2
+            min_dist_12 = self.min_dist_dict['sp1_sp2']
+            max_dist_12 = self.max_dist_dict['sp1_sp2']
+            min_dist_22 = self.min_dist_dict['sp2_sp2']
+            sp2_z_carts = None
+            if self.constrain_z:
+                sp2_z_carts = self.get_zs_for_species(element_syms[2],
+                                                        atoms_per_species)
+                if len(sp2_z_carts) == 0: # use random when 0
+                    sp2_z_carts = None
+
+            if species_dict['species2']['bonds_to'] is None:
+                # Get random coords for species 2 as well
+                sp2_frac_coords = self.get_secondary_random_coords(
+                                            num_sp2_needed, lattice,
+                                            sp1_random_coords, min_dist_12,
+                                            min_dist_22, z_carts=sp2_z_carts)
+            elif species_dict['species2']['bonds_to'] == 1:
+                # Get connected coords for species 2
+                sp2_frac_coords = self.get_connected_coords(
+                                            num_sp2_needed, lattice,
+                                            sp1_random_coords, min_dist_12,
+                                            max_dist_12, min_dist_22,
+                                            connected_z_carts=sp2_z_carts)
+            else:
+                print ("Error: Species2 'bonds_to' should be either None or 1")
+            sps += [element_syms[2] for i in range(len(sp2_frac_coords))]
+            coords += sp2_frac_coords
+
+        if 3 in element_syms.keys():
+            num_sp3_needed = atoms_per_species[element_syms[3]]
+            # Get distances for 1-3, 2-3 && 3-3
+            min_dist_13 = self.min_dist_dict['sp1_sp3']
+            max_dist_13 = self.max_dist_dict['sp1_sp3']
+            min_dist_23 = self.min_dist_dict['sp2_sp3']
+            max_dist_23 = self.max_dist_dict['sp2_sp3']
+            min_dist_33 = self.min_dist_dict['sp3_sp3']
+            sp3_z_carts = None
+            if self.constrain_z:
+                sp3_z_carts = self.get_zs_for_species(element_syms[3],
+                                                        atoms_per_species)
+                if len(sp3_z_carts) == 0: # use random when 0
+                    sp3_z_carts = None
+
+            if species_dict['species3']['bonds_to'] is None:
+                # Get random coords for species 2 as well
+                sp3_frac_coords = self.get_secondary_random_coords(
+                                            num_sp3_needed, lattice,
+                                            sp1_random_coords, min_dist_13,
+                                            min_dist_33,
+                                            other_min_dist=min_dist_23,
+                                            other_frac_coords=sp2_frac_coords,
+                                            z_carts=sp3_z_carts)
+
+            elif species_dict['species2']['bonds_to'] == 1:
+                # Get connected coords for species 2
+                sp3_frac_coords = self.get_connected_coords(
+                                            num_sp3_needed, lattice,
+                                            sp1_random_coords, min_dist_13,
+                                            max_dist_13, min_dist_33,
+                                            connected_z_carts=sp3_z_carts)
+                # TODO: Here 2, 3 bond distances are not checked
+
+            elif species_dict['species2']['bonds_to'] == 2:
+                # Get connected coords for species 2
+                sp3_frac_coords = self.get_connected_coords(
+                                            num_sp3_needed, lattice,
+                                            sp2_frac_coords, min_dist_23,
+                                            max_dist_23, min_dist_33,
+                                            connected_z_carts=sp3_z_carts)
+                # TODO: Here 1, 3 bond distances are not checked
+            else:
+                print ("Error: Species3 'bonds_to' should be either None/1/2")
+            sps += [element_syms[3] for i in range(len(sp3_frac_coords))]
+            coords += sp3_frac_coords
+
+        new_surf_layer = Structure(lattice, sps, coords,
+                                   coords_are_cartesian=False)
+
+        return new_surf_layer
+
+    def random_model(self, reg_id):
+        """
+        Returns a model object which is a random_surface_layer on same area
+        substrate.
+
+        Args:
+
+        reg_id (obj): register_id object
+        """
+        # Choose a init_slab from the dict
+        slab_astr = self.choose_init_slab()
+
+        # Get substrate from the slab_astr
+        bot_z_cart = slab_astr.cart_coords[:, 2].min()
+        slab_sites = slab_astr.sites
+        sub_inds = [i for i, site in enumerate(slab_sites) if \
+                        site.coords[2] - bot_z_cart <= self.substrate_thickness]
+
+        sub_sps = [slab_astr.species[i] for i in sub_inds]
+        sub_fracs = [slab_astr.frac_coords[i] for i in sub_inds]
+        substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
+                                        coords_are_cartesian=False)
+
+        # Get the surface layer size of the slab
+        surface_layer = self.random_surface_layer(slab_astr)
+
+        # Combine substrate and the surface layer using separation
+        surface_minz = surface_layer.cart_coords[:, 2].min()
+        substrate_maxz = substrate.cart_coords[:, 2].max()
+        z_diff = substrate_maxz + self.separation - surface_minz
+        # Re-scale the z-coordinates to get separation correctly
+        new_surface_carts = surface_layer.cart_coords.copy()
+        new_surface_carts[:, 2] += z_diff
+        # Add the surface atoms to substrate
+        for i in range(len(new_surface_carts)):
+            substrate.append(surface_layer.species[i], new_surface_carts[i],
+                                            coords_are_cartesian=True)
+
+        surf_model = structure_record.model(substrate, reg_id)
+        surf_model.inheritance = 'random'
+
+        return surf_model
+
+    def get_model():
+        """
+        returns a new model created either by mating or basinhopping
+        """
+        pass
+
+    def get_atoms_per_species(self, comp_dict=None):
+        """
+        Returns a dict with number of atoms for each species.
+        To be used when making a random surface layer for initial population
+        """
+        species_dict = self.species_dict
+
+        atoms_per_species = {}
+        # get num_species_1
+        for k in species_dict.keys():
+            name = species_dict[k]['name']
+            num_atoms = random.randint(species_dict[k]['min_num'],
+                                            species_dict[k]['max_num'])
+            atoms_per_species[name] = num_atoms
+
+        # if comp_dict is given, get the num atoms for other species
+        # based on composition
+        # Currently gives atoms_per_species close to required comp.
+        # Ex: For Al2O3; instead of Al_3O_4.5 gives Al3O4 (nearest integer).
+        # TODO: Enable exact composition option
+        if comp_dict:
+            # get total number of species in surface layer using comp_dict
+            all_species = list(comp_dict.keys())
+            # fix no. of atoms for species 1
+            fixed_sps = all_species[0]
+            del all_species[0]
+            fixed_num = atoms_per_species[fixed_sps]
+
+            for species in all_species:
+                atoms_per_species[species] = int(fixed_num * \
+                                    comp_dict[species] / comp_dict[fixed_sps])
+
+        return atoms_per_species
+
+    def get_random_coords_for_species(self, num_coords_needed, lattice,
+                                      min_dist, max_dist=None, z_carts=None):
+        """
+        Returns a (num) list of random fractional coords, each separated by a
+        distance within the min_dist and max_dist
+
+        Algorithm:
+
+        While len(random_coords) < num;
+            Get a fractional coordinate.
+            Calculate the distance between the two coords  wrt lattice
+            If the distance satisfies min and max dist, add it to random_coords.
+            Else, continue..
+
+        Args:
+
+        num_coords_needed (int): Number of random coordinates needed for the
+                                 given species
+
+        lattice (obj): pymatgen lattice object of the surface layer. (The c
+                       lattice vector should be corresponding to the fractional
+                       z_carts)
+
+        min_dist (float): the minimum distance required between any two atoms
+                          of the given species
+
+        max_dist (float): the maximum distance within which at least one atom
+                          of same species should exist
+
+        z_carts (list): The list of (fractional) z-coordinates for all the
+                         atoms of the given species. The length of the list
+                         should be equal to the num_coords_needed parameter
+        """
+        random_coords = []
+        coords = [random.random(), random.random(), random.random()]
+        if z_carts:
+            # divide z_carts by the c lattice vector of lattice
+            z_carts = [z/lattice.c for z in z_carts]
+            # Replace z coordinate with given z-coord
+            coords[2] = z_carts[0]
+            num_added = 1
+        random_coords.append(coords)
+
+        tries = 0
+        while num_added < num_coords_needed and tries < 1000:
+            tries += 1
+            new_fracs = [random.random(), random.random(), random.random()]
+            if z_carts:
+                new_fracs[2] = z_carts[num_added]
+            new_carts = lattice.get_cartesian_coords(new_fracs)
+            if len(lattice.get_points_in_sphere(random_coords,
+                                                new_carts, min_dist)) == 0:
+                random_coords.append(new_fracs)
+                num_added += 1
+                tries = 0
+
+        random.shuffle(random_coords)
+        return random_coords
+
+    def get_secondary_random_coords(self, num_coords_needed, lattice, primary_frac_coords, min_dist_12, min_dist_22, other_min_dist=None, other_frac_coords=None, z_carts=None):
+        """
+        Returns random coords which satisfy distance constaints among same
+        species and with species 1
+
+        Args:
+
+        num_coords_needed (int): Number of random coordinates needed for the
+                                 given species
+
+        lattice (obj): pymatgen lattice object of the surface layer. (The c
+                       lattice vector should be corresponding to the fractional
+                       z_carts)
+
+        primary_frac_coords (list/array(nx3)): List of primary coords. Minimum
+                                               distance is checked using
+                                               min_dist_12
+
+        min_dist_12 (float): the minimum distance required between any two atoms
+                          of species 2 & 1
+
+        min_dist_22 (float): the minimum distance between two atoms of
+                             species 2 & 2 (secondary speices)
+
+        z_carts (list): The list of (fractional) z-coordinates for all the
+                         atoms of the given species. The length of the list
+                         should be equal to the num_coords_needed parameter
+
+        """
+        # Add random skipped coords to this structure
+        tries, num_added = 0, 0
+        if z_carts:
+            z_fracs = np.array(z_carts) / lattice.c
+            if len(z_fracs) != num_coords_needed:
+                print ("Error: Z-carts not present for all coords!")
+
+        secondary_coords = []
+        while num_added < num_coords_needed and tries < 1000:
+            tries += 1
+            new_fracs = [random.random(), random.random(), random.random()]
+            if z_fracs:
+                new_fracs[2] = z_fracs[num_added]
+            new_carts = lattice.get_cartesian_coords(new_fracs)
+            if len(lattice.get_points_in_sphere(primary_frac_coords,
+                                                new_carts, min_dist_12)) == 0:
+                if len(lattice.get_points_in_sphere(secondary_coords,
+                                                new_carts, min_dist_22)) == 0:
+                    if other_min_dist and other_frac_coords:
+                        if len(lattice.get_points_in_sphere(other_frac_coords,
+                                            new_carts, other_min_dist)) == 0:
+                            secondary_coords.append(new_fracs)
+                            num_added += 1
+                            tries = 0
+                    else:
+                        secondary_coords.append(new_fracs)
+                        num_added += 1
+                        tries = 0
+
+        return secondary_coords
+
+    def get_connected_coords(self, num_coords_needed, lattice, fixed_coords, min_dist_12, max_dist_12, min_dist_22, connected_z_carts=None):
+        """
+        For a given list of coords (of say species_1), returns the species 2
+        coords such that they satisfy -
+        - minimum and maximum bond distance between atoms of species 1 & 2 resp
+        - minimum bond distance between two atoms of species 2
+        - number of bonds for each atom in species 1
+
+        NOTE: For a constrain_z type random models, species_2_zs contain
+              only the z-coordinate for each random atom. Now we determine only
+              the x & y coordinates which satisfy the above requirements
+
+        Algorithm:
+
+        1. Make empty lists of species_2_coords, bonded_species_1_coords
+        2. Randomly choose incomplete coord from species_2_zs
+        3. Randomly choose a full coord from species_1_coords
+        4. Randomly get (x, y) on the circle on the plane of x-y which satisy
+           1&2 bond distance
+        5. Add the species_1_coords index to bonded_species_1_coords
+        6. Add the complete species_2 (x,y,z) to species_2_coords
+        7. Go to step 2 and continue with species_1_coords. If all
+           species_1_coords are bonded, then again choose randomly from all
+        8. Return species_2_coords
+
+        """
+        fixed_carts = list(lattice.get_cartesian_coords(fixed_coords))
+
+        connected_coords = []
+        skipped_z_carts = []
+        for i in range(len(connected_z_carts)):
+            if len(fixed_carts) > 0:
+                # Choose a fixed atom coords to get connected coords
+                center_carts = fixed_carts.pop()
+            else:
+                fixed_carts = list(lattice.get_cartesian_coords(fixed_coords))
+            # Randomly choose z-cart of the new connected coord from the list
+            new_coord_z_cart = connected_z_carts[i]
+
+            # Get the bond distance within the limits provided
+            tries = 0
+            found_coord = False
+            while not found_coord and tries < 1000:
+                tries += 1
+                # Get the xy on the circle which satisfy the distance
+                bond_dist = unif(min_dist_12, max_dist_12)
+                new_carts = self.get_point_on_circle(center_carts, bond_dist,
+                                                    new_coord_z_cart)
+                # Check if the new point satisfies all minimum distance constraints
+                if len(lattice.get_points_in_sphere(fixed_coords, new_carts,
+                                                            min_dist_12)) == 0:
+                    if len(connected_coords) == 0:
+                        new_fracs = lattice.get_fractional_coords(new_carts)
+                        connected_coords.append(new_fracs)
+                        print (tries)
+                        tries = 0
+                        found_coord = True
+                        continue
+                    if len(lattice.get_points_in_sphere(connected_coords, new_carts,
+                                                            min_dist_22)) == 0:
+                        new_fracs = lattice.get_fractional_coords(new_carts)
+                        connected_coords.append(new_fracs)
+                        print (tries)
+                        tries = 0
+                        found_coord = True
+            if not found_coord:
+                skipped_z_carts.append(new_coord_z_cart)
+
+        # Add random skipped coords to this structure
+        tries, num_added = 0, 0
+        if len(skipped_z_carts) > 0:
+            skipped_z_fracs = np.array(skipped_z_carts) / lattice.c
+        else:
+            skipped_z_fracs = None
+        if skipped_z_fracs is not None:
+            while num_added < len(skipped_z_fracs) and tries < 1000:
+                tries += 1
+                new_fracs = [random.random(), random.random(), random.random()]
+                new_fracs[2] = skipped_z_fracs[num_added]
+                new_carts = lattice.get_cartesian_coords(new_fracs)
+                if len(lattice.get_points_in_sphere(fixed_coords,
+                                                new_carts, min_dist_12)) == 0:
+                    if len(lattice.get_points_in_sphere(connected_coords,
+                                                new_carts, min_dist_22)) == 0:
+                        connected_coords.append(new_fracs)
+                        num_added += 1
+                        tries = 0
+
+        return connected_coords
+
+    def get_point_on_circle(self, center_carts, radius, z_cart):
+        """
+        Returns (x, y, z_cart) which is at a distance of radius from the center_carts
+
+        Args:
+
+        center_carts (list): the cartesian coordiantes of the center of the
+                             sphere
+
+        radius (float): radius of the sphere
+
+        z_cart (float): cartesian z-coordinate of the point for which x, y will
+                        be calculated
+        """
+        # Get the vertical distance r_vert
+        r_vert = center_carts[2] - z_cart
+        # Get the angle theta such that radius * sin (theta) = r_vert
+        theta = asin(r_vert / radius)
+        # Get r_horz which is radius * cos (theta)
+        r_horz = cos(theta)
+        # Get a random x within x_min and x_max (x1 +- r_horz)
+        x = unif(center_carts[0] - r_horz, center_carts[0] + r_horz)
+        # Calculate y to satisfy the equation of circle
+        solution = sqrt(radius**2 - (center_carts[0] - x) ** 2 - \
+                        (center_carts[2] - z_cart) ** 2)
+
+        if random.random() < 0.5:
+            y = solution + center_carts[1]
+        else:
+            y = solution - center_carts[1]
+
+        return [x, y, z_cart]
+
+    # functions for mating operations
+    def mate(self, parent_1, parent_2):
+        """
+        Performs mating by slicing for given two models and returns child
+        structure. Here both the parents should be of same lattice in the x-y
+        direction.
+
+
+        Algorithm:
+        1. Select a line that passes through the center of the lattice
+        2. Cut both parents surface layers into two halves
+        3. Select one half from one parent and the other half from the second
+           parent
+        4. Join them
+        5. Attach the child surface layer on top of the substrate slab
+        """
+
+    def surface_comp_check(self, surface_astr):
+        """
+        For terminology use these variables. All are pymatgen structure objects.
+        slab_astr - substrate (or bulk) slab with a surface layer on top
+        surface_layer - only the top layer which corresponds to surface
+        substrate - only the bottom slab which corresponds to bulk or substrate
+
+        """
+        pass
