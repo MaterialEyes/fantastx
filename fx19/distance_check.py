@@ -343,6 +343,8 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
     species_dict: dictionary of species; from inputs
     remove_index: (int) The index of atom to be removed before doing distance
                   check
+    periodic : (bool) Whether the distances should be checked using periodic
+                boundary conditions
     """
     # Find if new_sp is specie1 or specie2 or ..
     for key in species_dict.keys():

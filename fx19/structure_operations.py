@@ -1172,7 +1172,6 @@ class gb_ops(object):
         num_added, tries = 0, 0
         while num_added < diff:  # and tries < 1000: #(leave this structure)
             tries += 1
-            coords = child_astr.cart_coords
             new_c = [unif(0, 1), unif(0, 1), unif(zmin, zmax)]
             new_c = child_astr.lattice.get_cartesian_coords(new_c)
             if dc.satisfies_all_dists(new_c, sp, dc_astr,
