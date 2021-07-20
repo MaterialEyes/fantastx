@@ -479,7 +479,7 @@ class Select(object):
                 if tuple(vis_facets[1]) not in hull_points:
                     hull_points.append(tuple(vis_facets[1]))
 
-            hull_points = np.array([i for i in hull_points])
+            hull_points = np.array(hull_points)
             self.hull_points = hull_points
             self.visible_facets = visible_facets
 
@@ -492,22 +492,9 @@ class Select(object):
 
             distances_from_hull = []
             for data_of_model in weighted_norm_vals:
-                # get equation of the line perpendicular to the line PxPy and
-                # passes through model
-                c_xy = data_of_model[1] - (-1/m_pxpy) * data_of_model[0]
-                xy_line = (-1/m_pxpy, c_xy)
-
-                # find distance of the model from each visible facet
-                # along this line
-                distances = []
-                for facet in visible_facets:
-                    # get equation (m, c) for a facet
-                    facet_line = Select._line_from_points(facet[0], facet[1])
-                    # Get point of intersection with facet_line
-                    x0y0 = Select._point_on_two_lines(facet_line, xy_line)
-                    distances.append(Select._dist_from_point(x0y0,
-                                                             data_of_model))
-                distances_from_hull.append(min(distances))
+                min_dist = Select._get_dist_from_hull(
+                    self, data_of_model, m_pxpy)
+                distances_from_hull.append(min_dist)
 
             # Get the cutoff value (distance_from_hull) for good_pool
             # TODO: Use a better way to get the cutoff_value
@@ -611,8 +598,7 @@ class Select(object):
                 return False
         return True
 
-    # TODO: incorporate into update_all_selection_probs function
-    def get_dist_from_hull(self, new_point):
+    def get_dist_from_hull(self, new_point, m_pxpy):
         """
         Returns distance of a point from the convex hull.
 
@@ -620,13 +606,8 @@ class Select(object):
 
         new_point: (list/tuple) of a 2D point weighted normalized
                                             [obj0_val, obj1_val]
+        m_pxpy: (float) the slope of the line connecting the extrema of the pareto front
         """
-        # Assuming 2D pareto front from here
-        # Get maximum x & maximum y on-hull points
-        [Px, Py] = self.hull_points[np.argmax(self.hull_points, axis=0)]
-
-        # slope of line between Px, Py
-        m_pxpy = (Px[1] - Py[1]) / (Px[0] - Py[0])
 
         # get equation of line perpendicular to PxPy & passes through model
         c_xy = new_point[1] - (-1/m_pxpy) * new_point[0]
