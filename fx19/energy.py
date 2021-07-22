@@ -60,24 +60,6 @@ class lammps_code(object):
         for key, value in energy_params['element_syms'].items():
             self.sym_mu_dict[value] = energy_params['mu'][key]
 
-        # self.sym2 = None
-        # self.sym3 = None
-        # self.sym4 = None
-        # self.sym5 = None
-        # self.mu2, self.mu3, self.mu4, self.mu5 = 0, 0, 0, 0
-        # if len(energy_params['element_syms']) > 1:
-        #     self.sym2 = energy_params['element_syms'][2]
-        #     self.mu2 = energy_params['mu'][2]
-        # if len(energy_params['element_syms']) > 2:
-        #     self.sym3 = energy_params['element_syms'][3]
-        #     self.mu3 = energy_params['mu'][3]
-        # if len(energy_params['element_syms']) > 3:
-        #     self.sym4 = energy_params['element_syms'][4]
-        #     self.mu4 = energy_params['mu'][4]
-        # if len(energy_params['element_syms']) > 4:
-        #     self.sym5 = energy_params['element_syms'][5]
-        #     self.mu5 = energy_params['mu'][5]
-
         # chemical potentials of each species
 
         # default atom_style
@@ -628,7 +610,7 @@ class vasp_code(object):
                 if elem in self.sym_mu_dict.keys():
                     free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
                 else:
-                    print("Error. LAMMPS species " + elem +
+                    print("Error. VASP species " + elem +
                           " not contained in input yaml file.")
 
             model.obj0_val = float(free_en)

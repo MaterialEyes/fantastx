@@ -106,33 +106,40 @@ class make_random_model(object):
         self.num_species = str_constraints['num_species']
         # save species1 data
         # TODO: allow infinite species by reading input directly
-        self.sym_species1 = str_constraints['species1']['name']
-        self.min_num_sp1 = str_constraints['species1']['min_num']
-        self.max_num_sp1 = str_constraints['species1']['max_num']
-        # save species2 data if exists
-        if self.num_species > 1:
-            if 'species2' in str_constraints and str_constraints['species2']:
-                self.sym_species2 = str_constraints['species2']['name']
-                self.min_num_sp2 = str_constraints['species2']['min_num']
-                self.max_num_sp2 = str_constraints['species2']['max_num']
-        # save species3 data if exists
-        if self.num_species > 2:
-            if 'species3' in str_constraints and str_constraints['species3']:
-                self.sym_species3 = str_constraints['species3']['name']
-                self.min_num_sp3 = str_constraints['species3']['min_num']
-                self.max_num_sp3 = str_constraints['species3']['max_num']
-        # save species4 data if exists
-        if self.num_species > 3:
-            if 'species4' in str_constraints and str_constraints['species4']:
-                self.sym_species4 = str_constraints['species4']['name']
-                self.min_num_sp4 = str_constraints['species4']['min_num']
-                self.max_num_sp4 = str_constraints['species4']['max_num']
-        # save species5 data if exists
-        if self.num_species > 4:
-            if 'species5' in str_constraints and str_constraints['species5']:
-                self.sym_species5 = str_constraints['species5']['name']
-                self.min_num_sp5 = str_constraints['species5']['min_num']
-                self.max_num_sp5 = str_constraints['species5']['max_num']
+        # If species are all properly labeled in order,
+        # and storing them in lists for later access:
+        self.sym_species = []
+        self.min_num_sp = []
+        self.max_num_sp = []
+        for index in range(1, self.num_species + 1):
+            self.sym_species.append(
+                str_constraints['species' + str(index)]['name'])
+            self.min_num_sp.append(
+                str_constraints['species' + str(index)]['min_num'])
+            self.max_num_sp.append(
+                str_constraints['species' + str(index)]['max_num'])
+
+        # variables will be labeled as species1, min_num_sp1, max_num_sp1, etc
+        # If species are all properly labeled in order:
+        # (and storing them as individual variables)
+        # for index in range(1, self.num_species + 1):
+        #     setattr(self, 'sym_species' + str(index),
+        #             str_constraints['species' + str(index)]['name'])
+        #     setattr(self, 'min_num_sp' + str(index),
+        #             str_constraints['species' + str(index)]['min_num'])
+        #     setattr(self, 'max_num_sp' + str(index),
+        #             str_constraints['species' + str(index)]['max_num'])
+
+        # If species are not all in order, find species in str_constraints
+        # for key in str_constraints:
+        #     if key[:7] == 'species':
+        #         index = key[7:]
+        #         setattr(self, 'sym_species' + index,
+        #                 str_constraints[key]['name'])
+        #         setattr(self, 'min_num_sp' + index,
+        #                 str_constraints[key]['min_num'])
+        #         setattr(self, 'max_num_sp' + index,
+        #                 str_constraints[key]['max_num'])
 
     def get_cluster_in_box(self):
         """
@@ -201,50 +208,16 @@ class make_random_model(object):
         species = []
         count = []
         # NOTE: composition is decided here randomly
-        species1 = self.sym_species1
-        if self.min_num_sp1 == self.max_num_sp1:
-            num_species1 = self.min_num_sp1
-        else:
-            num_species1 = int(unif(self.min_num_sp1, self.max_num_sp1+1))
-        for i in range(num_species1):
-            species.append(species1)
-        count.append(num_species1)
-        if self.num_species > 1:
-            species2 = self.sym_species2
-            if self.min_num_sp2 == self.max_num_sp2:
-                num_species2 = self.min_num_sp2
+        for sp_index in range(self.num_species):
+            target_species = self.sym_species[sp_index]
+            if self.min_num_sp[sp_index] == self.max_num_sp[sp_index]:
+                num_species = self.min_num_sp[sp_index]
             else:
-                num_species2 = int(unif(self.min_num_sp2, self.max_num_sp2+1))
-            for i in range(num_species2):
-                species.append(species2)
-            count.append(num_species2)
-        if self.num_species > 2:
-            species3 = self.sym_species3
-            if self.min_num_sp3 == self.max_num_sp3:
-                num_species3 = self.min_num_sp3
-            else:
-                num_species3 = int(unif(self.min_num_sp3, self.max_num_sp3+1))
-            for i in range(num_species3):
-                species.append(species3)
-            count.append(num_species3)
-        if self.num_species > 3:
-            species4 = self.sym_species4
-            if self.min_num_sp4 == self.max_num_sp4:
-                num_species4 = self.min_num_sp4
-            else:
-                num_species4 = int(unif(self.min_num_sp4, self.max_num_sp4+1))
-            for i in range(num_species4):
-                species.append(species4)
-            count.append(num_species4)
-        if self.num_species > 4:
-            species5 = self.sym_species5
-            if self.min_num_sp5 == self.max_num_sp5:
-                num_species5 = self.min_num_sp5
-            else:
-                num_species5 = int(unif(self.min_num_sp5, self.max_num_sp5+1))
-            for i in range(num_species5):
-                species.append(species5)
-            count.append(num_species5)
+                num_species = int(
+                    unif(self.min_num_sp[sp_index], self.max_num_sp[sp_index]+1))
+            for _ in range(num_species):
+                species.append(target_species)
+            count.append(num_species)
 
         # For fixed composition, we do not change total num_atoms
         # So, min and max should be same for each species and,

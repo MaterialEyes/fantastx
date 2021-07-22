@@ -176,20 +176,11 @@ class structure_constraints(object):
             species_dict = str_record['species']
             self.num_species = len(species_dict)
 
-        # make a min_dist dictionary with default min_dist for all bonds
-        self.min_dist_dict = {}
-        for sp1 in range(self.num_species):
-            for sp2 in range(sp1, self.num_species):
-                key = 'sp' + str(sp1+1) + '_sp' + str(sp2+1)
-                self.min_dist_dict[key] = self.def_min_dist
-                if 'min_dist' in str_record:
-                    if key in str_record['min_dist'].keys():
-                        self.min_dist_dict[key] = str_record['min_dist'][key]
-
         # see that all attributes for all species are present by placing
         # defaults for species1 and that of species1 for the rest
         element_syms = {}
         i = 1
+        found_species = []
         for species, values in species_dict.items():
             while species != "species" + str(i):
                 print('Error. Cannot find species ' + str(i) +
@@ -197,6 +188,7 @@ class structure_constraints(object):
                 i += 1
                 if i == 50:
                     break
+            found_species.append(i)
             if 'name' not in values:
                 print(
                     'Please specify element name (Ex: \'Al\') of specie ' + str(i) + '.')
@@ -213,6 +205,16 @@ class structure_constraints(object):
             i += 1
 
         self.element_syms = element_syms
+
+        # make a min_dist dictionary with default min_dist for all bonds
+        self.min_dist_dict = {}
+        for index, sp1 in enumerate(found_species):
+            for sp2 in found_species[index:]:
+                key = 'sp' + str(sp1) + '_sp' + str(sp2)
+                self.min_dist_dict[key] = self.def_min_dist
+                if 'min_dist' in str_record:
+                    if key in str_record['min_dist'].keys():
+                        self.min_dist_dict[key] = str_record['min_dist'][key]
 
         #########################cluster parameters############################
         # shape and related

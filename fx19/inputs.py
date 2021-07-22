@@ -193,13 +193,14 @@ def get_energy_params(i_dict):
     # chemical potentials
     species_dict = i_dict['structure_record']['species']
     mu = {}
-    for i in range(1, len(species_dict) + 1):
-        mu[i] = 0
-        if 'mu' in species_dict['species' + str(i)].keys():
-            mu[i] = species_dict['species' + str(i)].keys()
+    for species in species_dict.keys():
+        index = int(species[7:])
+        if 'mu' in species_dict[species].keys():
+            mu[index] = species_dict[species]['mu']
         else:
-            print('Error encountered with species ' + str(i) + ': '
-                  'Chemical potentials must be provided as a dictionary for each species!')
+            print('Error encountered with species ' + str(index) + ': '
+                  'Chemical potentials must be provided in the dictionary for each species!')
+            mu[index] = 0
 
     energy_params['mu'] = mu
 
