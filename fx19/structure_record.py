@@ -28,7 +28,7 @@ class model(object):
     def __init__(self, astr, reg_id):
         """
         Given a structure object, makes model object assuming defaults for all
-        attrubites
+        attributes
 
         Args:
 
@@ -149,7 +149,7 @@ class model(object):
 class structure_constraints(object):
     """
     Reads all the inputs provided by user and assumes defaults for some
-    parameters
+    parameters where possible
     """
 
     def __init__(self, str_record):
@@ -183,7 +183,7 @@ class structure_constraints(object):
                 key = 'sp' + str(sp1+1) + '_sp' + str(sp2+1)
                 self.min_dist_dict[key] = self.def_min_dist
                 if 'min_dist' in str_record:
-                    if key in str_record['mind_dist'].keys():
+                    if key in str_record['min_dist'].keys():
                         self.min_dist_dict[key] = str_record['min_dist'][key]
 
         # see that all attributes for all species are present by placing

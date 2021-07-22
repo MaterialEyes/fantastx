@@ -191,21 +191,16 @@ def get_energy_params(i_dict):
         energy_params['energy_exec_cmd'] = i_dict['energy_exec_cmd']
 
     # chemical potentials
-    mu = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
     species_dict = i_dict['structure_record']['species']
-    try:
-        mu[1] = species_dict['species1']['mu']
-        if 'species2' in species_dict:
-            mu[2] = species_dict['species2']['mu']
-        if 'species3' in species_dict:
-            mu[3] = species_dict['species3']['mu']
-        if 'species4' in species_dict:
-            mu[4] = species_dict['species4']['mu']
-        if 'species5' in species_dict:
-            mu[5] = species_dict['species5']['mu']
-    except:
-        print('Error: Chemical potentials must be provided as a dictionary '
-              'for each species with integer keys!')
+    mu = {}
+    for i in range(1, len(species_dict) + 1):
+        mu[i] = 0
+        if 'mu' in species_dict['species' + str(i)].keys():
+            mu[i] = species_dict['species' + str(i)].keys()
+        else:
+            print('Error encountered with species ' + str(i) + ': '
+                  'Chemical potentials must be provided as a dictionary for each species!')
+
     energy_params['mu'] = mu
 
     # Number of times to resubmit if not converged (for vasp)
@@ -310,10 +305,10 @@ def get_mating_params(i_dict, str_constraints):
         mating_params['max_dia'] = str_constraints['max_dia']
 
     # species dicts
-    keys = ['species1', 'species2', 'species3', 'species4', 'species5']
-    for specie in keys:
-        if specie in str_constraints:
-            mating_params[specie] = str_constraints[specie]
+    for i in range(1, str_constraints['num_species']+1):
+        species = 'species' + str(i)
+        if species in str_constraints:
+            mating_params[species] = str_constraints[species]
 
     return mating_params
 
@@ -333,10 +328,10 @@ def get_evolve_params(i_dict, str_constraints):
         evolve_params = i_dict['evolve_probabilities']
         evolve_params['num_species'] = str_constraints['num_species']
         # species dicts
-        keys = ['species1', 'species2', 'species3', 'species4', 'species5']
-        for specie in keys:
-            if specie in str_constraints:
-                evolve_params[specie] = str_constraints[specie]
+        for i in range(1, str_constraints['num_species']+1):
+            species = 'species' + str(i)
+            if species in str_constraints:
+                evolve_params[species] = str_constraints[species]
     return evolve_params
 
 # assume experimental pdf is given
