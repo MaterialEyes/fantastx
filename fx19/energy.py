@@ -34,20 +34,11 @@ class lammps_code(object):
         """
         energy_params: dictionary of all the parameters
 
-            Eg: {'main_path': <path to direcctory in which fantastx is ran>,
+            Eg: {'main_path': <path to directory in which fantastx is ran>,
                  'shape': 'gb',
                  'energy_files_path': <path_to_input_files>,
                  'energy_exec_cmd': 'lmp_mpi -in in.min',
-                 'sym1': 'Al',
-                 'sym2': 'O',
-                 'sym3': None,
-                 'sym4': None,
-                 'sym5': None,
-                 'mu1': -3.35958515625,
-                 'mu2': -6.76069604253,
-                 'mu3': 0,
-                 'mu4': 0,
-                 'mu5': 0,
+                 'sym_mu_dict': {'Al': -3.35958515625, 'O': -6.76069604253},
                  'atom_style': 'charge'}
         """
         self.main_path = energy_params['main_path']
@@ -64,28 +55,28 @@ class lammps_code(object):
         self.hollow_botz = None
         self.hollow_topz = None
 
-        # Save species names for identification
-        # and also chemical potentials of each species
-        self.sym1 = energy_params['element_syms'][1]
-        self.mu1 = energy_params['mu'][1]
+        # Save species names and their chemical potentials for identification
+        self.sym_mu_dict = {}
+        for key, value in energy_params['element_syms'].items():
+            self.sym_mu_dict[value] = energy_params['mu'][key]
 
-        self.sym2 = None
-        self.sym3 = None
-        self.sym4 = None
-        self.sym5 = None
-        self.mu2, self.mu3, self.mu4, self.mu5 = 0, 0, 0, 0
-        if len(energy_params['element_syms']) > 1:
-            self.sym2 = energy_params['element_syms'][2]
-            self.mu2 = energy_params['mu'][2]
-        if len(energy_params['element_syms']) > 2:
-            self.sym3 = energy_params['element_syms'][3]
-            self.mu3 = energy_params['mu'][3]
-        if len(energy_params['element_syms']) > 3:
-            self.sym4 = energy_params['element_syms'][4]
-            self.mu4 = energy_params['mu'][4]
-        if len(energy_params['element_syms']) > 4:
-            self.sym5 = energy_params['element_syms'][5]
-            self.mu5 = energy_params['mu'][5]
+        # self.sym2 = None
+        # self.sym3 = None
+        # self.sym4 = None
+        # self.sym5 = None
+        # self.mu2, self.mu3, self.mu4, self.mu5 = 0, 0, 0, 0
+        # if len(energy_params['element_syms']) > 1:
+        #     self.sym2 = energy_params['element_syms'][2]
+        #     self.mu2 = energy_params['mu'][2]
+        # if len(energy_params['element_syms']) > 2:
+        #     self.sym3 = energy_params['element_syms'][3]
+        #     self.mu3 = energy_params['mu'][3]
+        # if len(energy_params['element_syms']) > 3:
+        #     self.sym4 = energy_params['element_syms'][4]
+        #     self.mu4 = energy_params['mu'][4]
+        # if len(energy_params['element_syms']) > 4:
+        #     self.sym5 = energy_params['element_syms'][5]
+        #     self.mu5 = energy_params['mu'][5]
 
         # chemical potentials of each species
 
@@ -94,7 +85,6 @@ class lammps_code(object):
         self.atom_style = def_atom_style
         if 'atom_style' in energy_params:
             self.atom_style = energy_params['atom_style']
-
 
     def prep_job_folder(self, model, reg_id):
         """
@@ -140,8 +130,8 @@ class lammps_code(object):
         if 'in.min' in file_list:
             input_file = files_path + '/in.min'
         else:
-            print ('in.min file not present in energy_inputs_path. This file '\
-                   'is mandatory.')
+            print('in.min file not present in energy_inputs_path. This file '
+                  'is mandatory.')
         # copy files from files_path to relax_path
         shutil.copy(input_file, relax_path)
         # NOTE: The path to lammps potential file should be specified in in.min
@@ -173,7 +163,8 @@ class lammps_code(object):
         os.chdir(relax_path)
         lammps_exec = self.energy_exec_cmd.split()
         with open('log_lammps.{}'.format(model.label), 'w') as log_file:
-            lammps_job = sp.Popen(lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT)
+            lammps_job = sp.Popen(
+                lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT)
             for each_line in lammps_job.stdout:
                 line = each_line.decode('utf-8')
                 log_file.write(line)
@@ -182,17 +173,17 @@ class lammps_code(object):
 
         # save total energy to model attributes
         total_energy = None
-        with open ('log_lammps.{}'.format(model.label), 'r') as log:
+        with open('log_lammps.{}'.format(model.label), 'r') as log:
             lines = log.readlines()
             string = 'Step Temp E_pair E_mol TotEng Press'
             for i, line in enumerate(lines):
                 if string in line:
                     total_energy = float(lines[i+2].split()[4])
         if not total_energy:
-            print ('Model {} energy not found in log_lammps.{} file'.format(
-                                                model.label, model.label))
-            print ('LAMMPS relaxation on model {} NOT successful'.format(
-                                                model.label))
+            print('Model {} energy not found in log_lammps.{} file'.format(
+                model.label, model.label))
+            print('LAMMPS relaxation on model {} NOT successful'.format(
+                model.label))
             quit()
         else:
             model.tot_en = total_energy
@@ -220,24 +211,15 @@ class lammps_code(object):
             # Save the grain boundary as a model attribute
             comp_dict = relaxed_astr.composition.as_dict()
             astr_elems = [i.name for i in relaxed_astr.composition.elements]
-            n1, n2, n3, n4, n5 = 0, 0, 0, 0, 0
-            # TODO: species should be unlimited
-            if self.sym1 in astr_elems:
-                n1 = comp_dict[self.sym1]
-            if self.sym2 is not None and self.sym2 in astr_elems:
-                n2 = comp_dict[self.sym2]
-            if self.sym3 is not None and self.sym3 in astr_elems:
-                n3 = comp_dict[self.sym3]
-            if self.sym4 is not None and self.sym4 in astr_elems:
-                n4 = comp_dict[self.sym4]
-            if self.sym5 is not None and self.sym5 in astr_elems:
-                n5 = comp_dict[self.sym5]
 
-            N = np.array([n1, n2, n3, n4, n5])
-            Mu = np.array([self.mu1, self.mu2, self.mu3, self.mu4, self.mu5])
-            free_en = total_energy - sum(N * Mu)
+            free_en = total_energy
+            for elem in astr_elems:
+                if elem in self.sym_mu_dict.keys():
+                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                else:
+                    print("Error. LAMMPS species " + elem +
+                          " not contained in input yaml file.")
             model.obj0_val = float(free_en)
-
 
         # Following are done in relax:
         # save relaxed_structure - done in do_relaxation
@@ -245,7 +227,6 @@ class lammps_code(object):
         # save other attributes of the model after relaxation (energy, gamma etc)
         # checks if relaxation is successful; gives error message and do not go
         # ahead with the structure (goes back and creates new strucutre)
-
 
     def get_relaxed_cell(self, rlx_astr, data_in_path, element_symbols):
         """
@@ -342,7 +323,7 @@ class lammps_code(object):
             relaxed_symbols.append(types_symbols[atom_type])
 
         return Structure(relaxed_lattice, relaxed_symbols, relaxed_cart_coords,
-                    coords_are_cartesian=True)
+                         coords_are_cartesian=True)
 
     def move_atoms_inside(self, astr):
         """
@@ -357,7 +338,7 @@ class lammps_code(object):
         """
         species = astr.species
         fc = astr.frac_coords
-        fc = np.where((fc<0) | (fc>1), fc - np.floor(fc), fc)
+        fc = np.where((fc < 0) | (fc > 1), fc - np.floor(fc), fc)
 
         # replace all the coords in astr
         all_inds = [i for i in range(len(species))]
@@ -375,16 +356,19 @@ class gulp_code(object):
     get_energy
     (get_other_data from each relaxation)
     """
+
     def __init__(self, path_to_input_files, model):
         """
         path_to_input_files : path to folder containing all general input files
         model: structure / atoms object
         """
+
     def get_structure_file(self, model):
         """
         function to make required structure file (cif?) from the structure/atoms
         object
         """
+
     def relax(self, path_to_input_files, model):
         """
         copy input files and structure (model),
@@ -399,11 +383,13 @@ class gulp_code(object):
         function. Helps in parallelization, to gather information from the
         working nodes to master node.
         """
+
     def get_energy(self, output_file):
         """
         get final energy
         also get other data from output file (if required)
         """
+
     def energy_obj(self, relaxed_en):
         """
         Describes a function of relaxed energy (objective function) and returns
@@ -425,16 +411,7 @@ class vasp_code(object):
                  'shape': 'gb',
                  'energy_files_path': <path_to_input_files>,
                  'energy_exec_cmd': 'srun <path_to_vasp_binary>',
-                 'sym1': 'Al',
-                 'sym2': 'O',
-                 'sym3': None,
-                 'sym4': None,
-                 'sym5': None,
-                 'mu1': -3.35958515625,
-                 'mu2': -6.76069604253,
-                 'mu3': 0,
-                 'mu4': 0,
-                 'mu5': 0,
+                 'sym_mu_dict': {'Al': -3.35958515625, 'O': -6.76069604253},
                  'atom_style': 'charge'}
 
         # TODO: Change how objective function is calculated.
@@ -455,47 +432,28 @@ class vasp_code(object):
         self.hollow_topz = None
 
         # This will be used to make potcars
-        all_pots = [i for i in os.listdir(self.energy_files_path) if \
-                                    i.startswith('POTCAR')]
+        all_pots = [i for i in os.listdir(self.energy_files_path) if
+                    i.startswith('POTCAR')]
         all_pots = [self.energy_files_path + '/' + i for i in all_pots]
         pdict = {}
         for a_pot in all_pots:
             with open(a_pot) as f:
                 lines = f.readlines()
                 for line in lines:
-                    if 'TITEL' in line: # assuming only PBE TODO: LDA and others
+                    if 'TITEL' in line:  # assuming only PBE TODO: LDA and others
                         x = line.split('PBE')[1].split()[0]
                         if '_' in x:
                             x = x.split('_')[0]
                         pdict[x] = a_pot
         self.pot_dict = pdict
 
-        # Save species names for identification
-        # and also chemical potentials of each species
-        self.sym1 = energy_params['element_syms'][1]
-        self.mu1 = energy_params['mu'][1]
-
-        self.sym2 = None
-        self.sym3 = None
-        self.sym4 = None
-        self.sym5 = None
-        self.mu2, self.mu3, self.mu4, self.mu5 = 0, 0, 0, 0
-        if len(energy_params['element_syms']) > 1:
-            self.sym2 = energy_params['element_syms'][2]
-            self.mu2 = energy_params['mu'][2]
-        if len(energy_params['element_syms']) > 2:
-            self.sym3 = energy_params['element_syms'][3]
-            self.mu3 = energy_params['mu'][3]
-        if len(energy_params['element_syms']) > 3:
-            self.sym4 = energy_params['element_syms'][4]
-            self.mu4 = energy_params['mu'][4]
-        if len(energy_params['element_syms']) > 4:
-            self.sym5 = energy_params['element_syms'][5]
-            self.mu5 = energy_params['mu'][5]
+        # Save species names and their chemical potentials for identification
+        self.sym_mu_dict = {}
+        for key, value in energy_params['element_syms'].items():
+            self.sym_mu_dict[value] = energy_params['mu'][key]
 
         # default parameters for INCAR (only if necessary)
         # Or directly use the input files the user provided.
-
 
     def prep_job_folder(self, model, reg_id):
         """
@@ -559,7 +517,7 @@ class vasp_code(object):
         shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
-        print ('Job prep finished. Submitting...')
+        print('Job prep finished. Submitting...')
 
     def relax(self, model, reg_id):
         """
@@ -587,7 +545,6 @@ class vasp_code(object):
         os.chdir(relax_path)
         self.run_vasp(model)
 
-
     def re_relax(self, model):
         """
         Deprecated
@@ -595,7 +552,7 @@ class vasp_code(object):
         checcks if converged, resubmits if resubmit > 0
         save output files fo previous run with _resubmited_number
         """
-        if not model.converged and self.resubmit !=0:
+        if not model.converged and self.resubmit != 0:
             relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
             os.chdir(relax_path)
             shutil.copy('OUTCAR', 'OUTCAR_{}'.format(self.resubmit-1))
@@ -605,7 +562,6 @@ class vasp_code(object):
             shutil.copy('CONTCAR', 'POSCAR')
             self.run_vasp(model)
         self.resubmit = self.resubmit - 1
-
 
     def run_vasp(self, model):
         """
@@ -629,15 +585,15 @@ class vasp_code(object):
         # check if calculation is converged
         converged = False
         outcar = self.relax_path + '/OUTCAR'
-        with open (outcar) as out:
+        with open(outcar) as out:
             lines = out.readlines()
             for line in lines:
                 if 'reached required accuracy' in line:
                     converged = True
                     break
         if not converged:
-            print ('Energy calculation of model {} not'
-                                    ' converged'.format(model.label))
+            print('Energy calculation of model {} not'
+                  ' converged'.format(model.label))
 
         # if converged, get energy
         if converged:
@@ -660,28 +616,21 @@ class vasp_code(object):
                 self.move_atoms_inside(relaxed_astr)
                 model.astr = relaxed_astr
             except:
-                print ('Relaxed structure not available in CONTCAR')
+                print('Relaxed structure not available in CONTCAR')
 
             # evaluate objective function and save as model attribute
             comp_dict = relaxed_astr.composition.as_dict()
-            astr_elems = [i.name for i in \
-                            relaxed_astr.composition.elements]
-            n1, n2, n3, n4, n5 = 0, 0, 0, 0, 0
-            if self.sym1 in astr_elems:
-                n1 = comp_dict[self.sym1]
-            if self.sym2 is not None and self.sym2 in astr_elems:
-                n2 = comp_dict[self.sym2]
-            if self.sym3 is not None and self.sym3 in astr_elems:
-                n3 = comp_dict[self.sym3]
-            if self.sym4 is not None and self.sym4 in astr_elems:
-                n4 = comp_dict[self.sym4]
-            if self.sym5 is not None and self.sym5 in astr_elems:
-                n5 = comp_dict[self.sym5]
+            astr_elems = [i.name for i in
+                          relaxed_astr.composition.elements]
 
-            N = np.array([n1, n2, n3, n4, n5])
-            Mu = np.array([self.mu1, self.mu2, self.mu3,
-                           self.mu4, self.mu5])
-            free_en = total_energy - sum(N * Mu)
+            free_en = total_energy
+            for elem in astr_elems:
+                if elem in self.sym_mu_dict.keys():
+                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                else:
+                    print("Error. LAMMPS species " + elem +
+                          " not contained in input yaml file.")
+
             model.obj0_val = float(free_en)
             # other objective functions should be evaluated here.
 
@@ -698,7 +647,7 @@ class vasp_code(object):
         """
         species = astr.species
         fc = astr.frac_coords
-        fc = np.where((fc<0) | (fc>1), fc - np.floor(fc), fc)
+        fc = np.where((fc < 0) | (fc > 1), fc - np.floor(fc), fc)
 
         # replace all the coords in astr
         all_inds = [i for i in range(len(species))]

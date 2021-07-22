@@ -195,6 +195,8 @@ class structure_constraints(object):
                 print('Error. Cannot find species ' + str(i) +
                       '. Please check the input format for species')
                 i += 1
+                if i == 50:
+                    break
             if 'name' not in values:
                 print(
                     'Please specify element name (Ex: \'Al\') of specie ' + str(i) + '.')
