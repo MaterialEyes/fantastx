@@ -105,7 +105,7 @@ class make_random_model(object):
 
         self.num_species = str_constraints['num_species']
         # save species1 data
-        # TODO: allow infinite species by reading input directly
+        # DU:
         # If species are all properly labeled in order,
         # and storing them in lists for later access:
         self.sym_species = []
@@ -208,6 +208,7 @@ class make_random_model(object):
         species = []
         count = []
         # NOTE: composition is decided here randomly
+        # DU
         for sp_index in range(self.num_species):
             target_species = self.sym_species[sp_index]
             if self.min_num_sp[sp_index] == self.max_num_sp[sp_index]:

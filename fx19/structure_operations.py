@@ -67,20 +67,18 @@ class Evolve(object):
             self.mate_by_swap_fraction = 0.33
 
         self.num_species = evolve_params['num_species']
+
         # Make species dicts as attributes
-        self.species1 = evolve_params['species1']
-        # save species2 data if exists
-        if self.num_species > 1:
-            self.species2 = evolve_params['species2']
-        # save species2 data if exists
-        if self.num_species > 2:
-            self.species3 = evolve_params['species3']
-        # save species2 data if exists
-        if self.num_species > 3:
-            self.species4 = evolve_params['species4']
-        # save species2 data if exists
-        if self.num_species > 4:
-            self.species5 = evolve_params['species5']
+        # DU
+        # If storing all species in a list, and they are in order
+        self.species = []
+        for sp in range(1, self.num_species+1):
+            self.species.append(evolve_params['species' + str(sp)])
+
+        # If storing as variables, and are labeled in order
+        # for sp in range(1, self.num_species + 1):
+        #     setattr(self, 'species' + str(sp),
+        #             evolve_params['species' + str(sp)])
 
     def get_model(self, select, pool, reg_id):
         """
@@ -122,47 +120,18 @@ class Evolve(object):
             new_astr.sort()
             new_comp = new_astr.composition
 
-            all_ok = []
-            sp1 = self.species1
-            sp1_ok = False
-            sym_sp1, min_sp1, max_sp1 = sp1['name'], sp1['min_num'], \
-                sp1['max_num']
-            if min_sp1 <= new_comp[sym_sp1] <= max_sp1:
-                sp1_ok = True
-            all_ok.append(sp1_ok)
-            if self.num_species > 1:
-                sp2 = self.species2
-                sp2_ok = False
-                sym_sp2, min_sp2, max_sp2 = sp2['name'], sp2['min_num'], \
-                    sp2['max_num']
-                if min_sp2 <= new_comp[sym_sp2] <= max_sp2:
-                    sp2_ok = True
-                all_ok.append(sp2_ok)
-            if self.num_species > 2:
-                sp3 = self.species3
-                sp3_ok = False
-                sym_sp3, min_sp3, max_sp3 = sp3['name'], sp3['min_num'], \
-                    sp3['max_num']
-                if min_sp3 <= new_comp[sym_sp3] <= max_sp3:
-                    sp3_ok = True
-                all_ok.append(sp3_ok)
-            if self.num_species > 3:
-                sp4 = self.species4
-                sp4_ok = False
-                sym_sp4, min_sp4, max_sp4 = sp4['name'], sp4['min_num'], \
-                    sp4['max_num']
-                if min_sp4 <= new_comp[sym_sp4] <= max_sp4:
-                    sp4_ok = True
-                all_ok.append(sp4_ok)
-            if self.num_species > 4:
-                sp5 = self.species5
-                sp5_ok = False
-                sym_sp5, min_sp5, max_sp5 = sp5['name'], sp5['min_num'], \
-                    sp5['max_num']
-                if min_sp5 <= new_comp[sym_sp5] <= max_sp5:
-                    sp5_ok = True
-                all_ok.append(sp5_ok)
-            if False not in all_ok:
+            # DU
+            all_ok = True
+            for sp in range(self.num_species):
+                species = self.species[sp]
+                sym = species['name']
+                min_sp = species['min_num']
+                max_sp = species['max_num']
+                if not min_sp <= new_comp[sym] <= max_sp:
+                    all_ok = False
+                    break
+
+            if all_ok:
                 correct_comp = True
 
         new_model = structure_record.model(new_astr, reg_id)
@@ -215,20 +184,16 @@ class mating(object):
         self.species_dict = mating_params['species_dict']
         self.min_dist_dict = mating_params['min_dist_dict']
 
-        # Make species dicts as attributes
-        self.species1 = mating_params['species1']
-        # save species2 data if exists
-        if self.num_species > 1:
-            self.species2 = mating_params['species2']
-        # save species2 data if exists
-        if self.num_species > 2:
-            self.species3 = mating_params['species3']
-        # save species2 data if exists
-        if self.num_species > 3:
-            self.species4 = mating_params['species4']
-        # save species2 data if exists
-        if self.num_species > 4:
-            self.species5 = mating_params['species5']
+        # DU
+        # If storing all species in a list, and they are all in order
+        self.species = []
+        for i in range(1, self.num_species+1):
+            self.species.append(mating_params['species' + str(i)])
+
+        # If storing as variables, and are labeled in order
+        # for sp in range(1, self.num_species + 1):
+        #     setattr(self, 'species' + str(sp),
+        #             mating_params['species' + str(sp)])
 
     def get_attach_type(self):
         """
@@ -592,30 +557,14 @@ class mating(object):
         Args:
         astr (obj): pymatgen structure object
         """
-        num_species = self.num_species
-
-        all_ok = []
-        # Check for species1
-        sp1_ok = self.check_atoms_for_a_specie(self.species1, astr)
-        all_ok.append(sp1_ok)
-        # If species2 exists, chekc species2  and so on..
-        if num_species > 1:
-            sp2_ok = self.check_atoms_for_a_specie(self.species2, astr)
-            all_ok.append(sp2_ok)
-        if num_species > 2:
-            sp3_ok = self.check_atoms_for_a_specie(self.species3, astr)
-            all_ok.append(sp3_ok)
-        if num_species > 3:
-            sp4_ok = self.check_atoms_for_a_specie(self.species4, astr)
-            all_ok.append(sp4_ok)
-        if num_species > 4:
-            sp5_ok = self.check_atoms_for_a_specie(self.species5, astr)
-            all_ok.append(sp5_ok)
-
-        if False in all_ok:
-            return False
-        else:
-            return True
+        # DU
+        for i in range(self.num_species):
+            ok = self.check_atoms_for_a_specie(self.species[i], astr)
+            if not ok:
+                return False
+            else:
+                continue
+        return True
 
     def check_atoms_for_a_specie(self, specie, astr):
         """
@@ -643,7 +592,7 @@ class mating(object):
 
         check_1 = False
         if symbol in astr_species_symbols:
-            check1 = True
+            check_1 = True
 
         # check if its atoms are within the min-max
         check_2 = False
@@ -928,35 +877,43 @@ class gb_ops(object):
 
         # num_species is taken from species_dict from structure_record
         self.num_species = str_constraints['num_species']
-        # save species1 data, same as in initial population
-        # species1 should always exist
-        self.sym_species1 = str_constraints['species1']['name']
-        self.min_num_sp1 = str_constraints['species1']['min_num']
-        self.max_num_sp1 = str_constraints['species1']['max_num']
-        # save species2 data if exists
-        if self.num_species > 1:
-            if 'species2' in str_constraints and str_constraints['species2']:
-                self.sym_species2 = str_constraints['species2']['name']
-                self.min_num_sp2 = str_constraints['species2']['min_num']
-                self.max_num_sp2 = str_constraints['species2']['max_num']
-        # save species3 data if exists
-        if self.num_species > 2:
-            if 'species3' in str_constraints and str_constraints['species3']:
-                self.sym_species3 = str_constraints['species3']['name']
-                self.min_num_sp3 = str_constraints['species3']['min_num']
-                self.max_num_sp3 = str_constraints['species3']['max_num']
-        # save species4 data if exists
-        if self.num_species > 3:
-            if 'species4' in str_constraints and str_constraints['species4']:
-                self.sym_species4 = str_constraints['species4']['name']
-                self.min_num_sp4 = str_constraints['species4']['min_num']
-                self.max_num_sp4 = str_constraints['species4']['max_num']
-        # save species5 data if exists
-        if self.num_species > 4:
-            if 'species5' in str_constraints and str_constraints['species5']:
-                self.sym_species5 = str_constraints['species5']['name']
-                self.min_num_sp5 = str_constraints['species5']['min_num']
-                self.max_num_sp5 = str_constraints['species5']['max_num']
+
+        # DU:
+        # save species data, same as in initial population
+        # If species are all properly labeled in order,
+        # and storing them in lists for later access:
+        self.sym_species = []
+        self.min_num_sp = []
+        self.max_num_sp = []
+        for index in range(1, self.num_species + 1):
+            self.sym_species.append(
+                str_constraints['species' + str(index)]['name'])
+            self.min_num_sp.append(
+                str_constraints['species' + str(index)]['min_num'])
+            self.max_num_sp.append(
+                str_constraints['species' + str(index)]['max_num'])
+
+        # variables will be labeled as species1, min_num_sp1, max_num_sp1, etc
+        # If species are all properly labeled in order:
+        # (and storing them as individual variables)
+        # for index in range(1, self.num_species + 1):
+        #     setattr(self, 'sym_species' + str(index),
+        #             str_constraints['species' + str(index)]['name'])
+        #     setattr(self, 'min_num_sp' + str(index),
+        #             str_constraints['species' + str(index)]['min_num'])
+        #     setattr(self, 'max_num_sp' + str(index),
+        #             str_constraints['species' + str(index)]['max_num'])
+
+        # If species are not all in order, find species in str_constraints
+        # for key in str_constraints:
+        #     if key[:7] == 'species':
+        #         index = key[7:]
+        #         setattr(self, 'sym_species' + index,
+        #                 str_constraints[key]['name'])
+        #         setattr(self, 'min_num_sp' + index,
+        #                 str_constraints[key]['min_num'])
+        #         setattr(self, 'max_num_sp' + index,
+        #                 str_constraints[key]['max_num'])
 
         self.min_dist_dict = str_constraints['min_dist_dict']
         self.species_dict = str_constraints['species_dict']
@@ -1049,17 +1006,11 @@ class gb_ops(object):
         Args:
         child_astr (obj): pymatgen structure object og grain boundary
         """
-        # get num species for each species present in element_syms
-        n_sp1 = round(unif(self.min_num_sp1, self.max_num_sp1))
-        n_sp2, n_sp3, n_sp4, n_sp5 = 0, 0, 0, 0
-        if self.num_species > 1:
-            n_sp2 = round(unif(self.min_num_sp2, self.max_num_sp2))
-        if self.num_species > 2:
-            n_sp3 = round(unif(self.min_num_sp3, self.max_num_sp3))
-        if self.num_species > 3:
-            n_sp4 = round(unif(self.min_num_sp4, self.max_num_sp4))
-        if self.num_species > 4:
-            n_sp5 = round(unif(self.min_num_sp5, self.max_num_sp5))
+        # get num species at random for each species present in element_syms,
+        # in the order in which they were added to the list
+        # DU
+        n_sp = [np.random.randint(self.min_num_sp[sp], self.max_num_sp[sp]+1)
+                for sp in range(self.num_species)]
 
         # get iface sites in the child_gb_astr
         child_astr_sites = child_astr.sites
@@ -1076,72 +1027,31 @@ class gb_ops(object):
         for sp in iface_sps:
             comp_dict[sp] = site_sps.count(sp)
             # comp_dict is the composition dictionary of iface in child_astr
+        # DU
         # get num species to be removed for each species
-        diff_sp1, diff_sp2, diff_sp3, diff_sp4, diff_sp5 = 0, 0, 0, 0, 0
-        for specie in comp_dict.keys():
-            if self.sym_species1 == specie:
-                diff_sp1 = n_sp1 - comp_dict[specie]
-            if self.num_species > 1:
-                if self.sym_species2 == specie:
-                    diff_sp2 = n_sp2 - comp_dict[specie]
-            if self.num_species > 2:
-                if self.sym_species3 == specie:
-                    diff_sp3 = n_sp3 - comp_dict[specie]
-            if self.num_species > 3:
-                if self.sym_species4 == specie:
-                    diff_sp4 = n_sp4 - comp_dict[specie]
-            if self.num_species > 4:
-                if self.sym_species5 == specie:
-                    diff_sp5 = n_sp5 - comp_dict[specie]
+        diff_sp = np.zeros(self.num_species)
+        for species in comp_dict.keys():
+            # find species in storage
+            sp_index = self.sym_species.index(species)
+            diff_sp[sp_index] = n_sp[sp_index] - comp_dict[species]
 
         # if difference is positive, add sites and return []
-        if diff_sp1 > 0:
-            sp_1 = self.sym_species1
-            self.add_sites_diff(diff_sp1, sp_1, child_astr)
-        if diff_sp2 > 0:
-            sp_2 = self.sym_species2
-            self.add_sites_diff(diff_sp2, sp_2, child_astr)
-        if diff_sp3 > 0:
-            sp_3 = self.sym_species3
-            self.add_sites_diff(diff_sp3, sp_3, child_astr)
-        if diff_sp4 > 0:
-            sp_4 = self.sym_species4
-            self.add_sites_diff(diff_sp4, sp_4, child_astr)
-        if diff_sp5 > 0:
-            sp_5 = self.sym_species5
-            self.add_sites_diff(diff_sp5, sp_5, child_astr)
+        for n, diff in enumerate(diff_sp):
+            sp = self.sym_species[n]
+            self.add_sites_diff(diff, sp, child_astr)
 
         # if difference is negative, return rem_inds -> remove sites
         rem_inds = []
-        rem_sp1, rem_sp2, rem_sp3, rem_sp4, rem_sp5 = 0, 0, 0, 0, 0
+        rem_sp = np.zeros(self.num_species)
 
         random.shuffle(iface_inds_in_gb)
         for ind in iface_inds_in_gb:
             site = child_astr.sites[ind]
-            if site.specie.name == self.sym_species1:
-                if rem_sp1 < -diff_sp1:
-                    rem_inds.append(ind)
-                    rem_sp1 += 1
-            if self.num_species > 1:
-                if site.specie.name == self.sym_species2:
-                    if rem_sp2 < -diff_sp2:
-                        rem_inds.append(ind)
-                        rem_sp2 += 1
-            if self.num_species > 2:
-                if site.specie.name == self.sym_species3:
-                    if rem_sp3 < -diff_sp3:
-                        rem_inds.append(ind)
-                        rem_sp3 += 1
-            if self.num_species > 3:
-                if site.specie.name == self.sym_species4:
-                    if rem_sp4 < -diff_sp4:
-                        rem_inds.append(ind)
-                        rem_sp4 += 1
-            if self.num_species > 4:
-                if site.specie.name == self.sym_species5:
-                    if rem_sp5 < -diff_sp5:
-                        rem_inds.append(ind)
-                        rem_sp5 += 1
+            # find specie name in our list
+            sp_index = self.sym_species.index(site.specie.name)
+            if rem_sp[sp_index] < -diff_sp[sp_index]:
+                rem_inds.append(ind)
+                rem_sp[sp_index] += 1
 
         return rem_inds
 
@@ -1628,7 +1538,8 @@ class gb_ops(object):
     def gb_iface_comp_check(self, new_gb):
         """
         Checks that the number of atoms per species of given gb structure is
-        within the allowed range
+        within the allowed range. Checks by comparing against the hollow_comp
+        structure.
 
         Args:
 
@@ -1638,45 +1549,15 @@ class gb_ops(object):
         new_comp = new_gb.composition
         hollow_comp = self.hollow_init_gb.composition
 
-        all_ok = []
-        sp1_ok = False
-        sym1 = self.sym_species1
-        if self.min_num_sp1 <= new_comp[sym1] - hollow_comp[sym1] <= \
-                self.max_num_sp1:
-            sp1_ok = True
-        all_ok.append(sp1_ok)
-        if self.num_species > 1:
-            sp2_ok = False
-            sym2 = self.sym_species2
-            if self.min_num_sp2 <= new_comp[sym2] - hollow_comp[sym2] <= \
-                    self.max_num_sp2:
-                sp2_ok = True
-            all_ok.append(sp2_ok)
-        if self.num_species > 2:
-            sp3_ok = False
-            sym3 = self.sym_species3
-            if self.min_num_sp3 <= new_comp[sym3] - hollow_comp[sym3] <= \
-                    self.max_num_sp3:
-                sp3_ok = True
-            all_ok.append(sp3_ok)
-        if self.num_species > 3:
-            sp4_ok = False
-            sym4 = self.sym_species4
-            if self.min_num_sp4 <= new_comp[sym4] - hollow_comp[sym4] <= \
-                    self.max_num_sp4:
-                sp4_ok = True
-            all_ok.append(sp4_ok)
-        if self.num_species > 4:
-            sp5_ok = False
-            sym5 = self.sym_species5
-            if self.min_num_sp5 <= new_comp[sym5] - hollow_comp[sym5] <= \
-                    self.max_num_sp5:
-                sp5_ok = True
-            all_ok.append(sp5_ok)
-
-        correct_comp = False
-        if False not in all_ok:
-            correct_comp = True
+        # DU
+        correct_comp = True
+        for sp in range(self.num_species):
+            sym = self.sym_species[sp]
+            min_sp = self.min_num_sp[sp]
+            max_sp = self.max_num_sp[sp]
+            if not min_sp <= new_comp[sym] - hollow_comp[sym] <= max_sp:
+                correct_comp = False
+                break
 
         return correct_comp
 

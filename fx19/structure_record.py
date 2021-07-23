@@ -169,6 +169,7 @@ class structure_constraints(object):
             self.max_bond_dist = str_record['max_bond_dist']
 
         # save details of all species as a dict
+        # DU
         if 'species' not in str_record:
             print('species - names, atoms and min_dist are not mentioned'
                   ' in input file. These are mandatory!')
@@ -178,6 +179,7 @@ class structure_constraints(object):
 
         # see that all attributes for all species are present by placing
         # defaults for species1 and that of species1 for the rest
+        # DU
         element_syms = {}
         i = 1
         found_species = []
@@ -206,6 +208,7 @@ class structure_constraints(object):
 
         self.element_syms = element_syms
 
+        # DU
         # make a min_dist dictionary with default min_dist for all bonds
         self.min_dist_dict = {}
         for index, sp1 in enumerate(found_species):

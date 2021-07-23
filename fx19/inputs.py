@@ -190,6 +190,7 @@ def get_energy_params(i_dict):
     else:
         energy_params['energy_exec_cmd'] = i_dict['energy_exec_cmd']
 
+    # DU
     # chemical potentials
     species_dict = i_dict['structure_record']['species']
     mu = {}
@@ -306,6 +307,7 @@ def get_mating_params(i_dict, str_constraints):
         mating_params['max_dia'] = str_constraints['max_dia']
 
     # species dicts
+    # DU
     for i in range(1, str_constraints['num_species']+1):
         species = 'species' + str(i)
         if species in str_constraints:
@@ -329,6 +331,7 @@ def get_evolve_params(i_dict, str_constraints):
         evolve_params = i_dict['evolve_probabilities']
         evolve_params['num_species'] = str_constraints['num_species']
         # species dicts
+        # DU
         for i in range(1, str_constraints['num_species']+1):
             species = 'species' + str(i)
             if species in str_constraints:

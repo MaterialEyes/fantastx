@@ -55,6 +55,7 @@ class lammps_code(object):
         self.hollow_botz = None
         self.hollow_topz = None
 
+        # DU
         # Save species names and their chemical potentials for identification
         self.sym_mu_dict = {}
         for key, value in energy_params['element_syms'].items():
@@ -194,6 +195,7 @@ class lammps_code(object):
             comp_dict = relaxed_astr.composition.as_dict()
             astr_elems = [i.name for i in relaxed_astr.composition.elements]
 
+            # DU
             free_en = total_energy
             for elem in astr_elems:
                 if elem in self.sym_mu_dict.keys():
@@ -429,6 +431,7 @@ class vasp_code(object):
                         pdict[x] = a_pot
         self.pot_dict = pdict
 
+        # DU
         # Save species names and their chemical potentials for identification
         self.sym_mu_dict = {}
         for key, value in energy_params['element_syms'].items():
@@ -605,6 +608,8 @@ class vasp_code(object):
             astr_elems = [i.name for i in
                           relaxed_astr.composition.elements]
 
+            # DU
+            # Evaluate free energy by calculating chemical potential contribution
             free_en = total_energy
             for elem in astr_elems:
                 if elem in self.sym_mu_dict.keys():
