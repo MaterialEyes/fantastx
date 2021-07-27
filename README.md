@@ -34,7 +34,7 @@ conda install python=3
 
 Install following dependencies in this order -
 
-Diffpy (For PDF simulation - Optional)
+Diffpy (For PDF simulation)
 ```sh
 conda install -c diffpy diffpy-cmi
 ```
