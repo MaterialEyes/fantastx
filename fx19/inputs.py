@@ -135,6 +135,8 @@ def make_objects(i_dict):
         basinhopping_params = i_dict['basinhopping_constraints']
     # NOTE: contains  'indices_fraction' and 'max_perturbation'
     basinhopping_params['min_dist_dict'] = str_constraints['min_dist_dict']
+    basinhopping_params['max_dist_dict'] = str_constraints['max_dist_dict']
+    basinhopping_params['element_syms'] = str_constraints['element_syms']
     basinhopping_params['species_dict'] = i_dict['structure_record']['species']
     basinhopping_params['shape'] = str_constraints['shape']
     if str_constraints['shape'] == 'cluster':
@@ -307,6 +309,7 @@ def get_mating_params(i_dict, str_constraints):
     mating_params['species_dict'] = i_dict['structure_record']['species']
     mating_params['num_species'] = str_constraints['num_species']
     mating_params['shape'] = str_constraints['shape']
+    mating_params['element_syms'] = str_constraints['element_syms']
     if mating_params['shape'] == 'cluster':
         mating_params['box_abc'] = str_constraints['box_abc']
         mating_params['max_dia'] = str_constraints['max_dia']

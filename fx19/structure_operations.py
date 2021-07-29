@@ -230,6 +230,8 @@ class mating(object):
         if self.num_species > 4:
             self.species5 = mating_params['species5']
 
+        self.element_syms = mating_params['element_syms']
+
     def get_attach_type(self):
         """
         Function to get the attach type - mirror and attach, or direct attach
@@ -538,8 +540,8 @@ class mating(object):
             translate = self.get_point_on_sphere(radius)
             coords_to_add = coords_to_add + translate
 
-        if dc.satisfies_all_dists(coords_to_add, specie_to_add, child,
-                                  self.min_dist_dict,self.species_dict):
+        if dc.satisfies_all_dists(coords_to_add, child, self.element_syms,
+                          self.min_dist_dict, new_carts_species=specie_to_add):
             child.append(specie_to_add, coords_to_add,
                                   coords_are_cartesian=True)
             return True
@@ -685,9 +687,8 @@ class mating(object):
                 if dc.dist(origin, new_cart) > radius:
                     continue
                 # Check distance and replace with new coords
-                if dc.satisfies_all_dists(new_cart, species[i].name,
-                                          child, self.min_dist_dict,
-                                          self.species_dict, remove_index=i):
+                if dc.satisfies_all_dists(new_cart, child, self.element_syms,
+                                    self.min_dist_dict, atom_index_in_astr=i):
                     child.replace(i, species[i], new_cart,
                                         coords_are_cartesian=True)
                     replaced = True
@@ -730,8 +731,10 @@ class basinhopping(object):
         self.indices_fraction = 1
         self.max_perturbation = 0.15
         self.min_dist_dict = basinhopping_params['min_dist_dict']
+        self.max_dist_dict = basinhopping_params['max_dist_dict']
         self.species_dict = basinhopping_params['species_dict']
-        shape = basinhopping_params['shape']
+        self.element_syms = basinhopping_params['element_syms']
+        self.shape = basinhopping_params['shape']
 
         if 'indices_fraction' in basinhopping_params:
             if 0 < basinhopping_params['indices_fraction'] <= 1:
@@ -750,11 +753,12 @@ class basinhopping(object):
                 self.max_perturbation = basinhopping_params['max_perturbation']
 
         # maximum diameter and box lattice parameters of the cluster (geometry)
-        if shape == 'cluster':
+        if self.shape == 'cluster':
             self.max_dia = basinhopping_params['max_dia'] # default is 8 Å
             self.box_abc = basinhopping_params['box_abc'] # default a=b=c=20 Å
 
-    def perturb_sites(self, select, pool, model_id=None, gb=False):
+    def perturb_sites(self, select, pool, surface_thickness=None,
+                                    model_id=None):
         """
         Displaces atoms in a parent (cluster or gb_iface) using uniform
         distribution
@@ -764,7 +768,99 @@ class basinhopping(object):
         select (obj): Select object
         pool (obj): Pool object
         model_id (int): If given, basinhopping is done on this specific model
-        gb (bool): True if the search is 'gb'
+        """
+        if self.shape == 'surface':
+            return self.perturb_suface(select, pool,
+                                       surface_thickness=surface_thickness,
+                                       model_id=None)
+
+        indices_fraction = self.indices_fraction
+        if model_id is None:
+            parent_model = select.get_a_parent(pool)
+            # make a copy
+            parent = copy.deepcopy(parent_model)
+            inheritance = [parent.label]
+        else:
+            for model in pool.good_pool:
+                if model.label == model_id:
+                    parent = copy.deepcopy(model)
+                    inheritance = [parent.label]
+                    break
+
+        # Get the necessary variables
+        cart_coords = parent.astr.frac_coords
+        species = parent.astr.species
+
+        if self.shape == 'gb':
+            cart_coords = parent.gb_iface.frac_coords
+            species = parent.gb_iface.species
+
+        # Get frac_coords to perturb
+        total_num_atoms = len(cart_coords)
+        # use indices_fraction; default to 1
+        num_atoms_to_perturb = int(total_num_atoms * indices_fraction)
+        D_inds = random.sample(range(0, total_num_atoms), num_atoms_to_perturb)
+        D_coords = [cart_coords[i] for i in D_inds]
+
+        num_perturbed = 0
+        jumps_needed = int(0.5 * len(D_coords))
+        for i, one_coords in zip(D_inds, D_coords):
+            replaced = False
+            tries = 0
+            while not replaced and tries < 1000:
+                tries += 1
+                # Max perturbation in Å
+                jump = self.max_perturbation
+                perturb = self.get_point_on_sphere(jump)
+                new_cart = one_coords + perturb
+                if self.shape == 'cluster':
+                    # check if new cart is inside the cluster radius
+                    origin = (self.box_abc[0]/2,
+                              self.box_abc[1]/2,
+                              self.box_abc[2]/2)
+                    if dc.dist(origin, new_cart) > self.max_dia/2:
+                        continue
+
+                    # Check distance and replace with new coords
+                    if dc.satisfies_all_dists(new_cart,
+                                              parent.astr,
+                                              self.element_syms,
+                                              self.min_dist_dict,
+                                              atom_index_in_astr=i):
+                        parent.astr.replace(i, species[i], new_cart,
+                                            coords_are_cartesian=True)
+                        replaced = True
+                        num_perturbed += 1
+                if self.shape == 'gb' and dc.satisfies_all_dists(new_cart,
+                                                          parent.gb_iface,
+                                                          self.element_syms,
+                                                          self.min_dist_dict,
+                                                          atom_index_in_astr=i):
+                    parent.gb_iface.replace(i, species[i], new_cart,
+                                        coords_are_cartesian=True)
+                    replaced = True
+                    num_perturbed += 1
+
+        if num_perturbed >= jumps_needed:
+            if self.shape == 'gb':
+                return parent.gb_iface, inheritance
+            elif self.shape == 'cluster':
+                return parent.astr, inheritance
+        else:
+            return None, None
+
+    def perturb_surface(self, select, pool, surface_thickness=1, model_id=None):
+        """
+        Displaces atoms in a parent (cluster or gb_iface) using uniform
+        distribution
+
+        Args:
+
+        select (obj): Select object
+        pool (obj): Pool object
+        surface_thickness (float): The thickness of the surface layer from top
+                                   of the surface
+        model_id (int): If given, basinhopping is done on this specific model
         """
         indices_fraction = self.indices_fraction
 
@@ -781,76 +877,49 @@ class basinhopping(object):
                     break
 
         # Get the necessary variables
-        frac_coords = parent.astr.frac_coords
-        species = parent.astr.species
+        parent_carts = parent.astr.cart_coords
+        parent_species = parent.astr.species
+        max_z_cart = parent_carts[:, 2].max()
+        surface_inds = [i for i, site in enumerate(parent.astr.sites) \
+                            if max_z_cart - site.coords[2] < surface_thickness]
 
-        if gb:
-            frac_coords = parent.gb_iface.frac_coords
-            species = parent.gb_iface.species
-
-        # Get frac_coords to perturb
-        total_num_atoms = len(frac_coords)
+        # Get surface_fracs to perturb
+        total_surface_atoms = len(surface_inds)
         # use indices_fraction; default to 1
-        num_atoms_to_perturb = int(total_num_atoms * indices_fraction)
-        D_inds = random.sample(range(0, total_num_atoms), num_atoms_to_perturb)
-        D_coords = [frac_coords[i] for i in D_inds]
+        num_atoms_to_perturb = int(total_surface_atoms * indices_fraction)
+        # Displace the coords according to these indices
+        D_inds = random.sample(surface_inds, num_atoms_to_perturb)
 
         num_perturbed = 0
-        jumps_needed = int(0.5 * len(D_coords))
-        for i, one_coords in zip(D_inds, D_coords):
-            # Get updated cart_coords
-            # all_cart_coords = parent.astr.cart_coords
-            # if gb:
-            #     all_cart_coords = parent.gb_iface.cart_coords
-            # remove current index from cart_coords
-            # rem_cart_coords = np.delete(all_cart_coords, i, 0)
-            # Randomly perturb within sphere of radius = max_perturbation
+        # Make sure at least half of the atoms are actually displaced
+        jumps_needed = int(0.5 * len(D_inds))
+        for atom_index_in_parent in D_inds:
+            one_coords = parent_carts[atom_index_in_parent]
             replaced = False
             tries = 0
-            while not replaced and tries < 1000:
+            # 50 tries is enough to get a perturbed coordinate if one exists
+            while not replaced and tries < 100:
                 tries += 1
-                jump = self.max_perturbation #unif(0, self.max_perturbation)
-                perturb = self.get_point_on_sphere(jump)
-                new_frac = one_coords + perturb
-                if not gb: # cluster
-                    new_cart = parent.astr.lattice.get_cartesian_coords(
-                                                                    new_frac)
-                    # check if new cart is inside the cluster radius
-                    origin = (self.box_abc[0]/2,
-                              self.box_abc[1]/2,
-                              self.box_abc[2]/2)
-                    if dc.dist(origin, new_cart) > self.max_dia/2:
-                        continue
-                else:
-                    new_cart = parent.gb_iface.lattice.get_cartesian_coords(
-                                                                    new_frac)
-                # Check distance and replace with new coords
-                if not gb and dc.satisfies_all_dists(new_cart,
-                                          species[i].name,
-                                          parent.astr,
-                                          self.min_dist_dict,
-                                          self.species_dict,
-                                          remove_index=i):
-                    parent.astr.replace(i, species[i], new_cart,
-                                        coords_are_cartesian=True)
-                    replaced = True
-                    num_perturbed += 1
-                if gb and dc.satisfies_all_dists(new_cart,
-                                          species[i].name,
-                                          parent.gb_iface,
-                                          self.min_dist_dict,
-                                          self.species_dict,
-                                          remove_index=i):
-                    parent.gb_iface.replace(i, species[i], new_cart,
-                                        coords_are_cartesian=True)
+                # Max perturbation is in Å
+                radius = self.max_perturbation
+                if tries > 50: # try to move somewhere below max_perturb
+                    radius = unif(0.09, self.max_perturbation)
+                perturb = self.get_point_on_sphere(radius)
+                new_cart = one_coords + perturb
+
+                # check if the new coords satisfies min & max dists
+                if dc.satisfies_all_dists(new_cart, parent.astr,
+                                     self.element_syms, self.min_dist_dict,
+                                     max_dist_dict=self.max_dist_dict,
+                                     atom_index_in_astr=atom_index_in_parent):
+                    parent.astr.replace(atom_index_in_parent,
+                                        parent_species[atom_index_in_parent],
+                                        new_cart, coords_are_cartesian=True)
                     replaced = True
                     num_perturbed += 1
 
-        if not num_perturbed < jumps_needed:
-            if gb:
-                return parent.gb_iface, inheritance
-            else:
-                return parent.astr, inheritance
+        if num_perturbed >= jumps_needed:
+            return parent.astr, inheritance
         else:
             return None, None
 
@@ -1169,8 +1238,9 @@ class gb_ops(object):
             # coords = child_astr.cart_coords
             new_c = [unif(0, 1), unif(0, 1), unif(zmin, zmax)]
             new_c = child_astr.lattice.get_cartesian_coords(new_c)
-            if dc.satisfies_all_dists(new_c, sp, dc_astr,
-                                      self.min_dist_dict, self.species_dict):
+            if dc.satisfies_all_dists(new_c, dc_astr, self.element_syms,
+                                      self.min_dist_dict,
+                                      new_carts_species=sp):
                 child_astr.append(sp, new_c, coords_are_cartesian=True)
                 num_added += 1
         del dc_astr
@@ -1683,7 +1753,7 @@ class surface_ops(object):
     surface searches of a slab. Inclues both for initial population and
     mating and basinhopping.
     """
-    def __init__(self, surface_ops_params):
+    def __init__(self, hop, surface_ops_params):
         """
         Args:
 
@@ -1751,6 +1821,9 @@ class surface_ops(object):
         self.num_slices = surface_ops_params['num_slices']
         self.species_dict = surface_ops_params['species_dict']
         self.element_syms = surface_ops_params['element_syms']
+
+        # Add basinhopping object (hop) as an attribute for convenience
+        self.hop = hop
 
     def default_zs_to_species_dict(self, slab_astr, species_id):
         """
@@ -2037,7 +2110,7 @@ class surface_ops(object):
 
         return surf_model
 
-    def get_model():
+    def get_model(self):
         """
         returns a new model created either by mating or basinhopping
         """
@@ -2137,7 +2210,10 @@ class surface_ops(object):
         random.shuffle(random_coords)
         return random_coords
 
-    def get_secondary_random_coords(self, num_coords_needed, lattice, primary_frac_coords, min_dist_12, min_dist_22, other_min_dist=None, other_frac_coords=None, z_carts=None):
+    def get_secondary_random_coords(self, num_coords_needed, lattice,
+                                    primary_frac_coords, min_dist_12,
+                                    min_dist_22, other_min_dist=None,
+                                    other_frac_coords=None, z_carts=None):
         """
         Returns random coords which satisfy distance constaints among same
         species and with species 1
