@@ -77,9 +77,9 @@ def closest_pair(ax, ay, min_dist, close_coords):
     for x in ay:  # split ay into 2 arrays using midpoint
         qx = set(Qx)
         if x in qx:
-           Qy.append(x)
+            Qy.append(x)
         else:
-           Ry.append(x)
+            Ry.append(x)
 
     # Call recursively both arrays after split
     (p1, q1, mi1) = closest_pair(Qx, Qy, min_dist, close_coords)
@@ -142,18 +142,18 @@ def astr_min_dist(astr, min_dist):
     else:
         return False, None
 
-def coords_min_dist(coords, min_dist):
-    """
-    Returns True if atoms are too close
-
-    coords: array of cartesian coords
-    min_dist: min_dist for the given array
-    """
-    p1, p2, dist = solution(coords[:,0], coords[:,1], coords[:,2])
-    if dist < min_dist:
-        return True
-    else:
-        return False
+#def coords_min_dist(coords, min_dist):
+#    """
+#    Returns True if atoms are too close
+#
+#    coords: array of cartesian coords
+#    min_dist: min_dist for the given array
+#    """
+#    p1, p2, dist, _ = solution(coords[:,0], coords[:,1], coords[:,2])
+#    if dist < min_dist:
+#        return True
+#    else:
+#        return False
 
 def check_all_bonds(astr, min_dist_dict, cum_sum):
     """
@@ -245,8 +245,8 @@ def one_to_many_distances(one_point, many_points, min_dist):
             return False
     return True
 
-def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
-                        remove_index=None):
+def satisfies_all_dists_old(new_point, new_sp, astr, min_dist_dict,
+                            species_dict, remove_index=None):
     """
     Checks if new point satisfies all minimum distances specifically with
     each other atom already present in the astr.
@@ -295,3 +295,144 @@ def satisfies_all_dists(new_point, new_sp, astr, min_dist_dict, species_dict,
         return False
     else:
         return True
+
+def satisfies_all_dists(new_carts, existing_astr, element_syms,
+                        min_dist_dict, max_dist_dict=None,
+                        atom_index_in_astr=None,
+                        new_carts_species=None):
+    """
+    Function to check that a new coordinate being added to an existing
+    structure satisfies all the minimum and maximum distance constraints
+    provided in the min_dist_dict and max_dist_dict. To be used with
+    initial_population or basinhopping methods.
+
+    Returns True if satisfies all constriants.
+
+    Args:
+
+    new_carts(list/array): Cartesian coordinates of the new atom to be added
+
+    existing_astr (obj): Pymatgen structure object of the parent to which new
+                         coord is added
+
+    element_syms (dict): dictionary of species which specifies the species index
+
+    min_dist_dict (dict): dictionary of minimum distances with respect to
+                          different species
+
+    max_dist_dict (dict): dictionary of maximum bond distances with respect to
+                          different species
+
+    atom_index_in_astr (int): (For basinhopping only) The index of the atom in
+                              the parent structure that is perturbed
+
+    new_carts_species (str): The species of the new atom as a string. If
+                             atom_index_in_astr is given, it is used to get the
+                             new atom species and overwrites this argument. At
+                             least one of these two parameters should be
+                             provided.
+
+    """
+    max_of_min_dists = max(min_dist_dict.values())
+    # Get all fractional coordinates of the existing structure
+    all_frac_points = existing_astr.frac_coords
+    all_species = existing_astr.species
+
+    atoms_nearby = existing_astr.lattice.get_points_in_sphere(all_frac_points,
+                                                new_carts, max_of_min_dists)
+    if atom_index_in_astr:
+        # Remove duplicate atom from the atoms nearby
+        for i, atom_data in enumerate(atoms_nearby):
+            if atom_data[2] == atom_index_in_astr:
+                duplicate_atom_ind = i
+                break
+        del atoms_nearby[duplicate_atom_ind]
+
+    dists_nearby = [i[1] for i in atoms_nearby]
+    inds_nearby = [i[2] for i in atoms_nearby]
+
+    # Get the species of atoms nearby
+    species_nearby = [all_species[i].name for i in inds_nearby]
+
+    # Inverse of element_syms
+    inv_syms = {v: 'sp' + str(k) for k, v in element_syms.items()}
+
+    # Remove any extra species that are not in element_syms (Ex: substrate)
+    species_nearby = [i for i in species_nearby if i in inv_syms]
+
+    # Get species_keys_nearby
+    species_keys_nearby = [inv_syms[each_sps] for each_sps in species_nearby]
+
+    # Get new_atom_sym
+    if atom_index_in_astr:
+        new_carts_species = existing_astr.species[atom_index_in_astr].name
+    new_atom_sym = inv_syms[new_carts_species]
+
+    dists_ok = True
+    for i, spx in enumerate(species_keys_nearby):
+        dist = dists_nearby[i]
+        # cover both 'sp1_sp2' & 'sp2_sp1'in key1 & key2
+        key1 = new_atom_sym + '_' + spx
+        key2 = spx + '_' + new_atom_sym
+        if key1 in min_dist_dict:
+            if dist < min_dist_dict[key1]:
+                #print (1, dist, min_dist_dict[key1])
+                dists_ok = False
+        if key2 in min_dist_dict:
+            if dist < min_dist_dict[key2]:
+                #print (2, dist, min_dist_dict[key1])
+                dists_ok = False
+
+    if not max_dist_dict:
+        return dists_ok
+
+    # Check max_dists as well
+    max_dists_to_check = []
+    keys_to_check = []
+    for dist_key in max_dist_dict.keys():
+        if new_atom_sym in dist_key:
+            max_dists_to_check.append(max_dist_dict[dist_key])
+            keys_to_check.append(dist_key)
+
+    for each_dist, each_key in zip(max_dists_to_check, keys_to_check):
+        if dists_ok == False:
+            # min_dist check failed (initial loop)
+            # OR max_dist check failed in previous loop
+            break
+
+        atoms_nearby = existing_astr.lattice.get_points_in_sphere(
+                                  all_frac_points, new_carts, max_of_min_dists)
+
+        # Remove duplicate atom from the atoms nearby
+        if atom_index_in_astr:
+            for i, atom_data in enumerate(atoms_nearby):
+                if atom_data[2] == atom_index_in_astr:
+                    duplicate_atom_ind = i
+                    break
+            del atoms_nearby[duplicate_atom_ind]
+
+        dists_nearby = [i[1] for i in atoms_nearby]
+        inds_nearby = [i[2] for i in atoms_nearby]
+
+        # Get the species of atoms nearby
+        species_nearby = [all_species[i].name for i in inds_nearby]
+
+        # Remove any extra species that are not in element_syms (Ex: substrate)
+        species_nearby = [i for i in species_nearby if i in inv_syms]
+
+        # Get species_keys_nearby
+        species_keys_nearby = [inv_syms[each_sps] for each_sps in \
+                                            species_nearby]
+
+        if len(species_keys_nearby) == 0:
+            # No atom within the max bond dist
+            dists_ok = False
+        else:
+            for key_nearby in species_keys_nearby:
+                if not key_nearby in each_key:
+                    dists_ok = False
+                else:
+                    dists_ok = True
+                    break
+
+    return dists_ok
