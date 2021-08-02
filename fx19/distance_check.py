@@ -129,105 +129,6 @@ def check_angles(astr, min_angle, max_angle):
     """
     pass
 
-def astr_min_dist(astr, min_dist):
-    """
-    Returns True if atoms are too close
-    """
-    close_coords = []
-    coords = astr.cart_coords
-    p1, p2, dist, recheck_coords = solution(
-                coords[:,0], coords[:,1], coords[:,2], min_dist, close_coords)
-    if dist < min_dist:
-        return True, recheck_coords
-    else:
-        return False, None
-
-#def coords_min_dist(coords, min_dist):
-#    """
-#    Returns True if atoms are too close
-#
-#    coords: array of cartesian coords
-#    min_dist: min_dist for the given array
-#    """
-#    p1, p2, dist, _ = solution(coords[:,0], coords[:,1], coords[:,2])
-#    if dist < min_dist:
-#        return True
-#    else:
-#        return False
-
-def check_all_bonds(astr, min_dist_dict, cum_sum):
-    """
-    (Deprecated)
-    Checks the species and corrensponding min bond distance
-    Returns True if atoms are too close (less than minimum)
-
-    astr: structure
-    min_dist_dict: dictionary of min bond distances for all species
-    """
-    # get the maximum of all values in min dist dictionary
-    max_of_min_dists = max(list(min_dist_dict.values()))
-    # check all bonds and record the atoms with less than max(min dists)
-    atoms_too_close, recheck_coords = astr_min_dist(astr, max_of_min_dists)
-    # atoms_too_close is False if recheck_coords is None
-    if recheck_coords is None:
-        return atoms_too_close
-
-
-    sp1_coords = np.round(astr.cart_coords[:cum_sum[0]], 3)
-    if len(cum_sum) > 1:
-        sp2_coords = np.round(astr.cart_coords[cum_sum[0]:cum_sum[1]], 3)
-    if len(cum_sum) > 2:
-        sp3_coords = np.round(astr.cart_coords[cum_sum[1]:cum_sum[2]], 3)
-    if len(cum_sum) > 3:
-        sp4_coords = np.round(astr.cart_coords[cum_sum[2]:cum_sum[3]], 3)
-    if len(cum_sum) > 4:
-        sp5_coords = np.round(astr.cart_coords[cum_sum[3]:cum_sum[4]], 3)
-
-    # check if individual bonds are less than their corresponding min dist
-    recheck_coords = np.round(np.array(recheck_coords), 3)
-    # get species pairs for each pair of coords in recheck_coords
-    species_pairs = []
-    for pair in recheck_coords:
-        sp_each_pair = []
-        for coords in pair:
-            if coords in sp1_coords:
-                sp_each_pair.append('sp1')
-            elif coords in sp2_coords:
-                sp_each_pair.append('sp2')
-            elif coords in sp3_coords:
-                sp_each_pair.append('sp3')
-            elif coords in sp4_coords:
-                sp_each_pair.append('sp4')
-            elif coords in sp5_coords:
-                sp_each_pair.append('sp5')
-            else:
-                print('The species of the coords is not identified')
-                print(coords)
-        species_pairs.append(sp_each_pair)
-
-    keys = ['sp1_sp1', 'sp1_sp2', 'sp1_sp3', 'sp1_sp4', 'sp1_sp5',
-            'sp2_sp2', 'sp2_sp3', 'sp2_sp4', 'sp2_sp5',
-            'sp3_sp3', 'sp3_sp4', 'sp3_sp5',
-            'sp4_sp4', 'sp4_sp5',
-            'sp5_sp5']
-
-    for sp_pairs, coords_pq in zip(species_pairs, recheck_coords):
-        d = dist(coords_pq[0], coords_pq[1])
-        key_1 = sp_pairs[0] + '_' + sp_pairs[1]
-        key_2 = sp_pairs[1] + '_' + sp_pairs[0]
-        if key_1 in keys:
-            min_d = min_dist_dict[key_1]
-        elif key_2 in keys:
-            min_d = min_dist_dict[key_2]
-        if d < min_d:
-            # There is a bond that is too short than its minimum allowed
-            atoms_too_close = True
-            return atoms_too_close
-
-    # Reaches here if none of the bonds are smaller than their allowed minimums
-    atoms_too_close = False
-    return atoms_too_close
-
 def one_to_many_distances(one_point, many_points, min_dist):
     """
     Checks the distances of one point to a list of many points
@@ -244,57 +145,6 @@ def one_to_many_distances(one_point, many_points, min_dist):
         if d < min_dist:
             return False
     return True
-
-def satisfies_all_dists_old(new_point, new_sp, astr, min_dist_dict,
-                            species_dict, remove_index=None):
-    """
-    Checks if new point satisfies all minimum distances specifically with
-    each other atom already present in the astr.
-
-    Args:
-
-    new_point: (list/array) the coordinates of a the point which is checked
-    new_sp: (str) species of the new coordniate
-    astr: structure object wihtin which new coordinate will be checked
-    min_dist_dict: dictionary of minimum distances with respect to different
-                   species; from inputs
-    species_dict: dictionary of species; from inputs
-    remove_index: (int) The index of atom to be removed before doing distance
-                  check
-    """
-    # Find if new_sp is specie1 or specie2 or ..
-    for key in species_dict.keys():
-        if new_sp == species_dict[key]['name']:
-            x = 'sp' + key[-1] + '_'
-
-    # Get individual min bond lengths of x i.e., 'sp1_' or 'sp2_' or ..
-    # Add distances to min_dists and
-    # add the coords of 'sp1_' or 'sp2_' or .. to coords_sets
-    # Ex: min_dist 'sp1_sp2' added to min_dists and ..
-    # all cart_coords of 'sp2' in astr are added to coords_sets simultaneously
-    min_dists = []
-    coords_sets = []
-    for dist_key in min_dist_dict.keys():
-        if x in dist_key:
-            set_sp = 'species' + dist_key[-1]
-            sp_name = species_dict[set_sp]['name']
-            dist_set = min_dist_dict[dist_key]
-            all_sites = copy.deepcopy(astr.sites)
-            if remove_index:
-                del all_sites[remove_index]
-            coords_set = [i.coords for i in all_sites if i.specie.name==sp_name]
-            min_dists.append(dist_set)
-            coords_sets.append(coords_set)
-            del all_sites
-
-    bools = []
-    for d, set in zip(min_dists, coords_sets):
-        bools.append(one_to_many_distances(new_point, set, d))
-
-    if not all(bools):
-        return False
-    else:
-        return True
 
 def satisfies_all_dists(new_carts, existing_astr, element_syms,
                         min_dist_dict, max_dist_dict=None,
@@ -340,13 +190,13 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
 
     atoms_nearby = existing_astr.lattice.get_points_in_sphere(all_frac_points,
                                                 new_carts, max_of_min_dists)
-    if atom_index_in_astr:
+    if atom_index_in_astr is not None:
         # Remove duplicate atom from the atoms nearby
         for i, atom_data in enumerate(atoms_nearby):
             if atom_data[2] == atom_index_in_astr:
                 duplicate_atom_ind = i
+                del atoms_nearby[duplicate_atom_ind]
                 break
-        del atoms_nearby[duplicate_atom_ind]
 
     dists_nearby = [i[1] for i in atoms_nearby]
     inds_nearby = [i[2] for i in atoms_nearby]
@@ -364,7 +214,7 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     species_keys_nearby = [inv_syms[each_sps] for each_sps in species_nearby]
 
     # Get new_atom_sym
-    if atom_index_in_astr:
+    if atom_index_in_astr is not None:
         new_carts_species = existing_astr.species[atom_index_in_astr].name
     new_atom_sym = inv_syms[new_carts_species]
 
@@ -404,12 +254,12 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
                                   all_frac_points, new_carts, max_of_min_dists)
 
         # Remove duplicate atom from the atoms nearby
-        if atom_index_in_astr:
+        if atom_index_in_astr is not None:
             for i, atom_data in enumerate(atoms_nearby):
                 if atom_data[2] == atom_index_in_astr:
                     duplicate_atom_ind = i
+                    del atoms_nearby[duplicate_atom_ind]
                     break
-            del atoms_nearby[duplicate_atom_ind]
 
         dists_nearby = [i[1] for i in atoms_nearby]
         inds_nearby = [i[2] for i in atoms_nearby]
