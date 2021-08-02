@@ -1,4 +1,3 @@
-
 from __future__ import division, unicode_literals, print_function
 
 """
@@ -450,9 +449,14 @@ class vasp_code(object):
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
         # how many times to resubmit job if not converged
         self.resubmit = energy_params['resubmit']
-        # save hollow_botz and hollow_topz for use in sd_flags
+
+        #  All these parameters for use in sd_flags
+        # These are stored in inputs after object creation
         self.hollow_botz = None
         self.hollow_topz = None
+        self.substrate_thickness = None
+        self.sd_cut_off = None
+        self.sd_no_z = None
 
         # This will be used to make potcars
         all_pots = [i for i in os.listdir(self.energy_files_path) if \
@@ -552,8 +556,15 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        self.write_poscar(model, new_poscar)
-        # TODO: implement selective dynamics to poscar
+        if self.shape == 'gb':
+            self.write_gb_poscar(model, new_poscar)
+
+        if self.shape == 'surface':
+            self.write_surface_poscar(model, new_poscar,
+                                      sd_cut_off=self.sd_cut_off,
+                                      sd_no_z=self.sd_no_z)
+        # TODO: implement selective dynamics for cluster & other geometries
+
         shutil.copy(new_poscar, poscar)
         # copy INCAR, KPOINTS to the relax path
         shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
@@ -706,7 +717,7 @@ class vasp_code(object):
         for sps, coords in zip(species, fc):
             astr.append(sps, coords, coords_are_cartesian=False)
 
-    def write_poscar(self, model, file_name):
+    def write_gb_poscar(self, model, file_name):
         """
         For a newly created model, set sd_flags to each site according to its
         z-coordinate. All interface region atoms would have [T,T,T] and others
@@ -721,5 +732,35 @@ class vasp_code(object):
                 b = 1
             bs.append(b)
         sd_flags = [[bool(i), bool(i), bool(i)] for i in bs]
+        gb_poscar = Poscar(model.astr, selective_dynamics=sd_flags)
+        gb_poscar.write_file(file_name)
+
+    def write_surface_poscar(self, model, file_name, sd_cut_off=None,
+                                                 sd_no_z=False):
+        """
+        For a newly created model, set sd_flags to each site according to its
+        z-coordinate. All interface region atoms would have [T,T,T] and others
+        would have [F,F,F]. Then, write the POSCAR file in relax_path.
+        """
+        if not sd_cut_off: # automatically freeze substrate
+            sd_cut_off = self.substrate_thickness
+
+        slab_sites = model.astr.sites
+        bot_z_cart = model.astr.cart_coords[:, 2].min()
+        surface_inds = [i for i, site in enumerate(slab_sites) if \
+                            site.coords[2] - bot_z_cart > sd_cut_off]
+
+        sd_flags = []
+        for i in range(len(slab_sites)):
+            sd_flag = [0, 0, 0]
+            if i in surface_inds:
+                if sd_no_z is True:
+                    sd_flag = [1, 1, 0]
+                else:
+                    sd_flag = [1, 1, 1]
+            sd_flags.append(sd_flag)
+        sd_flags = [[bool(flag[0]), bool(flag[1]), bool(flag[2])] \
+                                    for flag in sd_flags]
+
         gb_poscar = Poscar(model.astr, selective_dynamics=sd_flags)
         gb_poscar.write_file(file_name)
