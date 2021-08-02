@@ -23,6 +23,7 @@ from fx19 import experimental_simulation
 from fx19 import selection
 from fx19 import structure_operations
 
+import os
 
 def make_objects(i_dict):
     """
@@ -164,8 +165,18 @@ def make_objects(i_dict):
     # For surface layer searches, create surface_ops object
     surface_ops_obj = None
     if str_constraints['shape'] == 'surface':
+        init_slabs_path = str_record['surface']['init_slabs_dir']
+        init_slabs_dict = {i: init_slabs_path + '/' + slab_file \
+                    for i, slab_file in enumerate(os.listdir(init_slabs_path))}
+        str_constraints['init_slabs_dict'] = init_slabs_dict
+
         surface_ops_obj = structure_operations.surface_ops(hop, str_constraints)
         all_objects['surface_ops_obj'] = surface_ops_obj
+
+        energy_code.substrate_thickness = surface_ops_obj.substrate_thickness
+        energy_code.sd_cut_off = surface_ops_obj.sd_cut_off
+        energy_code.sd_no_z = surface_ops_obj.sd_no_z
+        all_objects['energy_code'] = energy_code
 
     ################### Develop any other below objects
 
@@ -342,13 +353,6 @@ def get_evolve_params(i_dict, str_constraints):
             if specie in str_constraints:
                 evolve_params[specie] = str_constraints[specie]
     return evolve_params
-
-def get_surface_params(i_dict, str_constraints):
-    """
-    Adds all required parameters for surface_ops class from the input file
-    """
-
-
 
 # assume experimental pdf is given
 def read_input_exp_files(filename):
