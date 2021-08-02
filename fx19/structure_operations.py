@@ -450,7 +450,7 @@ class mating(object):
         species = [i.species for i in child_sites]
         coords = [i.coords for i in child_sites]
         latt = parent1.astr.lattice
-        child = Structure(latt, species, coords)
+        child = Structure(latt, species, coords, coords_are_cartesian=True)
 
         # merge sites
         child.merge_sites(tol=1, mode='delete')
@@ -770,7 +770,7 @@ class basinhopping(object):
         model_id (int): If given, basinhopping is done on this specific model
         """
         if self.shape == 'surface':
-            return self.perturb_suface(select, pool,
+            return self.perturb_surface(select, pool,
                                        surface_thickness=surface_thickness,
                                        model_id=None)
 
@@ -787,12 +787,12 @@ class basinhopping(object):
                     inheritance = [parent.label]
                     break
 
-        # Get the necessary variables
-        cart_coords = parent.astr.frac_coords
+        # Get the cart_coords to be perturbed
+        cart_coords = parent.astr.cart_coords
         species = parent.astr.species
 
         if self.shape == 'gb':
-            cart_coords = parent.gb_iface.frac_coords
+            cart_coords = parent.gb_iface.cart_coords
             species = parent.gb_iface.species
 
         # Get frac_coords to perturb
@@ -1641,7 +1641,7 @@ class gb_ops(object):
         correct_comp = False
         while correct_comp is False:
             try:
-                if random.random() <= self.hop_mate_frac:
+                if random.random() <= hop.hop_mate_frac:
                     # Do hop.perturb_sites()
                     perturbed_iface, inheritance = hop.perturb_sites(
                                                         select, pool, gb=True)
@@ -1810,6 +1810,14 @@ class surface_ops(object):
         if 'constrain_z' in surface_ops_params:
             self.constrain_z = surface_ops_params['constrain_z']
 
+        self.sd_no_z = False
+        if 'sd_no_z' in surface_ops_params:
+            self.sd_no_z = surface_ops_params['sd_no_z']
+
+        self.sd_cut_off = self.substrate_thickness # default freeze substrate
+        if 'sd_cut_off' in surface_ops_params:
+            self.sd_cut_off = surface_ops_params['sd_cut_off']
+
         # The composition of the surface layer
         self.comp_dict = None
         if 'comp_dict' in surface_ops_params:
@@ -1820,12 +1828,19 @@ class surface_ops(object):
         self.max_dist_dict = surface_ops_params['max_dist_dict']
         self.num_slices = surface_ops_params['num_slices']
         self.species_dict = surface_ops_params['species_dict']
+        for sp_key in self.species_dict.keys():
+            if not 'bonds_to' in self.species_dict[sp_key]:
+                self.species_dict[sp_key]['bonds_to'] = None
         self.element_syms = surface_ops_params['element_syms']
 
         # Add basinhopping object (hop) as an attribute for convenience
         self.hop = hop
+        # basinhopping vs mating fraction
+        self.hop_mate_frac = 0.3 # 30% hop, 70% mate
+        if 'hop_mate_frac' in surface_ops_params:
+            self.hop_mate_frac = surface_ops_params['hop_mate_frac']
 
-    def default_zs_to_species_dict(self, slab_astr, species_id):
+    def init_zs_to_species_dict(self, slab_astr, species_id):
         """
         Returns boolean whether default cartesian z-coordinates for the surface
         species were added to the species_dict attribute of that species
@@ -1968,7 +1983,7 @@ class surface_ops(object):
         z_carts = None
         if self.constrain_z:
             for key in self.element_syms.keys():
-                self.default_zs_to_species_dict(slab_astr, key)
+                self.init_zs_to_species_dict(slab_astr, key)
             z_carts = self.get_zs_for_species(element_syms[1],
                                                 atoms_per_species)
 
@@ -2110,11 +2125,60 @@ class surface_ops(object):
 
         return surf_model
 
-    def get_model(self):
+    def get_model(self, select, pool, reg_id):
         """
         returns a new model created either by mating or basinhopping
         """
-        pass
+        hop = self.hop
+
+        correct_comp = False
+        while correct_comp is False:
+            try:
+                if random.random() <= self.hop_mate_frac:
+                    # Do hop.perturb_sites()
+                    perturbed_slab, inheritance = hop.perturb_sites(select,
+                                pool, surface_thickness=self.surface_thickness)
+                    self.move_coords_inside(perturbed_slab)
+                    new_astr = perturbed_slab
+                    maker = 'perturb_sites'
+                else: # Do gb_ops_obj.mate()
+                    new_astr, inheritance = self.mate(select, pool)
+                    maker = 'fraction_slice'
+            except:
+                continue
+            if new_astr is None:
+                continue
+            if any(np.isnan(new_astr.cart_coords.flatten())):
+                continue
+            new_astr.sort()
+            correct_comp = True #self.gb_iface_comp_check(new_astr)
+
+        new_model = structure_record.model(new_astr, reg_id)
+        new_model.inheritance = inheritance
+        new_model.made_by = maker
+
+        return new_model
+
+    def move_coords_inside(self, astr):
+        """
+        For a given structure object, move all sites within the unit cell.
+        Eg: [-0.1, 0.4, 1.2] --> [0.9, 0.4, 0.2]
+
+        returns 'astr' with all atoms inside
+
+        Args:
+
+        astr: pymatgen Structure object
+        """
+        species = astr.species
+        fc = astr.frac_coords
+        fc = np.where((fc<0) | (fc>1), fc - np.floor(fc), fc)
+
+        # replace all the coords in astr
+        all_inds = [i for i in range(len(species))]
+        astr.remove_sites(all_inds)
+        for sp, coords in zip(species, fc):
+            astr.append(sp, coords, coords_are_cartesian=False)
 
     def get_atoms_per_species(self):
         """
@@ -2244,7 +2308,7 @@ class surface_ops(object):
         """
         # Add random skipped coords to this structure
         tries, num_added = 0, 0
-        if z_carts:
+        if z_carts is not None:
             z_fracs = np.array(z_carts) / lattice.c
             if len(z_fracs) != num_coords_needed:
                 print ("Error: Z-carts not present for all coords!")
@@ -2253,23 +2317,26 @@ class surface_ops(object):
         while num_added < num_coords_needed and tries < 1000:
             tries += 1
             new_fracs = [random.random(), random.random(), random.random()]
-            if z_fracs:
+            if z_fracs is not None:
                 new_fracs[2] = z_fracs[num_added]
             new_carts = lattice.get_cartesian_coords(new_fracs)
-            if len(lattice.get_points_in_sphere(primary_frac_coords,
+
+            add_new_carts = True
+            if not len(lattice.get_points_in_sphere(primary_frac_coords,
                                                 new_carts, min_dist_12)) == 0:
-                if len(lattice.get_points_in_sphere(secondary_coords,
+                add_new_carts = False
+            if not len(secondary_coords) == 0:
+                if not len(lattice.get_points_in_sphere(secondary_coords,
                                                 new_carts, min_dist_22)) == 0:
-                    if other_min_dist and other_frac_coords:
-                        if len(lattice.get_points_in_sphere(other_frac_coords,
-                                            new_carts, other_min_dist)) == 0:
-                            secondary_coords.append(new_fracs)
-                            num_added += 1
-                            tries = 0
-                    else:
-                        secondary_coords.append(new_fracs)
-                        num_added += 1
-                        tries = 0
+                    add_new_carts = False
+            if other_min_dist is not None and other_frac_coords is not None:
+                if not len(lattice.get_points_in_sphere(other_frac_coords,
+                                        new_carts, other_min_dist)) == 0:
+                    add_new_carts = False
+            if add_new_carts:
+                secondary_coords.append(new_fracs)
+                num_added += 1
+                tries = 0
 
         return secondary_coords
 
@@ -2422,3 +2489,63 @@ class surface_ops(object):
 
         """
         pass
+
+    def set_zs_from_init_astr(self, new_astr):
+        """
+        Given a new child slab structure, the z-coordinates of the surface layer
+        atoms will be replaced with those of the initial structure with same area.
+
+        Algorithm:
+
+        Get the ab of the new_astr
+        Get the init_astr with same ab from the init_slabs_dict
+        Get the z-coordinates of the init_astr
+        Randomly replace the z-coordiantes according to the species
+        """
+        new_ab = new_astr.lattice.matrix[:2]
+        init_astr = self.choose_init_slab(ab=new_ab)
+        # Get top most site in init_astr that is not a surface site
+        top_z_cart = init_astr.cart_coords[:, 2].max()
+        init_non_surf_inds = [i for i, site in enumerate(init_astr.sites) \
+                                      if top_z_cart - site.coords[2] > \
+                                      self.surface_thickness]
+        ref_init_z_cart = init_astr.cart_coords[init_non_surf_inds][:, 2].max()
+
+        # Set init_astr surface zs to species_dict
+        for key in self.element_syms.keys():
+            self.init_zs_to_species_dict(init_astr, key)
+
+        new_carts = new_astr.cart_coords
+        # all_species = new_astr.species
+        bot_z_cart = new_carts[:, 2].min()
+        surface_inds = [i for i, site in enumerate(new_astr.sites) \
+                                      if site.coords[2] - bot_z_cart < \
+                                      self.substrate_thickness]
+        surface_species = [new_astr.sites[i].species.name \
+                                      for i in surface_inds]
+        surface_sites = [new_astr.sites[i] for i in surface_inds]
+        new_non_surf_inds = [i for i in range(len(new_carts)) \
+                                      if i not in surface_inds]
+        ref_new_z_cart = new_astr.cart_coords[new_non_surf_inds][:, 2].max()
+
+        modified_surf_carts = []
+        for site in surface_sites:
+            # get new cart_coords
+            current_carts = site.coords
+            # get z from species_dict
+            curr_sps = site.species.name
+            for key in self.species_dict.keys():
+                if self.species_dict[key]['name'] == curr_sps:
+                    new_z = random.choice(self.species_dict[key]['z_carts'])
+                    break
+            # scale new_z to maintain appropriate separation
+            new_z = new_z + ref_new_z_cart - ref_init_z_cart
+            modified_carts = [current_carts[0], current_carts[1], new_z]
+            modified_surf_carts.append(modified_carts)
+
+        # Remove all surface atoms from new_astr
+        new_astr.remove_sites(surface_inds)
+        for specie, coord in zip(surface_species, modified_surf_carts):
+            new_astr.append(specie, coord, coords_are_cartesian=True)
+
+        return new_astr
