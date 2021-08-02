@@ -287,6 +287,8 @@ class structure_constraints(object):
             self.shape = 'cluster'
         elif 'gb' in str_record:
             self.shape = 'gb'
+        elif 'surface' in str_record:
+            self.shape = 'surface'
         # TODO: add other shapes here
 
         if self.shape == 'cluster':
