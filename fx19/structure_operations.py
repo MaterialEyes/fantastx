@@ -1747,6 +1747,7 @@ class gb_ops(object):
 
          #####
 
+
 class surface_ops(object):
     """
     Contains all the functions related to the structure manipulation of
@@ -1840,6 +1841,10 @@ class surface_ops(object):
         if 'hop_mate_frac' in surface_ops_params:
             self.hop_mate_frac = surface_ops_params['hop_mate_frac']
 
+        self.num_slices = 2
+        if 'num_slices' in surface_ops_params:
+            self.num_slices = surface_ops_params['num_slices']
+
     def init_zs_to_species_dict(self, slab_astr, species_id):
         """
         Returns boolean whether default cartesian z-coordinates for the surface
@@ -1923,7 +1928,7 @@ class surface_ops(object):
         keys = list(init_slabs_dict.keys())
         random.shuffle(keys)
 
-        if not ab:
+        if ab is None:
             # return first match since keys are already shuffled
             return Structure.from_file(init_slabs_dict[keys[0]])
         else:
@@ -2079,6 +2084,7 @@ class surface_ops(object):
 
         new_surf_layer = Structure(lattice, sps, coords,
                                    coords_are_cartesian=False)
+        new_surf_layer.sort()
 
         return new_surf_layer
 
@@ -2151,6 +2157,10 @@ class surface_ops(object):
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
             new_astr.sort()
+            # Constrain z coords to be that in the initial structure
+            if self.constrain_z:
+                new_astr = self.set_zs_from_init_astr(new_astr)
+
             correct_comp = True #self.gb_iface_comp_check(new_astr)
 
         new_model = structure_record.model(new_astr, reg_id)
@@ -2519,9 +2529,9 @@ class surface_ops(object):
         # all_species = new_astr.species
         bot_z_cart = new_carts[:, 2].min()
         surface_inds = [i for i, site in enumerate(new_astr.sites) \
-                                      if site.coords[2] - bot_z_cart < \
+                                      if site.coords[2] - bot_z_cart > \
                                       self.substrate_thickness]
-        surface_species = [new_astr.sites[i].species.name \
+        surface_species = [new_astr.sites[i].specie.name \
                                       for i in surface_inds]
         surface_sites = [new_astr.sites[i] for i in surface_inds]
         new_non_surf_inds = [i for i in range(len(new_carts)) \
@@ -2533,11 +2543,15 @@ class surface_ops(object):
             # get new cart_coords
             current_carts = site.coords
             # get z from species_dict
-            curr_sps = site.species.name
+            curr_sps = site.specie.name
+            new_z = None
             for key in self.species_dict.keys():
                 if self.species_dict[key]['name'] == curr_sps:
                     new_z = random.choice(self.species_dict[key]['z_carts'])
                     break
+            if new_z is None:
+                print ('Error: Surface site species not in species dict.')
+
             # scale new_z to maintain appropriate separation
             new_z = new_z + ref_new_z_cart - ref_init_z_cart
             modified_carts = [current_carts[0], current_carts[1], new_z]
