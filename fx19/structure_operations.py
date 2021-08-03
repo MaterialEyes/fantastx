@@ -2536,7 +2536,7 @@ class surface_ops(object):
         surface_sites = [new_astr.sites[i] for i in surface_inds]
         new_non_surf_inds = [i for i in range(len(new_carts)) \
                                       if i not in surface_inds]
-        ref_new_z_cart = new_astr.cart_coords[new_non_surf_inds][:, 2].max()
+        substrate_z_max = new_astr.cart_coords[new_non_surf_inds][:, 2].max()
 
         modified_surf_carts = []
         for site in surface_sites:
@@ -2552,10 +2552,16 @@ class surface_ops(object):
             if new_z is None:
                 print ('Error: Surface site species not in species dict.')
 
-            # scale new_z to maintain appropriate separation
-            new_z = new_z + ref_new_z_cart - ref_init_z_cart
             modified_carts = [current_carts[0], current_carts[1], new_z]
             modified_surf_carts.append(modified_carts)
+
+        # scale new_z to maintain appropriate separation
+        modified_surf_carts = np.array(modified_surf_carts)
+        modified_z_min = modified_surf_carts[:, 2].min()
+        shift_zs = substrate_z_max + self.separation - modified_z_min
+        # change modified z_carts according to separation
+        modified_zs = [z + shift_zs for z in modified_surf_carts[:, 2]]
+        modified_surf_carts[:, 2] = modified_zs
 
         # Remove all surface atoms from new_astr
         new_astr.remove_sites(surface_inds)
