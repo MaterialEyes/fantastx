@@ -79,7 +79,13 @@ class Pool(object):
             while len(self.weights) != 5:
                 self.weights.append(1)
 
-        self.epsilons = pool_params['epsilons']
+        # Define epsilons for the archive
+        if 'epsilons' not in pool_params:
+            self.epsilons = [.1, .1]
+        else:
+            self.epsilons = pool_params['epsilons']
+            while len(self.epsilons) != 6:
+                self.epsilons.append(.1)
 
         self.population = Population(
             self.capacity, ParetoDominance())
@@ -118,18 +124,21 @@ class Pool(object):
             non_dominated_models = ParetoDominance().get_nondominated_solutions(self.population)
             self.archive.initialize_models(non_dominated_models)
 
-    def provide_parent_models(self):
+    def provide_parent_models(self, num_parents):
         '''
         Provide parent models for mating operations. If archive has not been
         created, then provide both parents from the population. Otherwise,
         provide one parent from the population, and one parent from the archive.
         '''
         if self.archive.size == 0:
-            return self.population.produce_linear_models(num_parents=2)
+            return self.population.produce_linear_models(num_parents)
         else:
             population_member = self.population.produce_model()
             archive_member = self.archive.produce_model()
             return [population_member, archive_member]
+
+    def return_random_pop_member(self):
+        return self.population.return_single_linear_model()
 
 
 class Population(object):
@@ -278,6 +287,17 @@ class Population(object):
                 else:
                     parents.append(new_parent)
         return parents
+
+    def produce_single_linear_model(self):
+        done = False
+        while not done:
+            # randomly choose a parent
+            parent = random.choice(self.models)
+            if parent.selection_prob:
+                if random.random() < parent.selection_prob:
+                    done = True
+                    return parent
+
 
 
 class Archive(object):
