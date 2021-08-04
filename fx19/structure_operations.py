@@ -17,7 +17,7 @@ from numpy.random import uniform as unif
 import numpy as np
 import random, copy
 import math
-from math import asin, cos, sqrt
+from math import asin, cos, sqrt, tan, pi
 
 from fx19 import structure_record
 from fx19 import distance_check as dc
@@ -1940,6 +1940,25 @@ class surface_ops(object):
                 if np.absolute(diff).sum() < abs_tol:
                     return astr
 
+    def get_substrate(self, slab_astr=None, ab=None, abs_tol=0.2):
+        """
+        """
+        if slab_astr is None:
+            # Choose a init_slab from the dict
+            slab_astr = self.choose_init_slab(ab=ab, abs_tol=abs_tol)
+
+        # Get substrate from the slab_astr
+        bot_z_cart = slab_astr.cart_coords[:, 2].min()
+        slab_sites = slab_astr.sites
+        sub_inds = [i for i, site in enumerate(slab_sites) if \
+                        site.coords[2] - bot_z_cart <= self.substrate_thickness]
+
+        sub_sps = [slab_astr.species[i] for i in sub_inds]
+        sub_fracs = [slab_astr.frac_coords[i] for i in sub_inds]
+        substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
+                                        coords_are_cartesian=False)
+        return substrate
+
     def random_surface_layer(self, slab_astr):
         """
         Returns a random surface layer for initial population
@@ -2099,17 +2118,18 @@ class surface_ops(object):
         """
         # Choose a init_slab from the dict
         slab_astr = self.choose_init_slab()
+        substrate = self.get_substrate(slab_astr=slab_astr)
 
         # Get substrate from the slab_astr
-        bot_z_cart = slab_astr.cart_coords[:, 2].min()
-        slab_sites = slab_astr.sites
-        sub_inds = [i for i, site in enumerate(slab_sites) if \
-                        site.coords[2] - bot_z_cart <= self.substrate_thickness]
+        #bot_z_cart = slab_astr.cart_coords[:, 2].min()
+        #slab_sites = slab_astr.sites
+        #sub_inds = [i for i, site in enumerate(slab_sites) if \
+        #              site.coords[2] - bot_z_cart <= self.substrate_thickness]
 
-        sub_sps = [slab_astr.species[i] for i in sub_inds]
-        sub_fracs = [slab_astr.frac_coords[i] for i in sub_inds]
-        substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
-                                        coords_are_cartesian=False)
+        #sub_sps = [slab_astr.species[i] for i in sub_inds]
+        #sub_fracs = [slab_astr.frac_coords[i] for i in sub_inds]
+        #substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
+        #                                coords_are_cartesian=False)
 
         # Get the surface layer size of the slab
         surface_layer = self.random_surface_layer(slab_astr)
@@ -2225,8 +2245,7 @@ class surface_ops(object):
 
         return atoms_per_species
 
-    def get_random_coords_for_species(self, num_coords_needed, lattice,
-                                      min_dist, max_dist=None, z_carts=None):
+    def get_random_coords_for_species(self, num_coords_needed, lattice, min_dist, max_dist=None, z_carts=None):
         """
         Returns a (num) list of random fractional coords, each separated by a
         distance within the min_dist and max_dist
@@ -2284,10 +2303,7 @@ class surface_ops(object):
         random.shuffle(random_coords)
         return random_coords
 
-    def get_secondary_random_coords(self, num_coords_needed, lattice,
-                                    primary_frac_coords, min_dist_12,
-                                    min_dist_22, other_min_dist=None,
-                                    other_frac_coords=None, z_carts=None):
+    def get_secondary_random_coords(self, num_coords_needed, lattice, primary_frac_coords, min_dist_12, min_dist_22, other_min_dist=None, other_frac_coords=None, z_carts=None):
         """
         Returns random coords which satisfy distance constaints among same
         species and with species 1
@@ -2473,23 +2489,6 @@ class surface_ops(object):
 
         return [x, y, z_cart]
 
-    # functions for mating operations
-    def mate(self, parent_1, parent_2):
-        """
-        Performs mating by slicing for given two models and returns child
-        structure. Here both the parents should be of same lattice in the x-y
-        direction.
-
-
-        Algorithm:
-        1. Select a line that passes through the center of the lattice
-        2. Cut both parents surface layers into two halves
-        3. Select one half from one parent and the other half from the second
-           parent
-        4. Join them
-        5. Attach the child surface layer on top of the substrate slab
-        """
-
     def surface_comp_check(self, surface_astr):
         """
         For terminology use these variables. All are pymatgen structure objects.
@@ -2515,11 +2514,11 @@ class surface_ops(object):
         new_ab = new_astr.lattice.matrix[:2]
         init_astr = self.choose_init_slab(ab=new_ab)
         # Get top most site in init_astr that is not a surface site
-        top_z_cart = init_astr.cart_coords[:, 2].max()
-        init_non_surf_inds = [i for i, site in enumerate(init_astr.sites) \
-                                      if top_z_cart - site.coords[2] > \
-                                      self.surface_thickness]
-        ref_init_z_cart = init_astr.cart_coords[init_non_surf_inds][:, 2].max()
+        #top_z_cart = init_astr.cart_coords[:, 2].max()
+        #init_non_surf_inds = [i for i, site in enumerate(init_astr.sites) \
+        #                              if top_z_cart - site.coords[2] > \
+        #                              self.surface_thickness]
+        #ref_init_z_cart = init_astr.cart_coords[init_non_surf_inds][:, 2].max()
 
         # Set init_astr surface zs to species_dict
         for key in self.element_syms.keys():
@@ -2569,3 +2568,105 @@ class surface_ops(object):
             new_astr.append(specie, coord, coords_are_cartesian=True)
 
         return new_astr
+
+    def get_slices_from_parent(self, parent):
+        """
+        For a given parent, slices it along a line through center. Returns coordinates and species from both halves. Ex: (slice_1_coords, slice_1_species, slice_2_coords, slice_2_species)
+        Select one half from one parent and the other half from the second
+        parent to make a child structure.
+
+        Args:
+        parent (obj): model object
+        """
+        # Get surface carts from the parent astr
+        parent_sites = parent.astr.sites
+        bot_z_cart = parent.astr.cart_coords[:,2].min()
+        surface_inds = [i for i, site in enumerate(parent_sites) \
+                                      if site.coords[2] - bot_z_cart > \
+                                      self.substrate_thickness]
+        surface_species = [parent_sites[i].specie.name for i in surface_inds]
+        surface_carts = np.array([parent_sites[i].coords for i in surface_inds])
+
+        # Translate this bottom_left_xy to be (0, 0)
+        surface_xys = surface_carts.T[0:2].T
+        shift_xy = np.array([-surface_xys[:, 0].min(),
+                                    -surface_xys[:, 1].min()])
+        surface_xys = surface_xys + shift_xy
+
+        # Get the point (x_max/2, y_max_2) & slope for the slicing 2D line
+        point = [surface_xys[:, 0].max()/2, surface_xys[:, 1].max()/2]
+        slope = tan(unif(0, 2*pi))
+        # The eq. of line is ==> y = slope * (x - point[0]) + point [1]
+        # Get surface carts below line (for P1) and above line (for P2)
+        below_inds, above_inds = [], []
+        for i, xy in enumerate(surface_xys):
+            if xy[1] <= slope * (xy[0] - point[0]) + point [1]:
+                below_inds.append(i)
+            elif xy[1] >= slope * (xy[0] - point[0]) + point [1]:
+                above_inds.append(i)
+
+        below_xys = np.array([surface_xys[i] for i in below_inds])
+        below_zs = np.array([surface_carts[i][2] for i in below_inds])
+        below_sps = [surface_species[i] for i in below_inds]
+        below_carts = np.concatenate((below_xys, below_zs.reshape(-1, 1)),
+                                                        axis=1)
+
+        above_xys = np.array([surface_xys[i] for i in above_inds])
+        above_zs = np.array([surface_carts[i][2] for i in above_inds])
+        above_sps = [surface_species[i] for i in above_inds]
+        above_carts = np.concatenate((above_xys, above_zs.reshape(-1, 1)),
+                                                        axis=1)
+
+        return below_carts, below_sps, above_carts, above_sps
+
+    def mate(self, select, pool):
+        """
+        Performs mating by slicing for given two models and returns child
+        structure. Selects two parents from the pool and gets one half from
+        each parent. Join both slices and places it on top of substrate. Here
+        both the parents should be of same lattice in the x-y direction.
+
+        Returns child surface model
+
+        Args:
+
+        select (obj): select class object from selection module
+        pool (obj) : pool object from selection module
+        """
+        # get two parents P1, P2
+        num_parents = 2
+        parents = select.get_parents(pool, num_parents, same_ab=True)
+        parent1, parent2 = parents[0], parents[1]
+        inheritance = [parent1.label, parent2.label]
+        child_ab = parent1.lattice.matrix[:2]
+
+        # Get one slice each from parent 1 and parent 2 separately
+        slice1_carts, slice1_sps, _, __ = self.get_slices_from_parent(parent1)
+        _, __, slice2_carts, slice2_sps = self.get_slices_from_parent(parent2)
+
+        # Join both slices
+        child_surf_carts = np.concatenate(slice1_carts, slice2_carts)
+        child_surf_sps = list(slice1_sps) + list(slice2_sps)
+
+        # Do random translation on xy plane
+        random_v = np.array([unif(0, parent1.lattice.a),
+                                unif(0, parent1.lattice.b), 0])
+        child_surf_carts = child_surf_carts + random_v
+
+        # Place coords on top of substrate
+        substrate = self.get_substrate(ab=child_ab)
+
+        # Maintain separation or if constrain_z => set_zs_from_init_astr
+        surface_minz = child_surf_carts[:, 2].min()
+        substrate_maxz = substrate.cart_coords[:, 2].max()
+        z_diff = substrate_maxz + self.separation - surface_minz
+
+        # Re-scale the z-coordinates to get separation correctly
+        child_surf_carts[:, 2] += z_diff
+
+        # Place the surface atoms to substrate
+        for i in range(len(child_surf_carts)):
+            substrate.append(child_surf_sps[i], child_surf_carts[i],
+                                            coords_are_cartesian=True)
+
+        return substrate, inheritance
