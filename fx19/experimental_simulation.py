@@ -18,6 +18,15 @@ from ingrained.structure import Bicrystal
 from ingrained.optimize import CongruityBuilder
 import ingrained.image_ops as iop
 
+#these imports have to be in sys.path
+#later build into FoxPy package to be installed
+import dft_calc as foxpy_dft
+import experiment as foxpy_expt
+from calculations.objective_functions import minimizeFunction, chiSquareList
+
+from scipy.optimize import Bounds
+import pymatgen.core as mg
+
 from math import floor
 import numpy as np
 import os, cv2
@@ -479,3 +488,87 @@ class gb_ingrained(object):
             img = img[:, floor(diff_pix_y/2) : floor(-1*diff_pix_y/2)]
 
         return img, ref
+
+class xrr_foxpy(object):
+    """ 
+    Uses "FoxPy" software to simulate XRR from model
+    """
+        
+    def __init__(self, xrr_foxpy_params):
+        """
+        The xrr_foxpy_params is a dictionary of the user-provided
+        parameters in the input_file.yaml
+        """
+
+        self.name = 'XRR'
+        self.main_path = xrr_foxpy_params['main_path']
+        #TODO set default values for parameters
+
+        self.xrr_foxpy_params=xrr_foxpy_params
+
+        bulk_str=mg.Structure.from_file(xrr_foxpy_params['bulk_structure'])
+        self.dftBulk=foxpy_dft.DFTCalc(structurePMG=bulk_str, typeOfCalc='bulk',zShift=xrr_foxpy_params['bulk_center'])
+        #TODO incorporate numLayersBulk from xrr_foxpy_params
+
+        # Define list of experiments and import data
+        xrr_expts = []
+
+        if 'exp_xrr_data' not in xrr_foxpy_params:
+            print ('exp_xrr_data - filenames, energies, and temperature are not provided'
+                   ' in input file. These are mandatory parameters!')
+        else:
+            xrr_dict = xrr_foxpy_params['exp_xrr_data']
+            self.num_experiments = len(xrr_dict)
+
+        for i in range(self.num_experiments):
+            xrr_key='exp_xrr_data' + str(i+1)
+            xrr = xrr_dict[xrr_key]
+            xrr_expts.append(foxpy_expt.Experiment(xrr['filename'], xrr['temperature'], xrr['energy'], self.dftBulk.l.k0*xrr['scale_q'], 1, [xrr['min_q'], xrr['max_q']]))
+  
+        #don't initialize surface here because it will change with the model.
+        
+        #fit the lattice scale to ensure accurate alignment of Bragg peaks
+        fitFunc = 'fitLatticeScale' #for one DFT surface calculation
+        x0 = np.ones(len(xrr_expts)) 
+
+        #Specifically fit the experimental lattice constant
+        chiSquare = chiSquareList(x0, xrr_expts, self.dftBulk, None, fitFunc)
+        print('Chi Squared Before q Scale = ' + str(chiSquare))
+        res = minimizeFunction('chiSquareResidual', x0, xrr_expts, self.dftBulk, None, fitFunc, nIter=1000000, method='Nelder-Mead')
+        chiSquare = chiSquareList(res.x, xrr_expts, self.dftBulk, None, fitFunc)
+        print('Chi Squared After q Scale = ' + str(chiSquare))
+
+        for i in range(self.num_experiments):
+            xrr_expts[i].changeScale(res.x[i],1.0)
+            print('Scaling q values of Experiment ' + str(i) + ' by ' + str(res.x[i]) + ' to align Bragg peaks.\n')
+
+        self.xrr_expts = xrr_expts
+
+    def evaluate_obj(self, model):
+        
+         #how do you add the relaxations into the model? This seems like it would be the unrelaxed version.  
+         # My guess is that it mirrors what was done with VASP in the GB example above.
+         # In order to have the XRR signal not change for specular data we would need to fix z-coord in DFT using selective dynamics,
+         # In which case the XRR signal would not be different for relaxed or unrelaxed structure       
+        dftSurface=foxpy_dft.DFTCalc(structurePMG=model.astr, typeOfCalc='surface', surfaceSetup=self.xrr_foxpy_params['surface_setup'],zShift=self.xrr_foxpy_params['surface_center'])
+
+        numUnitCells = dftSurface.SA / self.dftBulk.SA
+        print("Number of Unit Cells in Surface: " + str(numUnitCells))
+
+        bulkStructFact = self.dftBulk.structureFactorSetupList(self.xrr_expts)
+        surfaceStructFact = dftSurface.structureFactorSetupList(self.xrr_expts, np.ones(len(self.xrr_expts)) / numUnitCells)
+
+         # Fit Intensity of each XR signal and single DW factor
+        fitFunc = 'fitIntensityAndDW' #for one DFT surface calculation
+        x0 = np.concatenate([np.ones(len(self.xrr_expts)),np.array([0.])])
+        bounds = Bounds([0]*len(x0), [1000]*len(self.xrr_expts)+[1])
+
+        chiSquare = chiSquareList(x0, self.xrr_expts, self.dftBulk, dftSurface, fitFunc)
+        print('Chi Squared Before Fit = ' + str(chiSquare))
+        res = minimizeFunction('chiSquareResidual', x0, self.xrr_expts, self.dftBulk,
+                        dftSurface, fitFunc, nIter=1000000, method='trust-constr', bounds=bounds)
+        chiSquare = chiSquareList(res.x, self.xrr_expts, self.dftBulk, dftSurface, fitFunc)
+        print('Chi Squared After Fit = ' + str(chiSquare))
+
+        chiSquared=np.mean(chiSquare)
+        return model, chiSquared

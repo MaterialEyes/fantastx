@@ -78,7 +78,7 @@ def make_objects(i_dict):
     all_objects['energy_code'] = energy_code
 
     # make experimental_simulation object(s)
-    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'FEFF']
+    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'FEFF', 'XRR']
     if 'exp_sim_1' in i_dict:
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
@@ -91,6 +91,9 @@ def make_objects(i_dict):
                 Xsim1_params = get_ingrained_params(i_dict, 'exp_sim_1_params')
                 Xsim1_params['init_gb_path'] = str_record['gb']['init_gb_astr']
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
+            if method_1 == 'XRR':
+                Xsim1_params = get_foxpy_params(i_dict, 'exp_sim_1_params')
+                Xsim_1 = experimental_simulation.xrr_foxpy(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
 
@@ -283,6 +286,25 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
 
     return gb_ingrained_params
 
+def get_foxpy_params(i_dict, exp_sim_params_id):
+    """
+    Params for XRR simulation via FoxPy. Defaults are not provided for all params.
+    If some important params are not provided, should print error message and exit.
+
+    Args:
+    i_dict - (dict) dictionary of all the user-provided input parameters read
+             from yaml file
+    exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
+                        simulation method.
+    """
+        # write get xrr foxpy params method
+        # bulkCenter, surfaceCenter, bulkFilename, numBulkLayers, surfaceSetup = mirror or fixedBottom
+    xrr_foxpy_params = i_dict[exp_sim_params_id]
+    xrr_foxpy_params['main_path'] = i_dict['main_path']
+
+    return xrr_foxpy_params
+
+
 def get_mating_params(i_dict, str_constraints):
     """
     Collects all user provided parameters for mating, uses defaults if necessary
@@ -345,9 +367,7 @@ def get_surface_params(i_dict, str_constraints):
     Adds all required parameters for surface_ops class from the input file
     """
 
-
-
-# assume experimental pdf is given
+# assume experimental pdf is given (not implemented)
 def read_input_exp_files(filename):
     """
     Depending on type of experimental data, call corresponding functions

@@ -1,0 +1,47 @@
+exp_sim_1: XRR
+exp_sim_1_params:
+  xrr_foxpy_path: /Users/klweaver/Code/XRay/FoxPy
+  #information about experimental XRR measurements 
+  exp_xrr_data: 
+    exp_xrr_data1: 
+      #data file for XRR experiment with 3 columns: 
+      #momentum transfer q in rlu, intensity I(q) in a.u., error bar sigma(q) in a.u.
+      filename: /Users/klweaver/Code/XRay/FoxPy/input/nonres_STO.dat
+      #energy of X-ray in eV
+      energy: 15000
+      #temperature in Kelvin
+      temperature: 1000
+      #scale on initial q values 
+      #could be used to account for thermal expansion or convert from inverse Anstroms to rlu
+      scale_q: 1.008 
+      #minimum value of q in inverse Angstroms
+      min_q: 0.7
+      #maximum value of q in inverse Angstroms
+      max_q: 4.0
+    exp_xrr_data2: 
+      filename: /Users/klweaver/Code/XRay/FoxPy/input/res_STO.dat
+      energy: 16105
+      temperature: 1000
+      scale_q: 1.008 
+      min_q: 0.7
+      max_q: 4.0
+
+  #Information about structural models needed for computation of XRR
+  #filename of PyMatGen compatible structure for bulk crystal substrate from DFT
+  #currently assumes that z-direction is normal to surface.
+  bulk_structure: /Users/klweaver/Code/XRay/FoxPy/input/bulkSTO.cif
+  #number of identical layers normal to z in bulk unit cell 
+  num_layers_bulk: 1 
+  #location in fractional coords where the bulk structure joins to the surface structure
+  bulk_center: 0.0
+  #location in fractional coords where the surface structure joins to the bulk structure
+  surface_center: 0.0
+  #Choose whether surface structure has a mirror plane at the surface_center 'mirror'
+  #OR has a bottom layer fixed at the surface_center 'fixed'
+  surface_setup: mirror 
+
+
+
+  
+
+ 
