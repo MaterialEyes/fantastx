@@ -378,7 +378,7 @@ class structure_constraints(object):
 
             if 'composition' in surface_params:
                 composition = Composition(surface_params['composition'])
-                self.comp_dict = composition.as_dict()
+                self.comp_dict = composition.to_reduced_dict
 
             if 'num_slices' in surface_params:
                 self.num_slices = surface_params['num_slices']
