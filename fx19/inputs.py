@@ -1,7 +1,7 @@
 from __future__ import division, unicode_literals, print_function
 from fx19.structure_operations import gb_ops
 from fx19 import structure_operations
-from fx19 import epsilonSelection
+from fx19 import selection
 from fx19 import experimental_simulation
 from fx19 import energy
 from fx19 import initial_population
@@ -97,35 +97,31 @@ def make_objects(i_dict):
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
-    if 'weights' in i_dict['select_params'].keys():
-        pool_params['weights'] = i_dict['select_params']['weights']
-    if 'epsilons' in i_dict['select_params'].keys():
-        pool_params['epsilons'] = i_dict['select_params']['epsilons']
-    pool = epsilonSelection.Pool(pool_params)
+    pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
-    # if not 'select_params' in i_dict:
-    #     print('Error: Please provide select_params keyword and objective'
-    #           ' keyword specifying single or multiobjective optimization.')
-    # else:
-    #     select_params = i_dict['select_params']
-    # if not 'objective_fn_type' in select_params.keys():
-    #     print('Error: Please provide select_params keyword and objective'
-    #           ' keyword specifying single or multiobjective optimization.')
+    if not 'select_params' in i_dict:
+        print('Error: Please provide select_params keyword and objective'
+              ' keyword specifying single or multiobjective optimization.')
+    else:
+        select_params = i_dict['select_params']
+    if not 'objective_fn_type' in select_params.keys():
+        print('Error: Please provide select_params keyword and objective'
+              ' keyword specifying single or multiobjective optimization.')
 
-    # if select_params['objective_fn_type'] not in ['multi', 'single']:
-    #     print('Error: Select objective should be a string of either'
-    #           ' single or multi.')
-    # if select_params['objective_fn_type'] == 'multi':
-    #     select = selection.Select(select_params)
-    #     # weights, num_required_above_50 & num_models_before_pareto are in
-    #     # select_params if provided
-    # else:
-    #     select_params['objective_fn_type'] = 'single'
-    #     select_params['weights'] = [1, 1, 1, 1, 1]
-    #     select = selection.Select(select_params)
-    # all_objects['select'] = select
+    if select_params['objective_fn_type'] not in ['multi', 'single']:
+        print('Error: Select objective should be a string of either'
+              ' single or multi.')
+    if select_params['objective_fn_type'] == 'multi':
+        select = selection.Select(select_params)
+        # weights, num_required_above_50 & num_models_before_pareto are in
+        # select_params if provided
+    else:
+        select_params['objective_fn_type'] = 'single'
+        select_params['weights'] = [1, 1, 1, 1, 1]
+        select = selection.Select(select_params)
+    all_objects['select'] = select
 
     # Mating object from structure_operations
     mating_params = get_mating_params(i_dict, str_constraints)

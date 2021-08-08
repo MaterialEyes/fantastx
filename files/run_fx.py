@@ -60,9 +60,8 @@ else:
 # TODO: add Xsim2 and Xsim3 etc.. and count in sim_ids
 
 pool = all_objects['pool']
-#select = all_objects['select']
-#
-# weights = select.weights  # If single_objective, weights should be
+select = all_objects['select']
+weights = select.weights  # If single_objective, weights should be
 # [1, 0, 0, 0, 0, 0] - see inputs.py
 
 # Create a folder 'Calcs' where all calculations take place
@@ -174,8 +173,8 @@ if input_model_obj is not None:
 
     # evaluate the input models
     for input_model in input_models:
-        new_model = make_model(random_model_obj, evolve, pool,
-                               reg_id, model_type='inputs', model=input_model)
+        new_model, select = make_model(random_model_obj, evolve, select, pool,
+                                       reg_id, model_type='inputs', model=input_model)
         # relax the model in dask-workers
         out = client.submit(relax, new_model, reg_id, energy_code)
         evald_futures.append(out)
@@ -196,27 +195,27 @@ while models_evald < total_models_needed:
     while working_jobs < 2*max_workers and models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
-            new_model = make_model(random_model_obj, evolve,
-                                   pool, reg_id, model_type='random')
+            new_model, select = make_model(random_model_obj, evolve, select,
+                                           pool, reg_id, model_type='random')
         else:
-            new_model = make_model(random_model_obj, evolve,
-                                   pool, reg_id, model_type='evolved')
+            new_model, select = make_model(random_model_obj, evolve, select,
+                                           pool, reg_id, model_type='evolved')
 
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
-        evald_futures, models_evald, pool = update_pool(evald_futures,
-                                                        models_evald,
-                                                        pool,
-                                                        data_file, sim_ids)
+        evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                                models_evald,
+                                                                pool, select,
+                                                                data_file, sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
 # process extra calculations running in last batch
 while len(evald_futures) > 0:
-    evald_futures, models_evald, pool = update_pool(evald_futures,
-                                                    models_evald,
-                                                    pool,
-                                                    data_file, sim_ids)
+    evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                            models_evald,
+                                                            pool, select,
+                                                            data_file, sim_ids)
 
 client.shutdown()
 

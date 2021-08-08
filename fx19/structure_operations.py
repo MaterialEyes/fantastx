@@ -80,7 +80,7 @@ class Evolve(object):
         #     setattr(self, 'species' + str(sp),
         #             evolve_params['species' + str(sp)])
 
-    def get_model(self, pool, reg_id):
+    def get_model(self, select, pool, reg_id):
         """
         get new model using mating or basinhopping
 
@@ -103,12 +103,12 @@ class Evolve(object):
         while correct_comp is False:
             try:
                 if method == 1:
-                    new_astr, inheritance = hop.perturb_sites(pool)
+                    new_astr, inheritance = hop.perturb_sites(select, pool)
                 elif method == 2:
-                    new_astr, inheritance = mate.mate_by_slicing(pool)
+                    new_astr, inheritance = mate.mate_by_slicing(select, pool)
                     mate.move_atoms_to_within_cluster(new_astr)
                 elif method == 3:
-                    new_astr, inheritance = mate.mate_by_random_swap(
+                    new_astr, inheritance = mate.mate_by_random_swap(select,
                                                                      pool)
                     mate.move_atoms_to_within_cluster(new_astr)
             except:
@@ -209,7 +209,7 @@ class mating(object):
 
         return attach_type
 
-    def mate_by_slicing(self, pool):
+    def mate_by_slicing(self, select, pool):
         """
         Mates parents by for a cluster of a gb by rotating and slicing at the
         fraction required
@@ -228,8 +228,7 @@ class mating(object):
         # Get num_parents and select them parents
         num_parents = 2
         # NOTE: deepcopy already done in get_a_parent()
-        #parents = select.get_parents(pool, num_parents)
-        parents = pool.provide_parent_models(num_parents)
+        parents = select.get_parents(pool, num_parents)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
 
@@ -383,7 +382,7 @@ class mating(object):
 
         return slice1
 
-    def mate_by_random_swap(self, pool):
+    def mate_by_random_swap(self, select, pool):
         """
         NOTE: Works only for fixed composition searches.
 
@@ -400,10 +399,12 @@ class mating(object):
         """
         # Get num_parents and select them parents
         num_parents = 2
-        parents = pool.provide_parent_models(num_parents)
-        #parents = select.get_parents(pool, num_parents)
+        parents = select.get_parents(pool, num_parents)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
+        p1_sites = parent1.astr.sites
+        p2_sites = parent2.astr.sites
+        list_of_p_sites = [p1_sites, p2_sites]
 
         child = copy.deepcopy(parent1.astr)
         all_inds = [i for i in range(len(child.cart_coords))]
@@ -706,7 +707,7 @@ class basinhopping(object):
             self.box_abc = np.array(
                 basinhopping_params['box_abc'])  # default a=b=c=20 Å
 
-    def perturb_sites(self, pool, model_id=None, gb=False):
+    def perturb_sites(self, select, pool, model_id=None, gb=False):
         """
         Displaces atoms in a parent (cluster or gb_iface) using uniform
         distribution
@@ -720,15 +721,13 @@ class basinhopping(object):
         """
         indices_fraction = self.indices_fraction
 
-        # TODO: explore basinhopping with archive members instead of entire pop
         if model_id is None:
-            #parent_model = select.get_a_parent(pool)
-            parent_model = pool.return_random_pop_member()
+            parent_model = select.get_a_parent(pool)
             # make a copy
             parent = copy.deepcopy(parent_model)
             inheritance = [parent.label]
         else:
-            for model in pool.population.models:
+            for model in pool.good_pool:
                 if model.label == model_id:
                     parent = copy.deepcopy(model)
                     inheritance = [parent.label]
@@ -1411,7 +1410,7 @@ class gb_ops(object):
 
         return new_str.get_sorted_structure()
 
-    def mate(self, pool):
+    def mate(self, select, pool):
         """
         Takes 2 parents and mates them
 
@@ -1423,8 +1422,7 @@ class gb_ops(object):
         """
         # get two parents
         num_parents = 2
-        #parents = select.get_parents(pool, num_parents)
-        parents = pool.provide_parent_models(num_parents)
+        parents = select.get_parents(pool, num_parents)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
         # choose axis to slice
@@ -1468,7 +1466,7 @@ class gb_ops(object):
 
         return gb_model
 
-    def get_model(self, pool, reg_id):
+    def get_model(self, select, pool, reg_id):
         """
         The name of this function is set to get_model() to match with the
         similar model in 'evolve' class.
@@ -1491,12 +1489,12 @@ class gb_ops(object):
                 if random.random() <= self.hop_mate_frac:
                     # Do hop.perturb_sites()
                     perturbed_iface, inheritance = hop.perturb_sites(
-                        pool, gb=True)
+                        select, pool, gb=True)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     maker = 'perturb_sites'
                 else:  # Do gb_ops_obj.mate()
-                    new_astr, inheritance = self.mate(pool)
+                    new_astr, inheritance = self.mate(select, pool)
                     maker = 'fraction_slice'
             except:
                 continue

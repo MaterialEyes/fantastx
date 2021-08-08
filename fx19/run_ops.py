@@ -83,7 +83,7 @@ def relax(model, reg_id, energy_code):
     return model
 
 
-def make_model(random_model_obj, evolve, pool, reg_id,
+def make_model(random_model_obj, evolve, select, pool, reg_id,
                model_type='random', model=None):
     """
     [random_model_obj, reg_id, evolve, select, pool,]
@@ -113,12 +113,11 @@ def make_model(random_model_obj, evolve, pool, reg_id,
 
     # make new model from parents
     if model_type == 'evolved':
-        #new_model = evolve.get_model(select, pool, reg_id)
-        new_model = evolve.get_model(pool, reg_id)
+        new_model = evolve.get_model(select, pool, reg_id)
         # add the new_model inheritance to select.all_parent_labels
-        #select.all_parent_labels += new_model.inheritance
+        select.all_parent_labels += new_model.inheritance
 
-    return new_model
+    return new_model, select
 
 
 def separate_gb(energy_code, gb_ops_obj, model):
@@ -161,7 +160,7 @@ def do_Xsim(model, Xsim_1):
             return model
 
 
-def update_pool(evald_futures, models_evald, pool,
+def update_pool(evald_futures, models_evald, pool, select,
                 data_file, sim_ids):
     """
     Calculates the obejctive values for all models and updates pool with
@@ -194,10 +193,9 @@ def update_pool(evald_futures, models_evald, pool,
         model = future.result()
         # Add to either good_pool or bad_pool
         # Selection_probs are also updated
-        #select = pool.add_to_pool(model, select, sim_ids=sim_ids)
-        pool.add_to_pool(model)
+        select = pool.add_to_pool(model, select, sim_ids=sim_ids)
         # write data to file
         write_data(model, data_file)
         models_evald += 1
 
-    return evald_futures, models_evald, pool  # , select
+    return evald_futures, models_evald, pool, select
