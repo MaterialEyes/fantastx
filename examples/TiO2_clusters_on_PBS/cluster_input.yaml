@@ -1,0 +1,84 @@
+inputs:
+    energy_files_path: /sandbox/vkolluru/Fantastx/examples/TiO2_clusters
+
+structure_record:
+    cluster:
+        max_dia: 7
+        box_abc:
+            - 18
+            - 18
+            - 18
+        lin_sph_ratio: 0.999
+        radius_rand_linear: 1.75
+        tol_rand_linear: 0.2
+    max_bond_dist: 3.5
+    min_dist:
+        sp1_sp1: 1.3
+        sp1_sp2: 1.3
+        sp2_sp2: 1.3
+
+    species:
+        species1:
+            name: Ti
+            min_num: 6
+            max_num: 7
+            mu: -3.4 # This is a random number used for this example 
+        species2:
+            name: O
+            min_num: 8
+            max_num: 11
+            mu: -0.81 # This is a random number used for this example
+
+population_limits:
+    initial_population: 10
+    total_population: 100
+    pool: 20
+
+energy_code: lammps
+energy_obj_fn: mu_based
+energy_exec_cmd: mpiexec lmp_mpi -in in.min
+
+#exp_sim_1: PDF
+#exp_sim_1_params:
+#    exp_pdf_file: /path_to_exp_pdf/exp_pdf_data.txt
+#    stretch: 1.03
+#    Uiso_val: 0.02
+#    scale: 2.0
+#    delta1: 1.0
+#    delta2: 4.0
+#    qdamp: 0.01
+#    xmin: 1.5
+#    xmax: 7.0
+#    minimize_method: L-BFGS-B
+
+select_params:
+    objective_fn_type: single
+    adjust_k_every: 5
+    num_required_above_50: 13
+    num_models_before_pareto: 5 # Not applicable for single obj
+
+mating_constraints:
+    num_parents_fraction: 0.1
+    attach_type_fraction: 0.3
+
+basinhopping_constraints:
+    perturb_box: [[0.4, 0.6], [0.4, 0.6], [0.6, 0.4]]
+    max_perturbation: 0.2
+
+evolve_probabilities:
+    basinhopping_fraction: 0.5
+    mate_by_slice_fraction: 0.3
+    mate_by_swap_fraction: 0.2
+
+workers: # contains specifications for each dask worker job
+    cluster: "PBS" # Specify type of scheduler
+    max_workers: 4 # Number of parallel calculations of models
+    num_cores: 1 # cpus-per-task option
+    total_mem: "8GB" # total memory for the job (--mem option)
+    project_name: "cnm72851" # project under which job to be requested
+    node_type: "ib0" # the cluster interface (infiniband or haswell etc)
+    walltime: "24:00:00" # estimated entire walltime a worker job shall run
+    job_extra: # any other PBS/SLURM submit options
+         - "-l nodes=1:ppn=2:gen6"
+    header_skip: # removes the PBS/SLURM options that start with below provided string 
+         - "-l select=1"

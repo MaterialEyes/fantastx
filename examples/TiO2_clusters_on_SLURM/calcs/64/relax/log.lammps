@@ -1,0 +1,158 @@
+LAMMPS (12 Dec 2018)
+# TiO2 cluster
+units metal
+dimension 3
+boundary f f f
+atom_style charge
+read_data in.data
+  orthogonal box = (0 0 0) to (18 18 18)
+  1 by 1 by 2 MPI processor grid
+  reading atoms ...
+  17 atoms
+
+pair_style tersoff/zbl
+pair_coeff * * /blue/hennig/kvs.chaitanya/relaxation/Fantastx/develop_F19/august_20/test_algo/Ti-O.tersoff.zbl Ti O
+Reading potential file /blue/hennig/kvs.chaitanya/relaxation/Fantastx/develop_F19/august_20/test_algo/Ti-O.tersoff.zbl with DATE: 2018-05-16
+
+compute peatom all pe/atom
+neigh_modify one 1000
+minimize 0.0 1.0e-3 1 1
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (../min.cpp:168)
+Neighbor list info ...
+  update every 1 steps, delay 0 steps, check yes
+  max neighbors/atom: 1000, page size: 100000
+  master list distance cutoff = 5.35
+  ghost atom cutoff = 5.35
+  binsize = 2.675, bins = 7 7 7
+  1 neighbor lists, perpetual/occasional/extra = 1 0 0
+  (1) pair tersoff/zbl, perpetual
+      attributes: full, newton on
+      pair build: full/bin/atomonly
+      stencil: full/bin/3d
+      bin: standard
+Per MPI rank memory allocation (min/avg/max) = 4.045 | 4.045 | 4.045 Mbytes
+Step Temp E_pair E_mol TotEng Press 
+       0            0   -44.701978            0   -44.701978    8107.9019 
+       1            0    -49.79973            0    -49.79973    4767.6824 
+Loop time of 0.000250101 on 2 procs for 1 steps with 17 atoms
+
+80.4% CPU use with 2 MPI tasks x no OpenMP threads
+
+Minimization stats:
+  Stopping criterion = max force evaluations
+  Energy initial, next-to-last, final = 
+        -44.7019784627     -44.7019784627     -49.7997304278
+  Force two-norm initial, final = 33.3404 19.2538
+  Force max component initial, final = 16.2088 7.27357
+  Final line search alpha, max atom move = 0.00616947 0.0448741
+  Iterations, force evaluations = 1 1
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 9.5129e-05 | 0.00014007 | 0.00018501 |   0.0 | 56.01
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 7.8678e-06 | 5.3763e-05 | 9.9659e-05 |   0.0 | 21.50
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 5.627e-05  |            |       | 22.50
+
+Nlocal:    8.5 ave 9 max 8 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+Nghost:    8.5 ave 9 max 8 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+Neighs:    0 ave 0 max 0 min
+Histogram: 2 0 0 0 0 0 0 0 0 0
+FullNghs:  118 ave 126 max 110 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+
+Total # of neighbors = 236
+Ave neighs/atom = 13.8824
+Neighbor list builds = 0
+Dangerous builds = 0
+minimize 0.0 1.0e-3 1000 3000
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (../min.cpp:168)
+Per MPI rank memory allocation (min/avg/max) = 4.045 | 4.045 | 4.045 Mbytes
+Step Temp E_pair E_mol TotEng Press 
+       1            0    -49.79973            0    -49.79973    4767.6824 
+     517            0   -73.210764            0   -73.210764   0.14937671 
+Loop time of 0.135063 on 2 procs for 516 steps with 17 atoms
+
+98.6% CPU use with 2 MPI tasks x no OpenMP threads
+
+Minimization stats:
+  Stopping criterion = force tolerance
+  Energy initial, next-to-last, final = 
+        -49.7997304278     -73.2107637662     -73.2107637945
+  Force two-norm initial, final = 19.2538 0.00098785
+  Force max component initial, final = 7.27357 0.000445406
+  Final line search alpha, max atom move = 1 0.000445406
+  Iterations, force evaluations = 516 1519
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.10499    | 0.10728    | 0.10958    |   0.7 | 79.43
+Neigh   | 2.1219e-05 | 2.3246e-05 | 2.5272e-05 |   0.0 |  0.02
+Comm    | 0.010214   | 0.01288    | 0.015546   |   2.3 |  9.54
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 0.01488    |            |       | 11.02
+
+Nlocal:    8.5 ave 9 max 8 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+Nghost:    8.5 ave 9 max 8 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+Neighs:    0 ave 0 max 0 min
+Histogram: 2 0 0 0 0 0 0 0 0 0
+FullNghs:  124 ave 134 max 114 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+
+Total # of neighbors = 248
+Ave neighs/atom = 14.5882
+Neighbor list builds = 4
+Dangerous builds = 0
+dump myDump all custom 5000 rlx.str id type x y z c_peatom
+minimize 0.0 1.0e-4 1000 3000
+WARNING: Using 'neigh_modify every 1 delay 0 check yes' setting during minimization (../min.cpp:168)
+Per MPI rank memory allocation (min/avg/max) = 4.045 | 4.045 | 4.045 Mbytes
+Step Temp E_pair E_mol TotEng Press 
+     517            0   -73.210764            0   -73.210764   0.14937671 
+     647            0   -73.210766            0   -73.210766 0.0014377283 
+Loop time of 0.042367 on 2 procs for 130 steps with 17 atoms
+
+67.0% CPU use with 2 MPI tasks x no OpenMP threads
+
+Minimization stats:
+  Stopping criterion = force tolerance
+  Energy initial, next-to-last, final = 
+        -73.2107637945     -73.2107661393     -73.2107661395
+  Force two-norm initial, final = 0.00098785 9.08893e-05
+  Force max component initial, final = 0.000445406 3.49257e-05
+  Final line search alpha, max atom move = 1 3.49257e-05
+  Iterations, force evaluations = 130 260
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0.019662   | 0.019776   | 0.01989    |   0.1 | 46.68
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0.010575   | 0.011227   | 0.01188    |   0.6 | 26.50
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 0.01136    |            |       | 26.82
+
+Nlocal:    8.5 ave 9 max 8 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+Nghost:    8.5 ave 9 max 8 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+Neighs:    0 ave 0 max 0 min
+Histogram: 2 0 0 0 0 0 0 0 0 0
+FullNghs:  124 ave 134 max 114 min
+Histogram: 1 0 0 0 0 0 0 0 0 1
+
+Total # of neighbors = 248
+Ave neighs/atom = 14.5882
+Neighbor list builds = 0
+Dangerous builds = 0
+Total wall time: 0:00:00
