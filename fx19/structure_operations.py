@@ -1053,8 +1053,25 @@ class gb_ops(object):
             if site in mids:
                 rem_i.append(i)
         copy_g.remove_sites(rem_i)
+        copy_g.sort()
+        self.hollow_init_gb = copy.deepcopy(copy_g)
 
-        self.hollow_init_gb = copy_g.get_sorted_structure()
+        # create an astr with only atoms near gb iface from hollow gb
+        # get inds of atoms near gb iface within max of min bond dists
+        max_of_min_dists = max(self.min_dist_dict.values())
+        half_zrange = ((self.iface_thickness + 2*max_of_min_dists) \
+                                    / (self.init_gb_astr.lattice.c * 2))
+        min_z_t = self.iface_z_mid + half_zrange
+        max_z_b = self.iface_z_mid - half_zrange
+
+        deeper_atom_inds = []
+        for i, site in enumerate(copy_g.sites):
+            if not max_z_b <= site.c <= min_z_t:
+                deeper_atom_inds.append(i)
+
+        copy_g.remove_sites(deeper_atom_inds)
+        copy_g.sort()
+        self.astr_for_dist_check = copy.deepcopy(copy_g)
 
     def overlap_grains(self):
         """
@@ -1226,12 +1243,7 @@ class gb_ops(object):
 
         # remove non-relevant sites from the structure before sending to
         # dc.satisfies_all_dists(). This saves lot of time.
-        dc_astr = copy.deepcopy(child_astr)
-        rem_inds = []
-        for i, site in enumerate(dc_astr.sites):
-            if not (zmin-0.02) <= site.c <= (zmax+0.02):
-                rem_inds.append(i)
-        dc_astr.remove_sites(rem_inds)
+        dc_astr = self.astr_for_dist_check
 
         num_added, tries = 0, 0
         while num_added < diff: #and tries < 1000: #(leave this structure)
@@ -1334,6 +1346,7 @@ class gb_ops(object):
         iface_to_implant (obj): pymatgen structure object to be implanted
         """
         hollow_init_gb = self.hollow_init_gb
+        astr_for_dist_check = self.astr_for_dist_check
         iface_z_mid = self.iface_z_mid
         iface_thickness = self.iface_thickness
         gb_c = self.init_gb_astr.lattice.c
@@ -1353,11 +1366,34 @@ class gb_ops(object):
             newc = (site.c - zmin)/(zmax - zmin) # normalize
             newc = newc * (newz_max - newz_min) + newz_min # transform
             add_fcs.append([site.a, site.b, newc])
-            add_sps.append(site.species)
+            add_sps.append(site.specie.name)
 
+        # get cart coords of all iface atoms
+        add_carts = hollow_init_gb.lattice.get_cartesian_coords(add_fcs)
+
+        # create an astr with only atoms near gb iface from hollow gb
         new_gb = hollow_init_gb.copy()
-        for i in range(len(add_fcs)):
-            new_gb.append(add_sps[i], add_fcs[i])
+        for i in range(len(add_carts)):
+            # add each site to new_gb if it satisfies distance check
+            if dc.satisfies_all_dists(add_carts[i], astr_for_dist_check,
+                                      self.element_syms, self.min_dist_dict,
+                                      new_carts_species=add_sps[i]):
+                new_gb.append(add_sps[i], add_carts[i], coords_are_cartesian=True)
+            else: # try to perturb the atom coords by self.max_perturbation
+                replaced = False
+                tries = 0
+                while not replaced and tries < 100:
+                    # If more than 1000 tries automatically skips adding that atom
+                    tries += 1
+                    jump = self.hop.max_perturbation
+                    perturb = self.hop.get_point_on_sphere(jump)
+                    new_cart = add_carts[i] + perturb
+                    if dc.satisfies_all_dists(new_cart, astr_for_dist_check,
+                                              self.element_syms, self.min_dist_dict,
+                                              new_carts_species=add_sps[i]):
+                        new_gb.append(add_sps[i], new_cart,
+                                            coords_are_cartesian=True)
+                        replaced = True
 
         # for sites in new_gb with no sd_flags, add [False, False, False]
         # This will prevent errors in next step
@@ -1365,10 +1401,6 @@ class gb_ops(object):
             if 'selective_dynamics' not in new_gb[i].properties.keys():
                 new_gb[i].properties['selective_dynamics'] = \
                                                 [False, False, False]
-
-        new_gb.merge_sites(tol=1, mode='delete')
-        rem_inds = self.get_rem_inds(new_gb)
-        new_gb.remove_sites(rem_inds)
 
         return new_gb.get_sorted_structure()
 
@@ -1615,6 +1647,8 @@ class gb_ops(object):
         while not done:
             active_iface = self.overlap_grains()
             gb_iface = self.grain_implant(active_iface)
+            rem_inds = self.get_rem_inds(gb_iface)
+            gb_iface.remove_sites(rem_inds)
             done = self.gb_iface_comp_check(gb_iface)
 
         gb_model = structure_record.model(gb_iface, reg_id)
@@ -1639,11 +1673,15 @@ class gb_ops(object):
         """
         hop = self.hop
 
+        do_hop = False
+        if random.random() <= hop.hop_mate_frac:
+            do_hop = True
+
         correct_comp = False
-        while correct_comp is False:
+        tries = 0
+        while correct_comp is False and tries <= 10:
             try:
-                if random.random() <= hop.hop_mate_frac:
-                    # Do hop.perturb_sites()
+                if do_hop:
                     perturbed_iface, inheritance = hop.perturb_sites(
                                                         select, pool, gb=True)
                     self.move_coords_inside(perturbed_iface)
@@ -1659,11 +1697,21 @@ class gb_ops(object):
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
             new_astr.sort()
+            # update tries for every new_gb created (when reaches this point)
+            tries += 1
             correct_comp = self.gb_iface_comp_check(new_astr)
+
+        # Adjust composition after 10 failed attempts
+        if not correct_comp:
+            rem_inds = self.get_rem_inds(new_astr)
+            new_astr.remove_sites(rem_inds)
 
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
         new_model.made_by = maker
+
+        if not correct_comp:
+            print ('Adjusted the composition of model {}'.format(new_model.label))
 
         #print ('New model made using {} method on parent models {}'.format(
         #                                    maker, inheritance))
