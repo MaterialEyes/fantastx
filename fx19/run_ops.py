@@ -1,6 +1,7 @@
 ###################### Functions for run_fx : Begin ####################################
 import time
 
+
 def get_working_jobs(futures):
     """
     futures: dictionary of job output future objects labelled w.r.t model
@@ -18,9 +19,10 @@ def get_working_jobs(futures):
         running = 0
         for future in futures:
             if not future.done():
-                running +=1
+                running += 1
 
         return running
+
 
 def write_data(model, data_file):
     """
@@ -33,28 +35,26 @@ def write_data(model, data_file):
     with open(data_file, 'a') as f:
         if model.obj1_val:
             line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\t{4:.6}\n'.format(model.label,
-                model.inheritance, model.tot_en, model.obj0_val, model.obj1_val)
+                                                                   model.inheritance, model.tot_en, model.obj0_val, model.obj1_val)
         else:
             line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\n'.format(model.label,
-                model.inheritance, model.tot_en, model.obj0_val)
+                                                           model.inheritance, model.tot_en, model.obj0_val)
         f.write(line)
 
 # Temporary selection probs based on overall_value
+
+
 def temp_selection_probs(pool):
     """
     Always the minimum overall value gets selevtion_prob of 1.
     """
-    ov = [i.overall_val for i in pool.good_pool]
+    ov = [model.overall_val for model in pool.good_pool]
     norm_vals = []
     if not len(ov) < 3:
+        norm_vals = [(i - max(ov))/(min(ov) - max(ov)) for i in ov]
+        norm_probs = norm_vals/sum(norm_vals)
         for model in pool.good_pool:
-            i = model.overall_val
-            norm_prob = (i - max(ov))/(min(ov)-max(ov))
-            norm_vals.append(norm_prob)
-            model.selection_prob = norm_prob
-        norm_sum = sum(norm_vals)
-        for model in pool.good_pool:
-            model.selection_prob = model.selection_prob / norm_sum
+            model.selection_prob = model.selection_prob / norm_probs
 
 
 def relax(model, reg_id, energy_code):
@@ -69,7 +69,7 @@ def relax(model, reg_id, energy_code):
     try:
         energy_code.relax(model, reg_id)
     except FileExistsError:
-        print ('Duplicate label in parallel processes. Skipping..')
+        print('Duplicate label in parallel processes. Skipping..')
         return None
     resubmitted = 2
     if model.converged == False:
@@ -82,8 +82,9 @@ def relax(model, reg_id, energy_code):
                     continue
     return model
 
+
 def make_model(random_model_obj, evolve, select, pool, reg_id,
-                model_type='random', model=None):
+               model_type='random', model=None):
     """
     [random_model_obj, reg_id, evolve, select, pool,]
     Make a random model or a child model
@@ -118,6 +119,7 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
 
     return new_model, select
 
+
 def separate_gb(energy_code, gb_ops_obj, model):
     """
     For gb search, separate the gb_iface from the relaxed gb
@@ -134,6 +136,7 @@ def separate_gb(energy_code, gb_ops_obj, model):
     else:
         pass
 
+
 def do_Xsim(model, Xsim_1):
     """
     Do Xsim if needed and assign the corresponding objective function value
@@ -146,7 +149,7 @@ def do_Xsim(model, Xsim_1):
         # get the relaxed structure
         relaxed_str = model.astr
         if relaxed_str is None:
-            print ('Relaxed structure not available. Skipping Xsim..')
+            print('Relaxed structure not available. Skipping Xsim..')
 
             return None
         else:
@@ -156,8 +159,9 @@ def do_Xsim(model, Xsim_1):
 
             return model
 
+
 def update_pool(evald_futures, models_evald, pool, select,
-            data_file, sim_ids):
+                data_file, sim_ids):
     """
     Calculates the obejctive values for all models and updates pool with
     best models
@@ -183,8 +187,8 @@ def update_pool(evald_futures, models_evald, pool, select,
     # get all futures which should be processed
     futures_to_process = [evald_futures[i] for i in process_inds]
     # remove all done futures from evald_futures
-    evald_futures = [evald_futures[i] for i in range(len(evald_futures)) \
-                                            if i not in rem_inds]
+    evald_futures = [evald_futures[i] for i in range(len(evald_futures))
+                     if i not in rem_inds]
     for future in futures_to_process:
         model = future.result()
         # Add to either good_pool or bad_pool

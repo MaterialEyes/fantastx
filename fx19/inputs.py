@@ -1,21 +1,5 @@
-
 from __future__ import division, unicode_literals, print_function
-
-"""
-Reads all the input files
-
-Saves the experimental data in required format, making it easy to compare with
-simulated experimental data later.
-"""
-
-"""
-Types of experimental data files:
-Ex: file extensions
-
-Based on the file extension found, call specific function to parse the file and
-save data for subsequent steps
-"""
-
+from fx19.structure_operations import gb_ops
 from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
@@ -53,20 +37,21 @@ def make_objects(i_dict):
     if 'model_files_path' in i_dict['inputs']:
         model_files_path = i_dict['inputs']['model_files_path']
         input_model_obj = initial_population.make_model_from_input(
-                                                            model_files_path)
+            model_files_path)
     all_objects['input_model_obj'] = input_model_obj
 
     # For cluster, initial population module is used for random models
     if str_constraints['shape'] == 'cluster':
         # make_random_model object from initial_population
-        random_model_obj = initial_population.make_random_model(str_constraints)
+        random_model_obj = initial_population.make_random_model(
+            str_constraints)
         all_objects['random_model_obj'] = random_model_obj
 
     # make energy_code object
     energy_params = get_energy_params(i_dict)
     energy_params['shape'] = str_constraints['shape']
     energy_params['element_syms'] = str_constraints['element_syms']
-    energy_pkg = i_dict['energy_code'] # 'vasp' or 'lammps' or 'gulp'
+    energy_pkg = i_dict['energy_code']  # 'vasp' or 'lammps' or 'gulp'
     if energy_pkg == 'gulp':
         energy_code = energy.gulp_code(energy_params)
     elif energy_pkg == 'vasp':
@@ -74,8 +59,8 @@ def make_objects(i_dict):
     elif energy_pkg == 'lammps':
         energy_code = energy.lammps_code(energy_params)
     else:
-        print ('Please set energy_code in inputs as one of vasp'
-                                'or lammps or gulp')
+        print('Please set energy_code in inputs as one of vasp'
+              'or lammps or gulp')
     all_objects['energy_code'] = energy_code
 
     # make experimental_simulation object(s)
@@ -84,7 +69,7 @@ def make_objects(i_dict):
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
             if not 'exp_sim_1_params' in i_dict:
-                print ('exp_sim_1_params not provided. They are mandatory.')
+                print('exp_sim_1_params not provided. They are mandatory.')
             if method_1 == 'PDF':
                 Xsim1_params = get_pdf_params(i_dict, 'exp_sim_1_params')
                 Xsim_1 = experimental_simulation.pdf_of_model(Xsim1_params)
@@ -93,7 +78,6 @@ def make_objects(i_dict):
                 Xsim1_params['init_gb_path'] = str_record['gb']['init_gb_astr']
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
-
 
     # Pool object (contains good_pool and bad_pool)
     pool_params = {}
@@ -104,17 +88,17 @@ def make_objects(i_dict):
 
     # selection type of objective function
     if not 'select_params' in i_dict:
-        print ('Error: Please provide select_params keyword and objective'
-                ' keyword specifying single or multiobjective optimization.')
+        print('Error: Please provide select_params keyword and objective'
+              ' keyword specifying single or multiobjective optimization.')
     else:
         select_params = i_dict['select_params']
     if not 'objective_fn_type' in select_params.keys():
-        print ('Error: Please provide select_params keyword and objective'
-                ' keyword specifying single or multiobjective optimization.')
+        print('Error: Please provide select_params keyword and objective'
+              ' keyword specifying single or multiobjective optimization.')
 
     if select_params['objective_fn_type'] not in ['multi', 'single']:
-        print ('Error: Select objective should be a string of either'
-                                                ' single or multi.')
+        print('Error: Select objective should be a string of either'
+              ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
         select = selection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
@@ -180,7 +164,9 @@ def make_objects(i_dict):
 
     ################### Develop any other below objects
 
+
     return all_objects
+
 
 def get_energy_params(i_dict):
     """
@@ -197,33 +183,30 @@ def get_energy_params(i_dict):
 
     # energy_code
     if 'energy_code' not in i_dict:
-        print ('Please provide energy code details. This is mandatory')
+        print('Please provide energy code details. This is mandatory')
     else:
         energy_params['energy_code'] = i_dict['energy_code']
 
     # energy code execution command (Mandatory)
     if 'energy_exec_cmd' not in i_dict:
-        print ('Please provide the execution command for the energy '
-                    'code. This is mandatory. Ex: \"lmp_mpi -in in.min\"')
+        print('Please provide the execution command for the energy '
+              'code. This is mandatory. Ex: \"lmp_mpi -in in.min\"')
     else:
         energy_params['energy_exec_cmd'] = i_dict['energy_exec_cmd']
 
+    # DU
     # chemical potentials
-    mu = {1:0, 2:0, 3:0, 4:0, 5:0}
     species_dict = i_dict['structure_record']['species']
-    try:
-        mu[1] = species_dict['species1']['mu']
-        if 'species2' in species_dict:
-            mu[2] = species_dict['species2']['mu']
-        if 'species3' in species_dict:
-            mu[3] = species_dict['species3']['mu']
-        if 'species4' in species_dict:
-            mu[4] = species_dict['species4']['mu']
-        if 'species5' in species_dict:
-            mu[5] = species_dict['species5']['mu']
-    except:
-        print ('Error: Chemical potentials must be provided as a dictionary '
-                'for each species with integer keys!')
+    mu = {}
+    for species in species_dict.keys():
+        index = int(species[7:])
+        if 'mu' in species_dict[species].keys():
+            mu[index] = species_dict[species]['mu']
+        else:
+            print('Error encountered with species ' + str(index) + ': '
+                  'Chemical potentials must be provided in the dictionary for each species!')
+            mu[index] = 0
+
     energy_params['mu'] = mu
 
     # Number of times to resubmit if not converged (for vasp)
@@ -241,12 +224,13 @@ def get_energy_params(i_dict):
 
     # files_path
     if 'energy_files_path' not in i_dict['inputs']:
-        print ('Please provide path to folder with input energy files for'
-               ' relaxation.')
+        print('Please provide path to folder with input energy files for'
+              ' relaxation.')
     else:
         energy_params['files_path'] = i_dict['inputs']['energy_files_path']
 
     return energy_params
+
 
 def get_pdf_params(i_dict, exp_sim_params_id):
     """
@@ -269,6 +253,7 @@ def get_pdf_params(i_dict, exp_sim_params_id):
 
     return pdf_params
 
+
 def get_ingrained_params(i_dict, exp_sim_params_id):
     """
     Similar to pdf params. Except, defaults are not provided for all params.
@@ -285,7 +270,7 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
     gb_ingrained_params = i_dict[exp_sim_params_id]
     gb_ingrained_params['main_path'] = i_dict['main_path']
 
-    #if 'init_gb_path' not in gb_ingrained_params:
+    # if 'init_gb_path' not in gb_ingrained_params:
     #    gb_ingrained_params['init_gb_path'] = None
     if 'progress_file' not in gb_ingrained_params:
         gb_ingrained_params['progress_file'] = None
@@ -295,6 +280,7 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
         gb_ingrained_params['dm3_path'] = None
 
     return gb_ingrained_params
+
 
 def get_mating_params(i_dict, str_constraints):
     """
@@ -326,12 +312,14 @@ def get_mating_params(i_dict, str_constraints):
         mating_params['max_dia'] = str_constraints['max_dia']
 
     # species dicts
-    keys = ['species1', 'species2', 'species3', 'species4', 'species5']
-    for specie in keys:
-        if specie in str_constraints:
-            mating_params[specie] = str_constraints[specie]
+    # DU
+    for i in range(1, str_constraints['num_species']+1):
+        species = 'species' + str(i)
+        if species in str_constraints:
+            mating_params[species] = str_constraints[species]
 
     return mating_params
+
 
 def get_evolve_params(i_dict, str_constraints):
     """
@@ -348,13 +336,16 @@ def get_evolve_params(i_dict, str_constraints):
         evolve_params = i_dict['evolve_probabilities']
         evolve_params['num_species'] = str_constraints['num_species']
         # species dicts
-        keys = ['species1', 'species2', 'species3', 'species4', 'species5']
-        for specie in keys:
-            if specie in str_constraints:
-                evolve_params[specie] = str_constraints[specie]
+        # DU
+        for i in range(1, str_constraints['num_species']+1):
+            species = 'species' + str(i)
+            if species in str_constraints:
+                evolve_params[species] = str_constraints[species]
     return evolve_params
 
 # assume experimental pdf is given
+
+
 def read_input_exp_files(filename):
     """
     Depending on type of experimental data, call corresponding functions
