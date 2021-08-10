@@ -1,27 +1,13 @@
 from __future__ import division, unicode_literals, print_function
 from fx19.structure_operations import gb_ops
-from fx19 import structure_operations
-from fx19 import selection
-from fx19 import experimental_simulation
-from fx19 import energy
-from fx19 import initial_population
 from fx19 import structure_record
+from fx19 import initial_population
+from fx19 import energy
+from fx19 import experimental_simulation
+from fx19 import selection
+from fx19 import structure_operations
 
-"""
-Reads all the input files
-
-Saves the experimental data in required format, making it easy to compare with
-simulated experimental data later.
-"""
-
-"""
-Types of experimental data files:
-Ex: file extensions
-
-Based on the file extension found, call specific function to parse the file and
-save data for subsequent steps
-"""
-
+import os
 
 def make_objects(i_dict):
     """
@@ -134,6 +120,8 @@ def make_objects(i_dict):
         basinhopping_params = i_dict['basinhopping_constraints']
     # NOTE: contains  'indices_fraction' and 'max_perturbation'
     basinhopping_params['min_dist_dict'] = str_constraints['min_dist_dict']
+    basinhopping_params['max_dist_dict'] = str_constraints['max_dist_dict']
+    basinhopping_params['element_syms'] = str_constraints['element_syms']
     basinhopping_params['species_dict'] = i_dict['structure_record']['species']
     basinhopping_params['shape'] = str_constraints['shape']
     if str_constraints['shape'] == 'cluster':
@@ -145,7 +133,6 @@ def make_objects(i_dict):
     # For gb, overlap and remove sites is used for random models
     gb_ops_obj = None
     if str_constraints['shape'] == 'gb':
-        str_constraints['hop_mate_frac'] = str_record['gb']['hop_mate_frac']
         gb_ops_obj = structure_operations.gb_ops(hop, str_constraints)
         all_objects['gb_ops_obj'] = gb_ops_obj
 
@@ -159,7 +146,24 @@ def make_objects(i_dict):
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
-    # Develop any other below objects
+    # For surface layer searches, create surface_ops object
+    surface_ops_obj = None
+    if str_constraints['shape'] == 'surface':
+        init_slabs_path = str_record['surface']['init_slabs_dir']
+        init_slabs_dict = {i: init_slabs_path + '/' + slab_file \
+                    for i, slab_file in enumerate(os.listdir(init_slabs_path))}
+        str_constraints['init_slabs_dict'] = init_slabs_dict
+
+        surface_ops_obj = structure_operations.surface_ops(hop, str_constraints)
+        all_objects['surface_ops_obj'] = surface_ops_obj
+
+        energy_code.substrate_thickness = surface_ops_obj.substrate_thickness
+        energy_code.sd_cut_off = surface_ops_obj.sd_cut_off
+        energy_code.sd_no_z = surface_ops_obj.sd_no_z
+        all_objects['energy_code'] = energy_code
+
+    ################### Develop any other below objects
+
 
     return all_objects
 
@@ -302,6 +306,7 @@ def get_mating_params(i_dict, str_constraints):
     mating_params['species_dict'] = i_dict['structure_record']['species']
     mating_params['num_species'] = str_constraints['num_species']
     mating_params['shape'] = str_constraints['shape']
+    mating_params['element_syms'] = str_constraints['element_syms']
     if mating_params['shape'] == 'cluster':
         mating_params['box_abc'] = str_constraints['box_abc']
         mating_params['max_dia'] = str_constraints['max_dia']

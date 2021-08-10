@@ -714,14 +714,19 @@ class Select(object):
 
         return m, c
 
-    def get_parents(self, pool, num_parents):
+    def get_parents(self, pool, num_parents, same_ab=False, abs_tol=0.2):
         """
         selects requested number of parents based on their probabilities
+        Returns a list of parents
+
+        Args:
 
         pool - pool object
         num_parents - integer
-
-        Returns a list of parents
+        same_ab (bool) - If num_parents > 1, species whether all parents should
+                         have same a, b lattice vectors
+        abs_tol (float) - The maximum value for the sum of absolute difference
+                         between the "ab" of two lattice vectors
         """
         parents = []
         while len(parents) < num_parents:
@@ -731,7 +736,11 @@ class Select(object):
             for existing_parent in parents:
                 if existing_parent.label == new_parent.label:
                     continue
-                else:
+                ab_1 = existing_parent.astr.lattice.matrix[:2]
+                ab_2 = new_parent.astr.lattice.matrix[:2]
+                diff = np.array(ab_1) - np.array(ab_2)
+                # return first match since keys are already shuffled
+                if np.absolute(diff).sum() < abs_tol:
                     parents.append(new_parent)
         return parents
 

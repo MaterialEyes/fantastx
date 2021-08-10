@@ -156,6 +156,8 @@ def full_eval(model):
             model.Xsim1 = Xsim_1.name
             model, Xsim_val = Xsim_1.evaluate_obj(model)
             return model
+    else:
+        return model
 
 
 # wait for workers to start on cluster

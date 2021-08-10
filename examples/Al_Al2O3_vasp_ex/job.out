@@ -1,0 +1,134 @@
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pySPM-0.2.23-py3.7.egg/pySPM/utils/misc.py:142: UserWarning: the library tqdm cannot be found. All progressbar will be disabled.
+  warn("the library tqdm cannot be found. All progressbar will be disabled.")
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:3751: UserWarning: Sites with different site property selective_dynamics are merged. So property is set to none
+  "Sites with different site property %s are merged. " "So property is set to none" % key
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:3751: UserWarning: Sites with different site property selective_dynamics are merged. So property is set to none
+  "Sites with different site property %s are merged. " "So property is set to none" % key
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:3751: UserWarning: Sites with different site property selective_dynamics are merged. So property is set to none
+  "Sites with different site property %s are merged. " "So property is set to none" % key
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:3751: UserWarning: Sites with different site property selective_dynamics are merged. So property is set to none
+  "Sites with different site property %s are merged. " "So property is set to none" % key
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:3751: UserWarning: Sites with different site property selective_dynamics are merged. So property is set to none
+  "Sites with different site property %s are merged. " "So property is set to none" % key
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)
+/home/vkolluru/miniconda3/envs/fx_521/lib/python3.7/site-packages/pymatgen/core/structure.py:748: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn("Not all sites have property %s. Missing values " "are set to None." % k)

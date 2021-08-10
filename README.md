@@ -23,18 +23,18 @@ conda update -n base -c defaults conda
 conda config --add channels conda-forge
 ```
 
-Create a new conda environment with path. Provide path to the new conda environment. Add the new environment to the system path. Install python 3.
+Create a new conda environment with path. Provide *path* to the new conda environment. Add the new environment (*fantastx*) to the system path. Install python 3.
 
 ```sh
-conda create -yp /home/xxxxx/miniconda3/envs/fantastx
-conda activate /home/xxxxx/miniconda3/envs/fantastx
-export PATH=/home/xxxxx/miniconda3/envs/fx_521/bin:$PATH
+conda create -yp ~/miniconda3/envs/fantastx
+conda activate ~/miniconda3/envs/fantastx
+export PATH=~/miniconda3/envs/fantastx/bin:$PATH
 conda install python=3
 ```
 
 Install following dependencies in this order -
 
-Diffpy (For PDF simulation - Optional)
+Diffpy (For PDF simulation)
 ```sh
 conda install -c diffpy diffpy-cmi
 ```
@@ -51,10 +51,9 @@ Dask, Dask-jobqueue (for parallel calculations on SLURM/PBS cluster)
 conda install -c conda-forge dask dask-jobqueue
 ```
 
-Ingrained (For TEM simulation)
-Follow instructions [here](https://github.com/MaterialEyes/ingrained/blob/master/README.md)
+Follow instructions [here](https://github.com/MaterialEyes/ingrained/blob/dev_ch/README.md) to install Ingrained package (for TEM and STM simulations)
 
-Install Fantastx by cloning this repository. Enter username and password when prompted. Install using 'develop' for ease of updating the code during development phase.
+Install Fantastx by cloning this repository. Enter username and password when prompted. Install using *develop* for ease of updating the code during development phase.
 
 ```sh
 git clone https://github.com/MaterialEyes/fantastx.git
@@ -63,6 +62,7 @@ python setup.py develop
 ```
 
 ## Usage
+Find the usage of Fantastx [here] (https://github.com/MaterialEyes/fantastx/blob/master/USAGE.md)
 
 ## Citation
 If you find this code useful, please consider citing our [paper](#paper)

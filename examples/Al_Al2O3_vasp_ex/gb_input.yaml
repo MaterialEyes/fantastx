@@ -1,0 +1,63 @@
+inputs:
+    energy_files_path: /sandbox/vkolluru/Fantastx/Al_Al2O3_vasp/vasp_files
+
+structure_record:
+    gb:
+        init_gb_astr: /sandbox/vkolluru/Fantastx/Al_Al2O3_vasp/POSCAR_ref_vasp
+        iface_thickness: 2
+        iface_z_mid: 0.5 
+        num_slices: 2
+        hop_mate_frac: 0.5
+
+    max_bond_dist: 4
+    min_dist:
+      sp1_sp1: 2.2
+      sp1_sp2: 1.75
+      sp2_sp2: 1.4
+    species:
+        species1:
+            name: Al
+            min_num: 5
+            max_num: 6
+            mu: -3.74328225 # Al bulk epa
+        species2:
+            name: O
+            min_num: 1
+            max_num: 3
+            mu: -9.973691833333334  # mu_O = (E_Al2O3 - 2*E_Al)/3
+
+population_limits:
+    initial_population: 10
+    total_population: 100
+    pool: 25
+
+
+energy_code: vasp
+energy_exec_cmd: mpirun vasp_std > job.log
+
+exp_sim_1: 'GB_STEM'
+exp_sim_1_params:
+    dm3_path: /home/vkolluru/Examples/fx_lammps/HAADF39.dm3
+    progress_file: /home/vkolluru/Examples/fx_lammps/progress.txt
+
+select_params:
+    objective_fn_type: multi
+    num_required_above_50: 10
+    num_models_before_pareto: 20
+
+basinhopping_constraints:
+    max_perturbation: 0.3
+
+workers: # contains specifications for each dask worker job
+    cluster: "PBS" # Specify type of scheduler
+    max_workers: 10 # Number of parallel calculations of models
+    num_cores: 1 # cpus-per-task option
+    total_mem: "80GB" # total memory for the job (--mem option)
+    project_name: "cnm72851" # project under which job to be requested
+    node_type: "ib0" # infiniband or haswell etc
+    walltime: "96:00:00" # estimated entire walltime a worker job shall run
+    job_extra: # any other PBS/SLURM submit options
+         - "-l nodes=2:ppn=16:gen6"
+    header_skip:
+         - "-l select=1"
+

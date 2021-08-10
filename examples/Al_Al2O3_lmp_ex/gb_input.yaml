@@ -1,0 +1,62 @@
+inputs:
+    energy_files_path: /home/vkolluru/Examples/fx_lammps
+
+structure_record:
+    gb:
+        init_gb_astr: /home/vkolluru/Examples/fx_lammps/POSCAR_shifted
+        iface_thickness: 2
+        iface_z_mid: 0.418 
+        num_slices: 2
+        hop_mate_frac: 0.87
+
+    max_bond_dist: 4
+    min_dist:
+      sp1_sp1: 2.2
+      sp1_sp2: 1.5
+      sp2_sp2: 1.2
+    species:
+        species1:
+            name: Al
+            min_num: 6
+            max_num: 9
+            mu: -12.042050 # updated
+        species2:
+            name: O
+            min_num: 8
+            max_num: 15
+            mu: -0.816665  # updated
+
+population_limits:
+    initial_population: 20
+    total_population: 40
+    pool: 25
+
+
+energy_code: lammps
+energy_exec_cmd: mpiexec lmp_mpi -in in.min
+
+exp_sim_1: 'GB_STEM'
+exp_sim_1_params:
+    dm3_path: /home/vkolluru/Examples/fx_lammps/HAADF39.dm3
+    progress_file: /home/vkolluru/Examples/fx_lammps/progress.txt
+
+select_params:
+    objective_fn_type: multi
+    num_required_above_50: 20
+    num_models_before_pareto: 15
+
+basinhopping_constraints:
+    max_perturbation: 0.1
+
+workers: # contains specifications for each dask worker job
+    cluster: "PBS" # Specify type of scheduler
+    max_workers: 4 # Number of parallel calculations of models
+    num_cores: 1 # cpus-per-task option
+    total_mem: "8GB" # total memory for the job (--mem option)
+    project_name: "cnm72851" # project under which job to be requested
+    node_type: "ib0" # infiniband or haswell etc
+    walltime: "24:00:00" # estimated entire walltime a worker job shall run
+    job_extra: # any other PBS/SLURM submit options
+         - "-l nodes=1:ppn=2:gen6"
+    header_skip:
+         - "-l select=1"
