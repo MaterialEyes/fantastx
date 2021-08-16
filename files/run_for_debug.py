@@ -23,7 +23,7 @@ dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('gb_input.yaml') as ifile:
+with open('surface_input.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
@@ -35,15 +35,20 @@ reg_id = all_objects['reg_id']
 
 input_model_obj = all_objects['input_model_obj']
 
+random_model_obj, evolve = None, None
 gb_ops_obj = None
 if 'gb_ops_obj' in all_objects:
     gb_ops_obj = all_objects['gb_ops_obj']
-
-# kwargs for full_eval() function
-if gb_ops_obj is not None:
     random_model_obj = gb_ops_obj
     evolve = gb_ops_obj
-else:
+
+surface_ops_obj = None
+if 'surface_ops_obj' in all_objects:
+    surface_ops_obj = all_objects['surface_ops_obj']
+    random_model_obj = surface_ops_obj
+    evolve = surface_ops_obj
+
+if not random_model_obj and not evolve:
     random_model_obj = all_objects['random_model_obj']
     evolve = all_objects['evolve']
 
@@ -98,7 +103,7 @@ max_workers = 2 # TODO: make an option for max_workers in the input file
 
 cluster_job = PBSCluster(cores=1,
                          memory="4GB",
-                         project='cnm72851', ### Enter the project number
+                         project='cnm728xx', ### Enter the project number
                          walltime='4:00:00',
                          interface='ib0',
                          job_extra=['-l nodes=1:ppn=2:gen6'],
@@ -150,6 +155,8 @@ def full_eval(model):
             model.Xsim1 = Xsim_1.name
             model, Xsim_val = Xsim_1.evaluate_obj(model)
             return model
+    else:
+        return model
 
 # make new model from all input files provided, then random, then evolve
 input_models = []

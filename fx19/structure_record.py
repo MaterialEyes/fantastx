@@ -287,6 +287,8 @@ class structure_constraints(object):
             self.shape = 'cluster'
         elif 'gb' in str_record:
             self.shape = 'gb'
+        elif 'surface' in str_record:
+            self.shape = 'surface'
         # TODO: add other shapes here
 
         if self.shape == 'cluster':
@@ -368,15 +370,19 @@ class structure_constraints(object):
             if 'constrain_z' in surface_params:
                 self.constrain_z = surface_params['constrain_z']
 
+            if 'sd_cut_off' in surface_params:
+                self.sd_cut_off = surface_params['sd_cut_off']
+
+            if 'sd_no_z' in surface_params:
+                self.sd_no_z = surface_params['sd_no_z']
+
             if 'composition' in surface_params:
                 composition = Composition(surface_params['composition'])
-                self.comp_dict = composition.as_dict()
+                self.comp_dict = composition.to_reduced_dict
 
-            self.num_slices = 2
             if 'num_slices' in surface_params:
                 self.num_slices = surface_params['num_slices']
 
-            self.hop_mate_frac = 0.5
             if 'hop_mate_frac' in surface_params:
                 self.hop_mate_frac = surface_params['hop_mate_frac']
 
