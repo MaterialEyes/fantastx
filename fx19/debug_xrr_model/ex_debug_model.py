@@ -24,6 +24,8 @@ with open('/Users/klweaver/Code/FANTASTX/fantastx/fx19/debug_xrr_model/debug_xrr
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
+#test comment commit
+
 #structure_files = ['POSCAR_rand_1', 'POSCAR_rand_2', 'POSCAR_rand_3']
 structure_files = ['/Users/klweaver/Code/XRay/FoxPy/input/TT-rt13/rt13.cif']
 pymatgen_structures = [Structure.from_file(s) for s in structure_files]
