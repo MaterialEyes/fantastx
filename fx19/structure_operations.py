@@ -1116,7 +1116,7 @@ class gb_ops(object):
         coords = new_bot_fc + new_top_fc
 
         child = Structure(latt, species, coords)
-        child.merge_sites(tol=1, mode='delete')
+        # child.merge_sites(tol=1, mode='delete')
         child = child.get_sorted_structure()
         self.move_coords_inside(child)
 
@@ -1240,10 +1240,17 @@ class gb_ops(object):
                                 (self.init_gb_astr.lattice.c * 2)
         zmin = self.iface_z_mid - half_z_thickness
         zmax = self.iface_z_mid + half_z_thickness
+        ztol = max(self.min_dist_dict.values()) / \
+                                (self.init_gb_astr.lattice.c * 2)
 
         # remove non-relevant sites from the structure before sending to
         # dc.satisfies_all_dists(). This saves lot of time.
-        dc_astr = self.astr_for_dist_check
+        dc_astr = copy.deepcopy(child_astr)
+        rem_inds = []
+        for i, site in enumerate(dc_astr.sites):
+            if not (zmin-ztol) <= site.c <= (zmax+ztol):
+                rem_inds.append(i)
+        dc_astr.remove_sites(rem_inds)
 
         num_added, tries = 0, 0
         while num_added < diff: #and tries < 1000: #(leave this structure)
@@ -1254,6 +1261,7 @@ class gb_ops(object):
             if dc.satisfies_all_dists(new_c, dc_astr, self.element_syms,
                                       self.min_dist_dict,
                                       new_carts_species=sp):
+                dc_astr.append(sp, new_c, coords_are_cartesian=True)
                 child_astr.append(sp, new_c, coords_are_cartesian=True)
                 num_added += 1
         del dc_astr
@@ -1336,6 +1344,91 @@ class gb_ops(object):
         copy_gb.remove_sites(rem_inds)
 
         return copy_gb
+
+    def overlapped_iface_implant(self, overlapped_iface):
+        """
+        Args:
+
+        overlapped_iface
+
+        	Get required num atoms per species in gb_iface
+        	While not comp_check:
+        		Randomly select one atom from the dense iface
+        		If satisfies dist check:
+            Add it
+        """
+        hollow_init_gb = self.hollow_init_gb
+        gb_c = hollow_init_gb.lattice.c
+
+        # convert the overlapped_iface coords as per the main gb lattice
+        overlapped_carts = overlapped_iface.cart_coords
+        z_center = (overlapped_carts[:, 2].max() - \
+                            overlapped_carts[:, 2].min()) / 2
+        # Get the z translate vector
+        # i.e., gb_z_center - overlapped_z_center
+        z_translate = self.iface_z_mid * gb_c - z_center
+        gb_iface_carts = overlapped_carts.copy()
+        gb_iface_carts[:, 2] = gb_iface_carts[:, 2] + z_translate
+        gb_iface_sps = [i.name for i in overlapped_iface.species]
+
+        # get num species for each species present in element_syms
+        n_sp1 = round(unif(self.min_num_sp1, self.max_num_sp1))
+        all_sps, all_num_sps = [self.sym_species1], [n_sp1]
+        # n_sp2, n_sp3, n_sp4, n_sp5 = 0, 0, 0, 0
+        if self.num_species > 1:
+            all_sps.append(self.sym_species2)
+            n_sp2 = round(unif(self.min_num_sp2, self.max_num_sp2))
+            all_num_sps.append(n_sp2)
+        if self.num_species > 2:
+            all_sps.append(self.sym_species3)
+            n_sp3 = round(unif(self.min_num_sp3, self.max_num_sp3))
+            all_num_sps.append(n_sp3)
+        if self.num_species > 3:
+            all_sps.append(self.sym_species4)
+            n_sp4 = round(unif(self.min_num_sp4, self.max_num_sp4))
+            all_num_sps.append(n_sp4)
+        if self.num_species > 4:
+            all_sps.append(self.sym_species5)
+            n_sp5 = round(unif(self.min_num_sp5, self.max_num_sp5))
+            all_num_sps.append(n_sp5)
+
+        # Add atoms from overlapped iface to hollow gb
+        new_gb = copy.deepcopy(hollow_init_gb)
+        dc_astr = copy.deepcopy(self.astr_for_dist_check)
+        added_inds = []
+        for sps, n_sps in zip(all_sps, all_num_sps):
+            num_added, tries = 0, 0
+            #print (num_added, tries)
+            while num_added < n_sps and tries < 1000:
+                tries += 1
+                test_ind = np.random.randint(0, len(gb_iface_sps))
+                if test_ind in added_inds:
+                    continue
+                if not gb_iface_sps[test_ind] == sps:
+                    continue
+                test_carts = gb_iface_carts[test_ind]
+                if dc.satisfies_all_dists(test_carts, dc_astr,
+                                          self.element_syms,
+                                          self.min_dist_dict,
+                                          new_carts_species=sps):
+                    dc_astr.append(sps, test_carts, coords_are_cartesian=True)
+                    new_gb.append(sps, test_carts, coords_are_cartesian=True)
+                    num_added += 1
+                    #print (tries)
+                    added_inds.append(test_ind)
+            if tries >= 1000:
+                #print ('Could not find atoms satisfying distances. '
+                #            'Try increasing min distances in input.')
+                break
+        del dc_astr
+        # for sites in new_gb with no sd_flags, add [False, False, False]
+        # This will prevent errors in next step
+        for i in range(len(new_gb)):
+            if 'selective_dynamics' not in new_gb[i].properties.keys():
+                new_gb[i].properties['selective_dynamics'] = \
+                                                [False, False, False]
+
+        return new_gb.get_sorted_structure()
 
     def grain_implant(self, iface_to_implant):
         """
@@ -1646,9 +1739,7 @@ class gb_ops(object):
         done = False
         while not done:
             active_iface = self.overlap_grains()
-            gb_iface = self.grain_implant(active_iface)
-            rem_inds = self.get_rem_inds(gb_iface)
-            gb_iface.remove_sites(rem_inds)
+            gb_iface = self.overlapped_iface_implant(active_iface)
             done = self.gb_iface_comp_check(gb_iface)
 
         gb_model = structure_record.model(gb_iface, reg_id)
@@ -1674,7 +1765,7 @@ class gb_ops(object):
         hop = self.hop
 
         do_hop = False
-        if random.random() <= hop.hop_mate_frac:
+        if random.random() <= self.hop_mate_frac:
             do_hop = True
 
         correct_comp = False
@@ -1687,7 +1778,7 @@ class gb_ops(object):
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     maker = 'perturb_sites'
-                else: # Do gb_ops_obj.mate()
+                else: # Do self.mate()
                     new_astr, inheritance = self.mate(select, pool)
                     maker = 'fraction_slice'
             except:
