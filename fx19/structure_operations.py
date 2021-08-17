@@ -1774,7 +1774,7 @@ class gb_ops(object):
             try:
                 if do_hop:
                     perturbed_iface, inheritance = hop.perturb_sites(
-                                                        select, pool, gb=True)
+                                                        select, pool)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     maker = 'perturb_sites'
