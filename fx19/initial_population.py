@@ -14,7 +14,6 @@ from pymatgen.core.structure import Structure
 from pymatgen.core.lattice import Lattice
 
 import os
-import random
 import numpy as np
 from numpy.random import uniform as unif
 
@@ -35,12 +34,12 @@ class make_model_from_input(object):
         self.model_files_path = model_files_path
         all_files = os.listdir(model_files_path)
         if len(all_files) == 0:
-            print ('Provided files path is empty')
+            print('Provided files path is empty')
         poscars = [i for i in all_files if i.startswith('POSCAR')]
         cifs = [i for i in all_files if i.endswith('.cif')]
         if len(poscars) + len(cifs) == 0:
-            print ('Provied files path do not have files in either poscar or'
-                    ' cif format. Other formats are not supported currently.')
+            print('Provied files path do not have files in either poscar or'
+                  ' cif format. Other formats are not supported currently.')
         self.all_files = poscars + cifs
 
     def read_structure(self, reg_id):
@@ -57,17 +56,15 @@ class make_model_from_input(object):
         if len(self.all_files) > 0:
             s = self.model_files_path + self.all_files.pop()
             try:
-                astr_from_file = Structure.from_file(s)
-                astr_from_file.sort()
+                astr_from_file = Structure.from_file(s, sort=True)
                 input_model = structure_record.model(astr_from_file, reg_id)
                 input_model.inheritance = 'from_file'
                 return input_model
             except:
-                print ('Pymatgen failed to make structure from {}'.format(s))
+                print('Pymatgen failed to make structure from {}'.format(s))
                 return None
         else:
             return 0
-
 
     def from_other_exp(exp_input):
         """
@@ -108,35 +105,41 @@ class make_random_model(object):
 
         self.num_species = str_constraints['num_species']
         # save species1 data
-        # TODO: allow infinite species by reading input directly
-        self.sym_species1 = str_constraints['species1']['name']
-        self.min_num_sp1 = str_constraints['species1']['min_num']
-        self.max_num_sp1 = str_constraints['species1']['max_num']
-        # save species2 data if exists
-        if self.num_species > 1:
-            if 'species2' in str_constraints and str_constraints['species2']:
-                self.sym_species2 = str_constraints['species2']['name']
-                self.min_num_sp2 = str_constraints['species2']['min_num']
-                self.max_num_sp2 = str_constraints['species2']['max_num']
-        # save species3 data if exists
-        if self.num_species > 2:
-            if 'species3' in str_constraints and str_constraints['species3']:
-                self.sym_species3 = str_constraints['species3']['name']
-                self.min_num_sp3 = str_constraints['species3']['min_num']
-                self.max_num_sp3 = str_constraints['species3']['max_num']
-        # save species4 data if exists
-        if self.num_species > 3:
-            if 'species4' in str_constraints and str_constraints['species4']:
-                self.sym_species4 = str_constraints['species4']['name']
-                self.min_num_sp4 = str_constraints['species4']['min_num']
-                self.max_num_sp4 = str_constraints['species4']['max_num']
-        # save species5 data if exists
-        if self.num_species > 4:
-            if 'species5' in str_constraints and str_constraints['species5']:
-                self.sym_species5 = str_constraints['species5']['name']
-                self.min_num_sp5 = str_constraints['species5']['min_num']
-                self.max_num_sp5 = str_constraints['species5']['max_num']
+        # DU:
+        # If species are all properly labeled in order,
+        # and storing them in lists for later access:
+        self.sym_species = []
+        self.min_num_sp = []
+        self.max_num_sp = []
+        for index in range(1, self.num_species + 1):
+            self.sym_species.append(
+                str_constraints['species' + str(index)]['name'])
+            self.min_num_sp.append(
+                str_constraints['species' + str(index)]['min_num'])
+            self.max_num_sp.append(
+                str_constraints['species' + str(index)]['max_num'])
 
+        # variables will be labeled as species1, min_num_sp1, max_num_sp1, etc
+        # If species are all properly labeled in order:
+        # (and storing them as individual variables)
+        # for index in range(1, self.num_species + 1):
+        #     setattr(self, 'sym_species' + str(index),
+        #             str_constraints['species' + str(index)]['name'])
+        #     setattr(self, 'min_num_sp' + str(index),
+        #             str_constraints['species' + str(index)]['min_num'])
+        #     setattr(self, 'max_num_sp' + str(index),
+        #             str_constraints['species' + str(index)]['max_num'])
+
+        # If species are not all in order, find species in str_constraints
+        # for key in str_constraints:
+        #     if key[:7] == 'species':
+        #         index = key[7:]
+        #         setattr(self, 'sym_species' + index,
+        #                 str_constraints[key]['name'])
+        #         setattr(self, 'min_num_sp' + index,
+        #                 str_constraints[key]['min_num'])
+        #         setattr(self, 'max_num_sp' + index,
+        #                 str_constraints[key]['max_num'])
 
     def get_cluster_in_box(self):
         """
@@ -160,7 +163,7 @@ class make_random_model(object):
             if cart_coords is None:
                 continue
             cluster = Structure(latt, species, cart_coords,
-                                                coords_are_cartesian=True)
+                                coords_are_cartesian=True)
 
             # check distance between different pairs of species
             atoms_too_close = dc.check_all_bonds(cluster, min_dist_dict,
@@ -205,50 +208,17 @@ class make_random_model(object):
         species = []
         count = []
         # NOTE: composition is decided here randomly
-        species1 = self.sym_species1
-        if self.min_num_sp1 == self.max_num_sp1:
-            num_species1 = self.min_num_sp1
-        else:
-            num_species1 = int(unif(self.min_num_sp1, self.max_num_sp1+1))
-        for i in range(num_species1):
-            species.append(species1)
-        count.append(num_species1)
-        if self.num_species > 1:
-            species2 = self.sym_species2
-            if self.min_num_sp2 == self.max_num_sp2:
-                num_species2 = self.min_num_sp2
+        # DU
+        for sp_index in range(self.num_species):
+            target_species = self.sym_species[sp_index]
+            if self.min_num_sp[sp_index] == self.max_num_sp[sp_index]:
+                num_species = self.min_num_sp[sp_index]
             else:
-                num_species2 = int(unif(self.min_num_sp2, self.max_num_sp2+1))
-            for i in range(num_species2):
-                species.append(species2)
-            count.append(num_species2)
-        if self.num_species > 2:
-            species3 = self.sym_species3
-            if self.min_num_sp3 == self.max_num_sp3:
-                num_species3 = self.min_num_sp3
-            else:
-                num_species3 = int(unif(self.min_num_sp3, self.max_num_sp3+1))
-            for i in range(num_species3):
-                species.append(species3)
-            count.append(num_species3)
-        if self.num_species > 3:
-            species4 = self.sym_species4
-            if self.min_num_sp4 == self.max_num_sp4:
-                num_species4 = self.min_num_sp4
-            else:
-                num_species4 = int(unif(self.min_num_sp4, self.max_num_sp4+1))
-            for i in range(num_species4):
-                species.append(species4)
-            count.append(num_species4)
-        if self.num_species > 4:
-            species5 = self.sym_species5
-            if self.min_num_sp5 == self.max_num_sp5:
-                num_species5 = self.min_num_sp5
-            else:
-                num_species5 = int(unif(self.min_num_sp5, self.max_num_sp5+1))
-            for i in range(num_species5):
-                species.append(species5)
-            count.append(num_species5)
+                num_species = int(
+                    unif(self.min_num_sp[sp_index], self.max_num_sp[sp_index]+1))
+            for _ in range(num_species):
+                species.append(target_species)
+            count.append(num_species)
 
         # For fixed composition, we do not change total num_atoms
         # So, min and max should be same for each species and,
@@ -268,7 +238,7 @@ class make_random_model(object):
         axis - (int) 0, 1, 2 for x, y, and z axes respectively
         """
         cart_coords = astr.cart_coords
-        axis_coords = cart_coords[:,axis]
+        axis_coords = cart_coords[:, axis]
         axis_thickness = max(axis_coords) - min(axis_coords)
 
         return axis_thickness
@@ -287,11 +257,11 @@ class make_random_model(object):
         frac_coords = astr.frac_coords
         species = astr.species
         # for convenience
-        ct = cluster_thickness # along the axis of interest
-        bt = self.box_abc[axis] # short for box thickness
+        ct = cluster_thickness  # along the axis of interest
+        bt = self.box_abc[axis]  # short for box thickness
 
         # array of axis coords
-        axis_coords = frac_coords[:,axis]
+        axis_coords = frac_coords[:, axis]
 
         # convert axis coords according to box axis length
         axis_new_coords = (axis_coords - min(axis_coords)) * \
@@ -330,12 +300,12 @@ class make_random_model(object):
         max_dia - (float) maximum diameter of the cluster
         """
         # start from origin
-        old_point = np.array([0,0,0])
+        old_point = np.array([0, 0, 0])
         coords = []
         coords_added = 0
         new_point_attempt = 0
         while coords_added < num_atoms:
-            min_bond_dist = min(list(self.min_dist_dict.values()))
+            min_bond_dist = min(self.min_dist_dict.values())
             max_bond_dist = self.max_bond_dist
             radius = unif(min_bond_dist, max_bond_dist)
             new_point = self.get_point_on_sphere(radius)
@@ -356,7 +326,7 @@ class make_random_model(object):
 
             # check distances with all previous points
             # using max of min_dists for initial population
-            max_of_min_dists = max(list(self.min_dist_dict.values()))
+            max_of_min_dists = max(self.min_dist_dict.values())
             if not dc.one_to_many_distances(new_point, coords,
                                             max_of_min_dists):
                 continue
@@ -365,18 +335,17 @@ class make_random_model(object):
             coords.append(new_point)
             new_point_attempt = 0
             old_point = new_point
-            coords_added +=1
+            coords_added += 1
 
         # move coords relative to center of cube
         coords = np.array(coords)
-        coords = np.array([max_dia/2, max_dia/2, max_dia/2]) + coords
+        coords = np.full((3,), max_dia/2) + coords
+
         # shuffle the coords
-        int_list = [i for i in range(num_atoms)]
-        random.shuffle(int_list)
-        shuffled_coords = [coords[i] for i in int_list]
+        np.random.shuffle(coords)
 
         # coords are cartesian
-        return shuffled_coords
+        return coords
 
     def get_point_on_sphere(self, r):
         """
