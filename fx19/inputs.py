@@ -9,6 +9,7 @@ from fx19 import structure_operations
 
 import os
 
+
 def make_objects(i_dict):
     """
     Takes all the user provided input parameters as a dictionary and makes
@@ -83,6 +84,16 @@ def make_objects(i_dict):
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
+    if 'fingerprint_params' in i_dict:
+        fingerprint_params = i_dict["fingerprint_params"]
+        # If the fingerprint is a soap descriptor, then the
+        # species names need to be passed in.
+        if fingerprint_params["label"] == "rematch-soap":
+            species = []
+            for _, value in str_constraints["species_dict"].items():
+                species.append(value["name"])
+            fingerprint_params["species"] = species
+        pool_params['fingerprint_params'] = i_dict['fingerprint_params']
     pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
@@ -150,11 +161,12 @@ def make_objects(i_dict):
     surface_ops_obj = None
     if str_constraints['shape'] == 'surface':
         init_slabs_path = str_record['surface']['init_slabs_dir']
-        init_slabs_dict = {i: init_slabs_path + '/' + slab_file \
-                    for i, slab_file in enumerate(os.listdir(init_slabs_path))}
+        init_slabs_dict = {i: init_slabs_path + '/' + slab_file
+                           for i, slab_file in enumerate(os.listdir(init_slabs_path))}
         str_constraints['init_slabs_dict'] = init_slabs_dict
 
-        surface_ops_obj = structure_operations.surface_ops(hop, str_constraints)
+        surface_ops_obj = structure_operations.surface_ops(
+            hop, str_constraints)
         all_objects['surface_ops_obj'] = surface_ops_obj
 
         energy_code.substrate_thickness = surface_ops_obj.substrate_thickness
@@ -162,8 +174,7 @@ def make_objects(i_dict):
         energy_code.sd_no_z = surface_ops_obj.sd_no_z
         all_objects['energy_code'] = energy_code
 
-    ################### Develop any other below objects
-
+    # Develop any other below objects
 
     return all_objects
 
