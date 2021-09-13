@@ -43,6 +43,473 @@ from pymatgen.io.ase import AseAtomsAdaptor
 from fx19 import distance_check as dc
 
 
+class Comparator(object):
+    '''
+    A modified version of epsilon dominance. The epsilon boxes are still used,
+    but now both structures within an epsilon box are kept unless they are
+    classified as nearly identical by comparing their global fingerprints.
+    '''
+
+    def __init__(self, label='bag-of-bonds', tolerances=None):
+        self.label = label
+
+        # Assign default tolerance values if none are provided
+        if tolerances is None:
+            tolerances = {}
+            tolerances["valle-oganov"] = 1e-3
+            tolerances["bag-of-bonds"] = [.02, 0.7]
+            tolerances["rematch-soap"] = 1e-3
+
+        self.tolerances = tolerances
+        self.comp = None
+        self.kernel_gen = None
+
+    def set_soap_descriptor(self, _species, soap_values=None):
+        if soap_values is None:
+            self.desc = SOAP(species=_species, rcut=5.0, nmax=9, lmax=6,
+                             sigma=0.5, periodic=True, crossover=True, sparse=False)
+        else:
+            _rcut = 5.0
+            _nmax = 9
+            _lmax = 6
+            _sigma = 0.5
+            if "rcut" in soap_values:
+                _rcut = soap_values["rcut"]
+            if "nmax" in soap_values:
+                _nmax = soap_values["nmax"]
+            if "lmax" in soap_values:
+                _lmax = soap_values["lmax"]
+            if "sigma" in soap_values:
+                _sigma = soap_values["sigma"]
+            self.desc = SOAP(species=_species,
+                             rcut=_rcut, nmax=_nmax,
+                             sigma=_sigma, periodic=True,
+                             crossover=True, sparse=False)
+
+    def set_valle_oganov_comparator(self, comp_values=None):
+        if comp_values is None:
+            self.comp = OFPComparator(n_top=None, dE=None,
+                                      cos_dist_max=1e-3, rcut=10., binwidth=0.05,
+                                      pbc=[True, True, True], sigma=0.05, nsigma=4,
+                                      recalculate=False)
+        else:
+            _n_top = None
+            _dE = None
+            _cos_dist_max = 1e-3
+            _rcut = 10.
+            _binwidth = 0.05
+            _pbc = [True, True, True]
+            _sigma = 0.05
+            _nsigma = 4
+            _recalculate = False
+
+            if 'n_top' in comp_values:
+                _n_top = comp_values['n_top']
+            if 'dE' in comp_values:
+                _dE = comp_values['dE']
+            if 'cos_dist_max' in comp_values:
+                _cos_dist_max = comp_values['cos_dist_max']
+            if 'rcut' in comp_values:
+                _rcut = comp_values['rcut']
+            if 'binwidth' in comp_values:
+                _binwidth = comp_values['binwidth']
+            if 'pbc' in comp_values:
+                _pbc = comp_values['pbc']
+            if 'sigma' in comp_values:
+                _sigma = comp_values['sigma']
+            if 'nsigma' in comp_values:
+                _nsigma = comp_values['nsigma']
+            if 'recalculate' in comp_values:
+                _recalculate = comp_values['recalculate']
+            self.comp = OFPComparator(n_top=_n_top, dE=_dE,
+                                      cos_dist_max=_cos_dist_max, rcut=_rcut,
+                                      binwidth=_binwidth, pbc=_pbc, sigma=_sigma,
+                                      nsigma=_nsigma, recalculate=_recalculate)
+
+    def set_rematch_kernel_generator(self, kg_values=None):
+        if kg_values is None:
+            self.kernel_gen = REMatchKernel(
+                metric="linear", alpha=1, threshold=1e-6)
+        else:
+            _metric = "linear"
+            _alpha = 1
+            _threshold = 1e-6
+            if 'metric' in kg_values:
+                _metric = kg_values['metric']
+            if 'alpha' in kg_values:
+                _alpha = kg_values['alpha']
+            if 'threshold' in kg_values:
+                _threshold = kg_values['threshold']
+            self.kernel_gen = REMatchKernel(
+                metric=_metric, alpha=_alpha, threshold=_threshold)
+
+    def compare_fingerprints(self, test_model, ref_model):
+        '''
+        Compare the fingerprints between two structures. Each model contains a fingerprint
+        dictionary, which has all the relevant information for the appropriate fingerprint.
+        In the case of the Valle-Oganov fingerprint, this information is contained within
+        an ASE Atoms structure.
+        In the case of the bag-of-bonds fingerprint, this information is contained within
+        a pair_cor dictionary. 
+        In the case of the REMatch SOAP kernel, this information is contained within a set
+        of normalized soap descriptors called normed_features.
+
+        Returns a tuple of length 2. Only the bag-of-bonds comparison completely fills the tuple.
+        '''
+        if self.label == "valle-oganov":
+            return (self.comp._compare_structure(test_model.fingerprint["ase"], ref_model.fingerprint["ase"]),)
+
+        elif self.label == "rematch-soap":
+            return (self.kernel_gen.create([test_model.fingerprint["normed_features"], ref_model.fingerprint["normed_features"]]),)
+
+        elif self.label == "bag-of-bonds":
+            # print(f"{self.fingerprint_label} fingerprint is being calculated.")
+            pair_cor1 = test_model.fingerprint["pair_cor"]
+            pair_cor2 = ref_model.fingerprint["pair_cor"]
+            total_cum_diff = 0.
+            max_diff = 0
+            for n in pair_cor1.keys():
+                cum_diff = 0.
+                norm_factor = pair_cor1[n][0]
+                dists1 = pair_cor1[n][1]
+                dists2 = pair_cor2[n][1]
+                assert len(dists1) == len(dists2)
+                if len(dists1) == 0:
+                    continue
+                diff = np.abs(dists1 - dists2)
+                sum = np.abs(dists1 + dists2)
+                cum_diff = np.sum(diff)
+                cum_sum = np.sum(sum)
+                max_diff_key = np.max(diff)
+                if max_diff_key > max_diff:
+                    max_diff = max_diff_key
+                total_cum_diff += norm_factor * 2 * cum_diff / cum_sum
+            return (total_cum_diff, max_diff)
+
+    def compare_models(self, test_model, ref_model):
+        '''
+        Runs comparison of models, utilizing the appropriate tolerance parameters
+        depending on the global fingerprint used.
+        Returns 0 if the models are exactly same, 1 if the models are the same
+        within tolerance, and -1 if they are not within tolerance of each other.
+        '''
+        comparison = self.compare_fingerprints(test_model, ref_model)
+        if self.label == "valle-oganov":
+            if np.isclose(comparison, 0.0, atol=1e-5):
+                return 0
+            elif comparison < self.tolerances["valle-oganov"]:
+                return 1
+            else:
+                return -1
+
+        elif self.label == "bag-of-bonds":
+            if np.isclose(comparison[0], 0.0, atol=1e-5) and np.isclose(comparison[1], 0.0, atol=1e-5):
+                return 0
+            elif comparison[0] < self.tolerances["bag-of-bonds"][0] and \
+                    comparison[1] < self.tolerances["bag-of-bonds"][1]:
+                return 1
+            else:
+                return -1
+        elif self.label == "rematch-soap":
+            # rematch kernel is a matrix. Here we only use one of (identical)
+            # off-diagonal matrix elements to calculate the structure distance
+            compare_fm = comparison[0][1]  # The cross-similarity
+            distance = math.sqrt(2 - 2*compare_fm)
+            if np.isclose(distance, 0.0, atol=1e-5):
+                return 0
+            elif distance < self.tolerances["rematch-soap"]:
+                return 1
+            else:
+                return -1
+
+
+class ParetoDominance(object):
+    def get_nondominated_solutions(self, population):
+        """
+        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+
+        Return all non-dominated solutions (the Pareto front) from
+        a set of models. 
+
+        param costs: An (n_points, n_costs) array
+
+        returns: A (n_points, ) boolean array, indicating whether each point is
+                 Pareto efficient
+        """
+        is_efficient = np.ones(population.size, dtype=bool)
+        # Iterate once through the population to assemble the array of objective values
+        objectives = []
+        for model in population.models:
+            # TODO: make flexible with number of objectives
+            objectives.append([model.obj0_val, model.obj1_val])
+
+        obj_array = np.array(objectives)
+
+        for index, objs in enumerate(obj_array):
+            if is_efficient[index]:
+                # Keep any point with a lower cost
+                is_efficient[is_efficient] = np.any(
+                    obj_array[is_efficient] < objs, axis=1)
+                is_efficient[index] = True  # And keep self
+
+        return list(itertools.compress(population.models, is_efficient))
+
+    def compare(self, test_model, ref_model):
+        '''
+
+        Outputs:
+        Returns -1 if test_model dominates the ref_model
+        Returns 0 if both non-dominated
+        Returns +1 if test_model dominated by the ref_model
+        '''
+
+        dominate_test = False
+        dominate_ref = False
+
+        # TODO: make flexible with number of objectives
+        for n in range(2):
+
+            if n == 0:
+                test_obj = test_model.obj0_val
+                ref_obj = ref_model.obj0_val
+            elif n == 1:
+                test_obj = test_model.obj1_val
+                ref_obj = ref_model.obj1_val
+
+            if test_obj < ref_obj:
+                dominate_test = True
+                # Check for non-domination
+                if dominate_ref:
+                    return 0
+
+            elif test_obj > ref_obj:
+                dominate_ref = True
+                # Check for non-domination
+                if dominate_test:
+                    return 0
+
+        # Otherwise one dominates the other, return the appropriate value
+        if dominate_test:
+            return -1
+        else:
+            return 1
+
+    def choose_non_dominated(self, model1, model2):
+        '''
+        Outputs:
+        The non-dominated model, or a random selection if both non-dominated
+        '''
+        dominate1 = False
+        dominate2 = False
+
+        # TODO: make flexible with number of objectives
+        for n in range(2):
+
+            if n == 0:
+                model1_obj = model1.obj0_val
+                model2_obj = model2.obj0_val
+            elif n == 1:
+                model1_obj = model1.obj1_val
+                model2_obj = model2.obj1_val
+
+            if model1_obj < model2_obj:
+                dominate1 = True
+                # Check for non-domination
+                if dominate2:
+                    model_num = np.random.randint(1, 3)
+                    if model_num == 1:
+                        return model1
+                    elif model_num == 2:
+                        return model2
+
+            elif model1_obj > model2_obj:
+                dominate2 = True
+                # Check for non-domination
+                if dominate1:
+                    model_num = np.random.randint(1, 3)
+                    if model_num == 1:
+                        return model1
+                    elif model_num == 2:
+                        return model2
+
+        # Otherwise one dominates the other, return the appropriate value
+        if dominate1:
+            return model1
+        else:
+            return model2
+
+
+class EpsilonDominance(object):
+    def __init__(self, epsilons=None):
+        # Assign default epsilons if none are provided
+        if epsilons is None:
+            self.epsilons = [.1, .1]
+        else:
+            self.epsilons = epsilons
+
+    def compare(self, test_model, ref_model):
+        '''
+        Outputs:
+        Returns -1 if test_model dominates the ref_model
+        Returns 0 if both non-dominated
+        Returns +1 if test_model dominated by the ref_model
+        '''
+
+        dominate_test = False
+        dominate_ref = False
+
+        # TODO: make flexible with number of objectives
+
+        for n in range(2):
+            epsilon = float(self.epsilons[n % len(self.epsilons)])
+
+            if n == 0:
+                test_val = math.floor(test_model.obj0_val / epsilon)
+                ref_val = math.floor(ref_model.obj0_val / epsilon)
+            elif n == 1:
+                test_val = math.floor(test_model.obj1_val / epsilon)
+                ref_val = math.floor(test_model.obj1_val / epsilon)
+
+            if test_val < ref_val:
+                dominate_test = True
+                # Check for non-domination (but not same epsilon box)
+                if dominate_ref:
+                    return 0
+
+            elif test_val > ref_val:
+                dominate_ref = True
+                # Check for non-domination (but not same epsilon box)
+                if dominate_test:
+                    return 0
+
+        # If neither one is better than the other at all, they are in the same box
+        if not dominate_ref and not dominate_test:
+            # Check for distance to box corner
+            d_test = 0.0
+            d_ref = 0.0
+
+            # TODO: make flexible with number of objectives
+            for n in range(2):
+                epsilon = float(self.epsilons[n % len(self.epsilons)])
+                if n == 0:
+                    test_obj = test_model.obj0_val
+                    ref_obj = ref_model.obj0_val
+                elif n == 1:
+                    test_obj = test_model.obj1_val
+                    ref_obj = ref_model.obj1_val
+
+                test_eps_val = math.floor(test_obj / epsilon)
+                ref_eps_val = math.floor(ref_obj / epsilon)
+
+                d_test += (test_obj - test_eps_val*epsilon)**2
+                d_ref += (ref_obj - ref_eps_val*epsilon)**2
+
+            if d_test < d_ref:
+                return -1
+            else:
+                return 1
+
+        # Otherwise one dominates the other, return the appropriate value
+        elif dominate_test:
+            return -1
+        else:
+            return 1
+
+
+class StructuralEpsilonDominance(object):
+    '''
+    A modified version of epsilon dominance. The epsilon boxes are still used,
+    but now both structures within an epsilon box are kept unless they are
+    classified as nearly identical by comparing their global fingerprints.
+    '''
+
+    def __init__(self, comparator=Comparator(), epsilons=None):
+        # Assign default epsilons if none are provided
+        if epsilons is None:
+            self.epsilons = [.1, .1]
+        else:
+            self.epsilons = epsilons
+
+        # store comparator object
+        self.comparator = comparator
+
+    def compare(self, test_model, ref_model):
+        '''
+        Outputs:
+        Returns -1 if test_model dominates the ref_model
+        Returns 0 if both non-dominated
+        Returns +1 if test_model dominated by the ref_model
+        '''
+
+        dominate_test = False
+        dominate_ref = False
+
+        # TODO: make flexible with number of objectives
+
+        for n in range(2):
+            epsilon = float(self.epsilons[n % len(self.epsilons)])
+
+            if n == 0:
+                test_val = math.floor(test_model.obj0_val / epsilon)
+                ref_val = math.floor(ref_model.obj0_val / epsilon)
+            elif n == 1:
+                test_val = math.floor(test_model.obj1_val / epsilon)
+                ref_val = math.floor(test_model.obj1_val / epsilon)
+
+            if test_val < ref_val:
+                dominate_test = True
+                # Check for non-domination (but not same epsilon box)
+                if dominate_ref:
+                    return 0
+
+            elif test_val > ref_val:
+                dominate_ref = True
+                # Check for non-domination (but not same epsilon box)
+                if dominate_test:
+                    return 0
+
+        # If neither one is better than the other at all, they are in the same box
+        if not dominate_ref and not dominate_test:
+            # Check for structural similarity. Note: if the model was exactly the same
+            # as a population member, it was already ruled out.
+            # If models fall within similarity tolerance, then keep model which is closest
+            # to the corner of the epsilon box
+            # Otherwise, keep both models
+            similarity = self.comparator.compare_models(test_model, ref_model)
+            if similarity > 0:
+                d_test = 0.0
+                d_ref = 0.0
+
+                # TODO: make flexible with number of objectives
+                for n in range(2):
+                    epsilon = float(self.epsilons[n % len(self.epsilons)])
+                    if n == 0:
+                        test_obj = test_model.obj0_val
+                        ref_obj = ref_model.obj0_val
+                    elif n == 1:
+                        test_obj = test_model.obj1_val
+                        ref_obj = ref_model.obj1_val
+
+                    test_eps_val = math.floor(test_obj / epsilon)
+                    ref_eps_val = math.floor(ref_obj / epsilon)
+
+                    d_test += (test_obj - test_eps_val*epsilon)**2
+                    d_ref += (ref_obj - ref_eps_val*epsilon)**2
+
+                if d_test < d_ref:
+                    return -1
+                else:
+                    return 1
+            else:
+                return 0
+
+        # Otherwise one dominates the other, return the appropriate value
+        elif dominate_test:
+            return -1
+        else:
+            return 1
+
+
 class Pool(object):
     """
     A pool of structures which are used for genetic crossing.
@@ -764,470 +1231,3 @@ class Archive(object):
         Returns randomly selected model
         '''
         return random.choice(self.models)
-
-
-class Comparator(object):
-    '''
-    A modified version of epsilon dominance. The epsilon boxes are still used,
-    but now both structures within an epsilon box are kept unless they are
-    classified as nearly identical by comparing their global fingerprints.
-    '''
-
-    def __init__(self, label='bag-of-bonds', tolerances=None):
-        self.label = label
-
-        # Assign default tolerance values if none are provided
-        if tolerances is None:
-            tolerances = {}
-            tolerances["valle-oganov"] = 1e-3
-            tolerances["bag-of-bonds"] = [.02, 0.7]
-            tolerances["rematch-soap"] = 1e-3
-
-        self.tolerances = tolerances
-        self.comp = None
-        self.kernel_gen = None
-
-    def set_soap_descriptor(self, _species, soap_values=None):
-        if soap_values is None:
-            self.desc = SOAP(species=_species, rcut=5.0, nmax=9, lmax=6,
-                             sigma=0.5, periodic=True, crossover=True, sparse=False)
-        else:
-            _rcut = 5.0
-            _nmax = 9
-            _lmax = 6
-            _sigma = 0.5
-            if "rcut" in soap_values:
-                _rcut = soap_values["rcut"]
-            if "nmax" in soap_values:
-                _nmax = soap_values["nmax"]
-            if "lmax" in soap_values:
-                _lmax = soap_values["lmax"]
-            if "sigma" in soap_values:
-                _sigma = soap_values["sigma"]
-            self.desc = SOAP(species=_species,
-                             rcut=_rcut, nmax=_nmax,
-                             sigma=_sigma, periodic=True,
-                             crossover=True, sparse=False)
-
-    def set_valle_oganov_comparator(self, comp_values=None):
-        if comp_values is None:
-            self.comp = OFPComparator(n_top=None, dE=None,
-                                      cos_dist_max=1e-3, rcut=10., binwidth=0.05,
-                                      pbc=[True, True, True], sigma=0.05, nsigma=4,
-                                      recalculate=False)
-        else:
-            _n_top = None
-            _dE = None
-            _cos_dist_max = 1e-3
-            _rcut = 10.
-            _binwidth = 0.05
-            _pbc = [True, True, True]
-            _sigma = 0.05
-            _nsigma = 4
-            _recalculate = False
-
-            if 'n_top' in comp_values:
-                _n_top = comp_values['n_top']
-            if 'dE' in comp_values:
-                _dE = comp_values['dE']
-            if 'cos_dist_max' in comp_values:
-                _cos_dist_max = comp_values['cos_dist_max']
-            if 'rcut' in comp_values:
-                _rcut = comp_values['rcut']
-            if 'binwidth' in comp_values:
-                _binwidth = comp_values['binwidth']
-            if 'pbc' in comp_values:
-                _pbc = comp_values['pbc']
-            if 'sigma' in comp_values:
-                _sigma = comp_values['sigma']
-            if 'nsigma' in comp_values:
-                _nsigma = comp_values['nsigma']
-            if 'recalculate' in comp_values:
-                _recalculate = comp_values['recalculate']
-            self.comp = OFPComparator(n_top=_n_top, dE=_dE,
-                                      cos_dist_max=_cos_dist_max, rcut=_rcut,
-                                      binwidth=_binwidth, pbc=_pbc, sigma=_sigma,
-                                      nsigma=_nsigma, recalculate=_recalculate)
-
-    def set_rematch_kernel_generator(self, kg_values=None):
-        if kg_values is None:
-            self.kernel_gen = REMatchKernel(
-                metric="linear", alpha=1, threshold=1e-6)
-        else:
-            _metric = "linear"
-            _alpha = 1
-            _threshold = 1e-6
-            if 'metric' in kg_values:
-                _metric = kg_values['metric']
-            if 'alpha' in kg_values:
-                _alpha = kg_values['alpha']
-            if 'threshold' in kg_values:
-                _threshold = kg_values['threshold']
-            self.kernel_gen = REMatchKernel(
-                metric=_metric, alpha=_alpha, threshold=_threshold)
-
-    def compare_fingerprints(self, test_model, ref_model):
-        '''
-        Compare the fingerprints between two structures. Each model contains a fingerprint
-        dictionary, which has all the relevant information for the appropriate fingerprint.
-        In the case of the Valle-Oganov fingerprint, this information is contained within
-        an ASE Atoms structure.
-        In the case of the bag-of-bonds fingerprint, this information is contained within
-        a pair_cor dictionary. 
-        In the case of the REMatch SOAP kernel, this information is contained within a set
-        of normalized soap descriptors called normed_features.
-
-        Returns a tuple of length 2. Only the bag-of-bonds comparison completely fills the tuple.
-        '''
-        if self.label == "valle-oganov":
-            return (self.comp._compare_structure(test_model.fingerprint["ase"], ref_model.fingerprint["ase"]),)
-
-        elif self.label == "rematch-soap":
-            return (self.kernel_gen.create([test_model.fingerprint["normed_features"], ref_model.fingerprint["normed_features"]]),)
-
-        elif self.label == "bag-of-bonds":
-            # print(f"{self.fingerprint_label} fingerprint is being calculated.")
-            pair_cor1 = test_model.fingerprint["pair_cor"]
-            pair_cor2 = ref_model.fingerprint["pair_cor"]
-            total_cum_diff = 0.
-            max_diff = 0
-            for n in pair_cor1.keys():
-                cum_diff = 0.
-                norm_factor = pair_cor1[n][0]
-                dists1 = pair_cor1[n][1]
-                dists2 = pair_cor2[n][1]
-                assert len(dists1) == len(dists2)
-                if len(dists1) == 0:
-                    continue
-                diff = np.abs(dists1 - dists2)
-                sum = np.abs(dists1 + dists2)
-                cum_diff = np.sum(diff)
-                cum_sum = np.sum(sum)
-                max_diff_key = np.max(diff)
-                if max_diff_key > max_diff:
-                    max_diff = max_diff_key
-                total_cum_diff += norm_factor * 2 * cum_diff / cum_sum
-            return (total_cum_diff, max_diff)
-
-    def compare_models(self, test_model, ref_model):
-        '''
-        Runs comparison of models, utilizing the appropriate tolerance parameters
-        depending on the global fingerprint used.
-        Returns 0 if the models are exactly same, 1 if the models are the same
-        within tolerance, and -1 if they are not within tolerance of each other.
-        '''
-        comparison = self.compare_fingerprints(test_model, ref_model)
-        if self.label == "valle-oganov":
-            if np.isclose(comparison, 0.0, atol=1e-5):
-                return 0
-            elif comparison < self.tolerances["valle-oganov"]:
-                return 1
-            else:
-                return -1
-
-        elif self.label == "bag-of-bonds":
-            if np.isclose(comparison[0], 0.0, atol=1e-5) and np.isclose(comparison[1], 0.0, atol=1e-5):
-                return 0
-            elif comparison[0] < self.tolerances["bag-of-bonds"][0] and \
-                    comparison[1] < self.tolerances["bag-of-bonds"][1]:
-                return 1
-            else:
-                return -1
-        elif self.label == "rematch-soap":
-            # rematch kernel is a matrix. Here we only use one of (identical)
-            # off-diagonal matrix elements to calculate the structure distance
-            compare_fm = comparison[0][1]  # The cross-similarity
-            distance = math.sqrt(2 - 2*compare_fm)
-            if np.isclose(distance, 0.0, atol=1e-5):
-                return 0
-            elif distance < self.tolerances["rematch-soap"]:
-                return 1
-            else:
-                return -1
-
-
-class ParetoDominance(object):
-    def get_nondominated_solutions(self, population=Population(100)):
-        """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
-
-        Return all non-dominated solutions (the Pareto front) from
-        a set of models. 
-
-        param costs: An (n_points, n_costs) array
-
-        returns: A (n_points, ) boolean array, indicating whether each point is
-                 Pareto efficient
-        """
-        is_efficient = np.ones(population.size, dtype=bool)
-        # Iterate once through the population to assemble the array of objective values
-        objectives = []
-        for model in population.models:
-            # TODO: make flexible with number of objectives
-            objectives.append([model.obj0_val, model.obj1_val])
-
-        obj_array = np.array(objectives)
-
-        for index, objs in enumerate(obj_array):
-            if is_efficient[index]:
-                # Keep any point with a lower cost
-                is_efficient[is_efficient] = np.any(
-                    obj_array[is_efficient] < objs, axis=1)
-                is_efficient[index] = True  # And keep self
-
-        return list(itertools.compress(population.models, is_efficient))
-
-    def compare(self, test_model, ref_model):
-        '''
-
-        Outputs:
-        Returns -1 if test_model dominates the ref_model
-        Returns 0 if both non-dominated
-        Returns +1 if test_model dominated by the ref_model
-        '''
-
-        dominate_test = False
-        dominate_ref = False
-
-        # TODO: make flexible with number of objectives
-        for n in range(2):
-
-            if n == 0:
-                test_obj = test_model.obj0_val
-                ref_obj = ref_model.obj0_val
-            elif n == 1:
-                test_obj = test_model.obj1_val
-                ref_obj = ref_model.obj1_val
-
-            if test_obj < ref_obj:
-                dominate_test = True
-                # Check for non-domination
-                if dominate_ref:
-                    return 0
-
-            elif test_obj > ref_obj:
-                dominate_ref = True
-                # Check for non-domination
-                if dominate_test:
-                    return 0
-
-        # Otherwise one dominates the other, return the appropriate value
-        if dominate_test:
-            return -1
-        else:
-            return 1
-
-    def choose_non_dominated(self, model1, model2):
-        '''
-        Outputs:
-        The non-dominated model, or a random selection if both non-dominated
-        '''
-        dominate1 = False
-        dominate2 = False
-
-        # TODO: make flexible with number of objectives
-        for n in range(2):
-
-            if n == 0:
-                model1_obj = model1.obj0_val
-                model2_obj = model2.obj0_val
-            elif n == 1:
-                model1_obj = model1.obj1_val
-                model2_obj = model2.obj1_val
-
-            if model1_obj < model2_obj:
-                dominate1 = True
-                # Check for non-domination
-                if dominate2:
-                    model_num = np.random.randint(1, 3)
-                    if model_num == 1:
-                        return model1
-                    elif model_num == 2:
-                        return model2
-
-            elif model1_obj > model2_obj:
-                dominate2 = True
-                # Check for non-domination
-                if dominate1:
-                    model_num = np.random.randint(1, 3)
-                    if model_num == 1:
-                        return model1
-                    elif model_num == 2:
-                        return model2
-
-        # Otherwise one dominates the other, return the appropriate value
-        if dominate1:
-            return model1
-        else:
-            return model2
-
-
-class EpsilonDominance(object):
-    def __init__(self, epsilons=None):
-        # Assign default epsilons if none are provided
-        if epsilons is None:
-            self.epsilons = [.1, .1]
-        else:
-            self.epsilons = epsilons
-
-    def compare(self, test_model, ref_model):
-        '''
-        Outputs:
-        Returns -1 if test_model dominates the ref_model
-        Returns 0 if both non-dominated
-        Returns +1 if test_model dominated by the ref_model
-        '''
-
-        dominate_test = False
-        dominate_ref = False
-
-        # TODO: make flexible with number of objectives
-
-        for n in range(2):
-            epsilon = float(self.epsilons[n % len(self.epsilons)])
-
-            if n == 0:
-                test_val = math.floor(test_model.obj0_val / epsilon)
-                ref_val = math.floor(ref_model.obj0_val / epsilon)
-            elif n == 1:
-                test_val = math.floor(test_model.obj1_val / epsilon)
-                ref_val = math.floor(test_model.obj1_val / epsilon)
-
-            if test_val < ref_val:
-                dominate_test = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_ref:
-                    return 0
-
-            elif test_val > ref_val:
-                dominate_ref = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_test:
-                    return 0
-
-        # If neither one is better than the other at all, they are in the same box
-        if not dominate_ref and not dominate_test:
-            # Check for distance to box corner
-            d_test = 0.0
-            d_ref = 0.0
-
-            # TODO: make flexible with number of objectives
-            for n in range(2):
-                epsilon = float(self.epsilons[n % len(self.epsilons)])
-                if n == 0:
-                    test_obj = test_model.obj0_val
-                    ref_obj = ref_model.obj0_val
-                elif n == 1:
-                    test_obj = test_model.obj1_val
-                    ref_obj = ref_model.obj1_val
-
-                test_eps_val = math.floor(test_obj / epsilon)
-                ref_eps_val = math.floor(ref_obj / epsilon)
-
-                d_test += (test_obj - test_eps_val*epsilon)**2
-                d_ref += (ref_obj - ref_eps_val*epsilon)**2
-
-            if d_test < d_ref:
-                return -1
-            else:
-                return 1
-
-        # Otherwise one dominates the other, return the appropriate value
-        elif dominate_test:
-            return -1
-        else:
-            return 1
-
-
-class StructuralEpsilonDominance(object):
-    '''
-    A modified version of epsilon dominance. The epsilon boxes are still used,
-    but now both structures within an epsilon box are kept unless they are
-    classified as nearly identical by comparing their global fingerprints.
-    '''
-
-    def __init__(self, comparator=Comparator(), epsilons=None):
-        # Assign default epsilons if none are provided
-        if epsilons is None:
-            self.epsilons = [.1, .1]
-        else:
-            self.epsilons = epsilons
-
-        # store comparator object
-        self.comparator = comparator
-
-    def compare(self, test_model, ref_model):
-        '''
-        Outputs:
-        Returns -1 if test_model dominates the ref_model
-        Returns 0 if both non-dominated
-        Returns +1 if test_model dominated by the ref_model
-        '''
-
-        dominate_test = False
-        dominate_ref = False
-
-        # TODO: make flexible with number of objectives
-
-        for n in range(2):
-            epsilon = float(self.epsilons[n % len(self.epsilons)])
-
-            if n == 0:
-                test_val = math.floor(test_model.obj0_val / epsilon)
-                ref_val = math.floor(ref_model.obj0_val / epsilon)
-            elif n == 1:
-                test_val = math.floor(test_model.obj1_val / epsilon)
-                ref_val = math.floor(test_model.obj1_val / epsilon)
-
-            if test_val < ref_val:
-                dominate_test = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_ref:
-                    return 0
-
-            elif test_val > ref_val:
-                dominate_ref = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_test:
-                    return 0
-
-        # If neither one is better than the other at all, they are in the same box
-        if not dominate_ref and not dominate_test:
-            # Check for structural similarity. Note: if the model was exactly the same
-            # as a population member, it was already ruled out.
-            # If models fall within similarity tolerance, then keep model which is closest
-            # to the corner of the epsilon box
-            # Otherwise, keep both models
-            similarity = self.comparator.compare_models(test_model, ref_model)
-            if similarity > 0:
-                d_test = 0.0
-                d_ref = 0.0
-
-                # TODO: make flexible with number of objectives
-                for n in range(2):
-                    epsilon = float(self.epsilons[n % len(self.epsilons)])
-                    if n == 0:
-                        test_obj = test_model.obj0_val
-                        ref_obj = ref_model.obj0_val
-                    elif n == 1:
-                        test_obj = test_model.obj1_val
-                        ref_obj = ref_model.obj1_val
-
-                    test_eps_val = math.floor(test_obj / epsilon)
-                    ref_eps_val = math.floor(ref_obj / epsilon)
-
-                    d_test += (test_obj - test_eps_val*epsilon)**2
-                    d_ref += (ref_obj - ref_eps_val*epsilon)**2
-
-                if d_test < d_ref:
-                    return -1
-                else:
-                    return 1
-            else:
-                return 0
-
-        # Otherwise one dominates the other, return the appropriate value
-        elif dominate_test:
-            return -1
-        else:
-            return 1

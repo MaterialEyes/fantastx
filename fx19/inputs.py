@@ -85,6 +85,7 @@ def make_objects(i_dict):
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
+    pool_params['epsilons'] = i_dict['epsilons']
     if 'fingerprint_params' in i_dict:
         fingerprint_params = i_dict["fingerprint_params"]
         # If the fingerprint is a soap descriptor, then the

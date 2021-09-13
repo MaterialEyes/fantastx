@@ -96,7 +96,7 @@ class model(object):
         num_atoms = len(all_coords)
         sorted_coords = sorted(all_coords, key=lambda x: x[axis])
         sums = []
-        bnds = [(i+1) * box_astr.lattice.abc[axis] /\
+        bnds = [(i+1) * box_astr.lattice.abc[axis] /
                 num_reg for i in range(num_reg)]
         for bound in bnds:
             for i, p in enumerate(sorted_coords):
@@ -162,8 +162,8 @@ class structure_constraints(object):
         under structure_record
         """
 
-        self.def_min_dist = 2 # minimum distance between atoms in angstroms
-        self.def_max_dist = 5 # minimum distance which should contain one+ bond
+        self.def_min_dist = 2  # minimum distance between atoms in angstroms
+        self.def_max_dist = 5  # minimum distance which should contain one+ bond
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
@@ -179,7 +179,7 @@ class structure_constraints(object):
         else:
             species_dict = str_record['species']
             self.num_species = len(species_dict)
-            
+
         # see that all attributes for all species are present by placing
         # defaults for species1 and that of species1 for the rest
         # DU
@@ -224,7 +224,7 @@ class structure_constraints(object):
                     if key in str_record['min_dist'].keys():
                         self.min_dist_dict[key] = str_record['min_dist'][key]
                 if 'max_dist' in str_record:
-                    if key in str_record['max_dist'].keys()
+                    if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
         #########################cluster parameters############################
         # shape and related
@@ -294,8 +294,8 @@ class structure_constraints(object):
         if self.shape == 'surface':
             surface_params = str_record['surface']
             init_slabs_dir = surface_params['init_slabs_dir']
-            poscars = [init_slabs_dir + '/' + i for i in \
-                      os.listdir(init_slabs_dir) if i.startswith('POSCAR_slab')]
+            poscars = [init_slabs_dir + '/' + i for i in
+                       os.listdir(init_slabs_dir) if i.startswith('POSCAR_slab')]
             init_slabs_dict = {}
             for p in range(len(poscars)):
                 init_slabs_dict[p+1] = poscars[p]
@@ -307,7 +307,7 @@ class structure_constraints(object):
 
             if 'substrate_thickness' in surface_params:
                 self.substrate_thickness = \
-                                    surface_params['substrate_thickness']
+                    surface_params['substrate_thickness']
 
             if 'separation' in surface_params:
                 self.separation = surface_params['separation']
@@ -331,7 +331,6 @@ class structure_constraints(object):
             if 'hop_mate_frac' in surface_params:
                 self.hop_mate_frac = surface_params['hop_mate_frac']
 
-
     def get_constraints(self):
         """
         Returns a dictionary of all the constraints listed above
@@ -339,22 +338,6 @@ class structure_constraints(object):
         """
 
         return self.__dict__
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ##
