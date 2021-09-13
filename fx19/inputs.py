@@ -4,7 +4,8 @@ from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
 from fx19 import experimental_simulation
-from fx19 import selection
+#from fx19 import selection
+from fx19 import epsilonSelection
 from fx19 import structure_operations
 
 import os
@@ -94,7 +95,7 @@ def make_objects(i_dict):
                 species.append(value["name"])
             fingerprint_params["species"] = species
         pool_params['fingerprint_params'] = i_dict['fingerprint_params']
-    pool = selection.Pool(pool_params)
+    pool = epsilonSelection.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
@@ -111,13 +112,13 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
-        select = selection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
-        select = selection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
     all_objects['select'] = select
 
     # Mating object from structure_operations
