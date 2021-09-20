@@ -164,8 +164,8 @@ class Comparator(object):
 
         elif self.label == "bag-of-bonds":
             # print(f"{self.fingerprint_label} fingerprint is being calculated.")
-            pair_cor1 = test_model.fingerprint["pair_cor"]
-            pair_cor2 = ref_model.fingerprint["pair_cor"]
+            pair_cor1 = test_model.pair_cor
+            pair_cor2 = ref_model.pair_cor
             total_cum_diff = 0.
             max_diff = 0
             for n in pair_cor1.keys():
@@ -193,7 +193,11 @@ class Comparator(object):
         Returns 0 if the models are exactly same, 1 if the models are the same
         within tolerance, and -1 if they are not within tolerance of each other.
         '''
-        comparison = self.compare_fingerprints(test_model, ref_model)
+        try:
+            comparison = self.compare_fingerprints(test_model, ref_model)
+        except:
+            # models did not contain the same number of atoms (bag-of-bonds)
+            return -1
         if self.label == "valle-oganov":
             if np.isclose(comparison, 0.0, atol=1e-5):
                 return 0
@@ -251,6 +255,19 @@ class ParetoDominance(object):
                 is_efficient[is_efficient] = np.any(
                     obj_array[is_efficient] < objs, axis=1)
                 is_efficient[index] = True  # And keep self
+
+        return list(itertools.compress(population.models, is_efficient))
+
+    def alt_nondominance(self, population):
+        is_efficient = np.ones(population.size, dtype=bool)
+        for index, model in enumerate(population.models):
+            if is_efficient[index]:
+                flags = [
+                    self.compare(m, model) for m in list(itertools.compress(population.models, is_efficient))]
+                # keep any point which either dominated the model or was non-dominated
+                equal_or_better = [x < 0 or x == 0 for x in flags]
+                is_efficient[is_efficient] = equal_or_better
+                is_efficient[index] = True  # and keep self
 
         return list(itertools.compress(population.models, is_efficient))
 
@@ -347,6 +364,30 @@ class EpsilonDominance(object):
         else:
             self.epsilons = epsilons
 
+    def get_nondominated_solutions(self, population):
+        """
+        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+
+        Return all non-dominated solutions (the Pareto front) from
+        a set of models. 
+
+        param costs: An (n_points, n_costs) array
+
+        returns: A (n_points, ) boolean array, indicating whether each point is
+                 Pareto efficient
+        """
+        is_efficient = np.ones(population.size, dtype=bool)
+        for index, model in enumerate(population.models):
+            if is_efficient[index]:
+                flags = [
+                    self.compare(m, model) for m in list(itertools.compress(population.models, is_efficient))]
+                # keep any point which either dominated the model or was non-dominated
+                equal_or_better = [x < 0 or x == 0 for x in flags]
+                is_efficient[is_efficient] = equal_or_better
+                is_efficient[index] = True  # and keep self
+
+        return list(itertools.compress(population.models, is_efficient))
+
     def compare(self, test_model, ref_model):
         '''
         Outputs:
@@ -368,7 +409,7 @@ class EpsilonDominance(object):
                 ref_val = math.floor(ref_model.obj0_val / epsilon)
             elif n == 1:
                 test_val = math.floor(test_model.obj1_val / epsilon)
-                ref_val = math.floor(test_model.obj1_val / epsilon)
+                ref_val = math.floor(ref_model.obj1_val / epsilon)
 
             if test_val < ref_val:
                 dominate_test = True
@@ -433,6 +474,49 @@ class StructuralEpsilonDominance(object):
         # store comparator object
         self.comparator = comparator
 
+    def get_nondominated_solutions(self, population):
+        """
+        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+
+        Return all non-dominated solutions (the Pareto front) from
+        a set of models. 
+
+        param costs: An (n_points, n_costs) array
+
+        returns: A (n_points, ) boolean array, indicating whether each point is
+                 Pareto efficient
+        """
+        is_efficient = np.ones(population.size, dtype=bool)
+        for index, model in enumerate(population.models):
+            if is_efficient[index]:
+                flags = [
+                    self.compare(m, model) for m in list(itertools.compress(population.models, is_efficient))]
+                print(f"Flags are: {flags}")
+                # keep any point which either dominated the model or was non-dominated
+                equal_or_better = [x < 0 or x == 0 for x in flags]
+                print(f"Dominated is: {equal_or_better}")
+                is_efficient[is_efficient] = equal_or_better
+                print(f"is_efficient is now: {is_efficient}")
+                is_efficient[index] = True  # and keep self
+
+        # is_efficient = np.ones(population.size, dtype=bool)
+        # # Iterate once through the population to assemble the array of objective values
+        # objectives = []
+        # for model in population.models:
+        #     # TODO: make flexible with number of objectives
+        #     objectives.append([model.obj0_val, model.obj1_val])
+
+        # obj_array = np.array(objectives)
+
+        # for index, objs in enumerate(obj_array):
+        #     if is_efficient[index]:
+        #         # Keep any point with a lower cost
+        #         is_efficient[is_efficient] = np.any(
+        #             obj_array[is_efficient] < objs, axis=1)
+        #         is_efficient[index] = True  # And keep self
+
+        return list(itertools.compress(population.models, is_efficient))
+
     def compare(self, test_model, ref_model):
         '''
         Outputs:
@@ -454,7 +538,7 @@ class StructuralEpsilonDominance(object):
                 ref_val = math.floor(ref_model.obj0_val / epsilon)
             elif n == 1:
                 test_val = math.floor(test_model.obj1_val / epsilon)
-                ref_val = math.floor(test_model.obj1_val / epsilon)
+                ref_val = math.floor(ref_model.obj1_val / epsilon)
 
             if test_val < ref_val:
                 dominate_test = True
@@ -477,6 +561,8 @@ class StructuralEpsilonDominance(object):
             # Otherwise, keep both models
             similarity = self.comparator.compare_models(test_model, ref_model)
             if similarity > 0:
+                print(
+                    f"Models {test_model.label} and {ref_model.label} are similar within tolerance. Checking proximity to epsilon box corner.")
                 d_test = 0.0
                 d_ref = 0.0
 
@@ -490,16 +576,27 @@ class StructuralEpsilonDominance(object):
                         test_obj = test_model.obj1_val
                         ref_obj = ref_model.obj1_val
 
+                    print(
+                        f"Non-floored objective values are: {test_obj} and {ref_obj}")
+
                     test_eps_val = math.floor(test_obj / epsilon)
                     ref_eps_val = math.floor(ref_obj / epsilon)
 
-                    d_test += (test_obj - test_eps_val*epsilon)**2
-                    d_ref += (ref_obj - ref_eps_val*epsilon)**2
+                    print(
+                        f"Floored objective values are : {test_eps_val} and {ref_eps_val}.")
 
-                if d_test < d_ref:
+                    d_test += (test_obj / epsilon - test_eps_val)**2
+                    d_ref += (ref_obj / epsilon - ref_eps_val)**2
+
+                    print(f"Distances are: {d_test} and {d_ref}")
+
+                if d_test < d_ref or np.isclose(d_test, d_ref, atol=1e-5):
                     return -1
                 else:
                     return 1
+            elif similarity == 0:
+                # models are identical, only keep the old model
+                return 1
             else:
                 return 0
 
@@ -570,7 +667,7 @@ class Pool(object):
             # no fingerprint comparisons are going to be made
             self.comparator = None
             self.population = Population(
-                self.capacity, ParetoDominance(), comparator=None)
+                self.capacity, ParetoDominance(), self.weights, None)
             self.archive = Archive(EpsilonDominance(
                 self.epsilons))
         else:
@@ -600,10 +697,11 @@ class Pool(object):
                     self.comparator.set_rematch_kernel_generator()
 
             self.population = Population(
-                self.capacity, ParetoDominance(), self.comparator
+                self.capacity, ParetoDominance(), self.weights, self.comparator
             )
             self.archive = Archive(
-                StructuralEpsilonDominance(self.comparator, self.epsilons)
+                StructuralEpsilonDominance(
+                    self.comparator, self.epsilons)
             )
 
     def add_to_pool(self, model, select, sim_ids=None):
@@ -632,18 +730,20 @@ class Pool(object):
         if unique:
             # If population size is less than 10, add any models created
             if self.population.size < 10:
-                print('New Model {} added to population'.format(model.label))
+                print(f'New Model {model.label} added to population')
                 self.population.extend(model)
                 if select.type == "single":
                     self.population.good_pool.append(model)
 
             # If population size less than capacity, or single-objective function search,
-            # use linear method instead of epsilon-MOEA
+            # use linear method instead of epsilon-MOEA. Note: the model will
+            # be appended no matter what here. However, the model selection criteria
+            # will be different than usual.
             elif 10 <= self.population.size < self.capacity or select.type == "single":
                 self.population.basic_addition_to_population(
                     model, select, sim_ids=sim_ids)
-                print('New model {} added to population based'
-                      ' on their values only!'.format(model.label))
+                print(f'New model {model.label} added to population based'
+                      ' on their objective values only!')
 
             # Othewise, perform usual epsilon-MOEA
             else:
@@ -654,8 +754,13 @@ class Pool(object):
             # If size has now reached capacity, then add models to archive
             # in preparation for epsilon-MOEA
             if self.population.size == self.population.capacity and no_prior_epsilon:
-                non_dominated_models = ParetoDominance().get_nondominated_solutions(self.population)
-                self.archive.initialize_models(non_dominated_models)
+                #non_dominated_models = ParetoDominance().get_nondominated_solutions(self.population)
+                # self.archive.initialize_models(non_dominated_models)
+                print("Pool has reached steady-state capacity. Seeding the archive with the \
+                structural-epsilon-non-dominated models.")
+                self.archive.seed_archive(self.population)
+                model_labels = [model.label for model in self.archive.models]
+                print(f"Archive seeded with models: {model_labels}")
         else:
             print('New model {} rejected because it was the same as'
                   ' as another model in the population!'.format(model.label))
@@ -736,6 +841,11 @@ class Select(object):
                 self.weights.append(1)
 
         self.all_parent_labels = []
+
+        if 'archive_pop_bh_ratio' not in select_obj_params:
+            self.archive_pop_bh_ratio = 0.7
+        else:
+            self.archive_pop_bh_ratio = select_obj_params['archive_pop_bh_ratio']
 
         # Information required for single objective optimization:
         # store optimized k; gets updated every 100th model
@@ -958,25 +1068,41 @@ class Select(object):
                     new_parent = pool.population.produce_model()
                 else:
                     new_parent = pool.archive.produce_model()
-                for existing_parent in parents:
-                    if existing_parent.label == new_parent.label:
-                        continue
-                    if same_ab:
-                        ab_1 = existing_parent.astr.lattice.matrix[:2]
-                        ab_2 = new_parent.astr.lattice.matrix[:2]
-                        diff = np.array(ab_1) - np.array(ab_2)
-                        # return first match since keys are already shuffled
-                        if np.absolute(diff).sum() < abs_tol:
+                if len(parents) == 0:
+                    parents.append(new_parent)
+                    self.all_parent_labels.append(new_parent.label)
+                else:
+                    for existing_parent in parents:
+                        if existing_parent.label == new_parent.label:
+                            continue
+                        if same_ab:
+                            ab_1 = existing_parent.astr.lattice.matrix[:2]
+                            ab_2 = new_parent.astr.lattice.matrix[:2]
+                            diff = np.array(ab_1) - np.array(ab_2)
+                            # return first match since keys are already shuffled
+                            if np.absolute(diff).sum() < abs_tol:
+                                parents.append(new_parent)
+                                self.all_parent_labels.append(new_parent.label)
+                        else:
                             parents.append(new_parent)
                             self.all_parent_labels.append(new_parent.label)
-                    else:
-                        parents.append(new_parent)
-                        self.all_parent_labels.append(new_parent.label)
             return parents
 
     def get_a_parent(self, pool):
-        # produce a parent model from the archive
-        new_parent = pool.archive.produce_model()
+        # produce a parent model from the archive if it exists, otherwise from the population
+        if pool.archive.size == 0:
+            new_parent = pool.population.produce_model()
+        else:
+            r = np.random.uniform()
+            if r < self.archive_pop_bh_ratio:
+                # should weight selection from archive and from pool
+                print("Producing archive model")
+                new_parent = pool.archive.produce_model()
+                print(f"Archive model is {new_parent.label}")
+            else:
+                print("Producing population model")
+                new_parent = pool.population.produce_model()
+                print(f"Population model is {new_parent.label}")
         self.all_parent_labels.append(new_parent.label)
         return new_parent
 
@@ -998,6 +1124,10 @@ class Select(object):
                     if self.all_parent_labels.count(parent.label) < 200:
                         done = True
                         return parent
+
+    def return_nd_pop_models(self, pool):
+        population = pool.population
+        return ParetoDominance().alt_nondominance(population)
 
 
 class Population(object):
@@ -1034,8 +1164,11 @@ class Population(object):
 
     def check_uniqueness(self, model):
         '''
-        Check whether a model is the exact same as another
-        model in the population.
+        Check whether a model is unique.
+        Returns True if the model is unique, 
+        return False if the model is the (exact) same as another model.
+        Note: if the models are considered the same "within tolerance",
+        this method still returns True. 
         '''
         if self.comparator is None:
             # No comparator, so automatic return True
@@ -1046,6 +1179,8 @@ class Population(object):
             same = [f == 0 for f in flags]
             if any(same):
                 return False
+            else:
+                return True
 
     def basic_addition_to_population(self, model, select, sim_ids=None):
         '''
@@ -1057,7 +1192,7 @@ class Population(object):
         if select.type == 'multi':
             # Note: no need to worry about good_pool, since this method is only
             # used if the population has not reached capacity yet.
-            self.models = select.update_all_selection_probs(
+            self.models = select.linear_update_selection_probs(
                 self.models,
                 self.capacity,
                 sim_ids=sim_ids)
@@ -1154,13 +1289,20 @@ class Population(object):
 
         # If dominates any models, then replace one at random
         if len(dominates) > 0:
-            del self.models[random.choice(dominates)]
+            del self.models[np.random.choice(dominates)]
             self.models.append(model)
+            print(
+                f"Model {model.label} appended to population by domination replacement.")
         # If does not dominate, but is not dominated, then replace any one
         # population member at random
         elif not dominated:
-            del self.models[random.randint(0, self.size - 1)]
+            del self.models[np.random.randint(0, self.size - 1)]
             self.models.append(model)
+            print(
+                f"Model {model.label} appended to population by non-domination replacement.")
+        else:
+            print(
+                f"Model {model.label} not added to population because dominated by pop member (and does not dominate a pop member).")
 
     def produce_model(self):
         '''
@@ -1169,7 +1311,7 @@ class Population(object):
         randomly. 
         '''
 
-        [model_one, model_two] = random.sample(self.models, 2)
+        [model_one, model_two] = np.random.choice(self.models, 2)
         return self._dominance.choose_non_dominated(model_one, model_two)
 
 
@@ -1193,6 +1335,14 @@ class Archive(object):
         self._dominance = dominance
         self.size = 0
 
+    def seed_archive(self, population):
+        '''
+        Seed the archive with the initial set of non-dominated models, according
+        to the archive dominance criteria.
+        '''
+        self.models = self._dominance.get_nondominated_solutions(population)
+        self.size = len(self.models)
+
     def initialize_models(self, non_dominated_models):
         '''
         Initialize the archive with a set of non-dominated models
@@ -1215,6 +1365,9 @@ class Archive(object):
         '''
 
         flags = [self._dominance.compare(model, m) for m in self.models]
+        print(f"Archive flags: {flags}")
+        labels = [m.label for m in self.models]
+        print(f"Archive labels: {labels}")
         nondominated = [x == 0 for x in flags]
         dominated = [x > 0 for x in flags]
 
@@ -1223,11 +1376,12 @@ class Archive(object):
         else:
             self.models = list(itertools.compress(
                 self.models, nondominated)) + [model]
-            self.size += 1
+            self.size = len(self.models)
+            print(f"Size updated. New size: {self.size}")
             return True
 
     def produce_model(self):
         '''
         Returns randomly selected model
         '''
-        return random.choice(self.models)
+        return np.random.choice(self.models)
