@@ -20,20 +20,22 @@ import ingrained.image_ops as iop
 
 from math import floor
 import numpy as np
-import os, cv2
+import os
+import cv2
+
 
 class pdf_of_model(object):
     """
     This class contains functions to calculate the PDF fits it to the
     experimental pdf. Uses residual to calculate objective function.
     """
+
     def __init__(self, pdf_params):
 
         # main path as in energy.py
-        self.name='PDF'
+        self.name = 'PDF'
         self.main_path = pdf_params['main_path']
         self.pdf_sim_dir = None
-
 
         # set default values for the parameters
         self.stretch = 1.1
@@ -110,7 +112,6 @@ class pdf_of_model(object):
         if 'var_bounds' in pdf_params:
             self.var_bounds = pdf_params['var_bounds']
 
-
     def write_temp_cif(self, stretch, model):
         """
         Writes temp.cif file in the pdf simulation directory from model.astr
@@ -136,7 +137,6 @@ class pdf_of_model(object):
         temp_cif = self.pdf_sim_dir + '/temp.cif'
         cif_writer.write_file(temp_cif)
 
-
     def get_PDF_obj(self):
         """
         Make diffpy.srfit.pdfcontribution.PDFContribution object from temp.cif
@@ -155,7 +155,6 @@ class pdf_of_model(object):
         PDF.setQmax(self.Qmax)
 
         return PDF
-
 
     def fit_and_residual(self, PDF, type=None):
         """
@@ -207,7 +206,7 @@ class pdf_of_model(object):
                 cc_var = pdf_atom.get(cc)
                 Fit.addVar(cc_var, name=vname, tag='xyz', fixed=True)
 
-        Fit.boundsToRestraints(sig = 0.00001)
+        Fit.boundsToRestraints(sig=0.00001)
         # Turn off printout of iteration number.
         Fit.clearFitHooks()
 
@@ -225,7 +224,7 @@ class pdf_of_model(object):
                                              init_params,
                                              method=self.minimize_method,
                                              tol=1e-3,
-                                             options={'maxiter':20})
+                                             options={'maxiter': 20})
             fitted_params = result.x
             residual = Fit.scalarResidual(fitted_params)
             return (residual / 600) ** .5
@@ -243,10 +242,10 @@ class pdf_of_model(object):
             g_diff = g_obs - g_calc
 
             with open(self.pdf_sim_dir + '/pdf_dataNow.txt', 'w') as f:
-                f.write('radius \tg_exp \tg_calc \tg_diff \n' )
+                f.write('radius \tg_exp \tg_calc \tg_diff \n')
                 for i, item in enumerate(r):
-                    f.write(str(r[i])[:4] + '\t ' + str(g_obs[i])[:6] + '\t ' \
-                            + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6] \
+                    f.write(str(r[i])[:4] + '\t ' + str(g_obs[i])[:6] + '\t '
+                            + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6]
                             + ' \n')
 
             return fitted_params, (residual / 600) ** .5
@@ -277,13 +276,12 @@ class pdf_of_model(object):
         # load exp_pdf and temp_cif to PDF object
         PDF = self.get_PDF_obj()
         # fit params and get residual
-        if type=='opt_stretch':
+        if type == 'opt_stretch':
             residual = self.fit_and_residual(PDF, type=type)
             return residual
         else:
             fitted_params, residual = self.fit_and_residual(PDF, type=type)
             return fitted_params, residual
-
 
     def evaluate_obj(self, model):
         """
@@ -301,15 +299,15 @@ class pdf_of_model(object):
 
         # minimize the stretch_residual and fit best stretch
         opt_stretch = scipy.optimize.minimize_scalar(
-                                              self.get_stretch_residual,
-                                              bounds=(0.97, 1.05),
-                                              args=(model, 'opt_stretch'),
-                                              method='bounded'
-                                              )
+            self.get_stretch_residual,
+            bounds=(0.97, 1.05),
+            args=(model, 'opt_stretch'),
+            method='bounded'
+        )
 
         # Get final residual and fitted params for the record
         fitted_params, final_res = self.get_stretch_residual(opt_stretch.x,
-                                                                  model)
+                                                             model)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
@@ -329,6 +327,7 @@ class gb_ingrained(object):
     """
     Uses "ingrained" module to make the simulated TEM image of the model
     """
+
     def __init__(self, gb_ingrained_params):
         """
         the gb_ingrained_params is a dictionary of the user-provided
@@ -351,27 +350,27 @@ class gb_ingrained(object):
         self.main_path = gb_ingrained_params['main_path']
         self.init_gb_path = gb_ingrained_params['init_gb_path']
         if not self.init_gb_path:
-            print ('Provide path to ingrained optimized initial '
-                        'grain boundary structure')
+            print('Provide path to ingrained optimized initial '
+                  'grain boundary structure')
 
         # get either progress_file or ing_opt_params from input
         self.progress_file = gb_ingrained_params['progress_file']
         self.opt_params = gb_ingrained_params['ing_opt_params']
         if not self.progress_file and not self.opt_params:
-            print ('Provide ingrained optimization progress as progress_file'
-                    ' or sim params of optimized solution')
+            print('Provide ingrained optimization progress as progress_file'
+                  ' or sim params of optimized solution')
 
         self.dm3_path = gb_ingrained_params['dm3_path']
         if not self.dm3_path:
-            print ('Provide path (dm3_path) to experimental image')
+            print('Provide path (dm3_path) to experimental image')
 
         # Prepare experimental image (make sure this procedure matches the procedure in 'run.py')
         image_data = iop.image_open(self.dm3_path)
         exp_img = iop.apply_rotation(
-                            image_data['Pixels'],1)[271-10:783+10,0:520]
+            image_data['Pixels'], 1)[271-10:783+10, 0:520]
         exp_img = iop.scale_pixels(exp_img, mode='rescale')
-        exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5,1300)
-        exp_img = equalize_adapthist(exp_img ,clip_limit=0.005)
+        exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
+        exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
 
         bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
         congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
@@ -379,12 +378,12 @@ class gb_ingrained(object):
         # Get solutions from text file
         if self.progress_file:
             progress = np.genfromtxt(self.progress_file, delimiter=',')
-            best_idx = int(np.argmin(progress[:,-1]))
+            best_idx = int(np.argmin(progress[:, -1]))
             x = progress[best_idx]
             xfit = x[1:-1]
             xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
 
-        #TODO: Find why we set self.opt_params[1] = 0
+        # TODO: Find why we set self.opt_params[1] = 0
         if not self.opt_params:
             self.opt_params = xfit.copy()
             self.opt_params[1] = 0
@@ -392,7 +391,7 @@ class gb_ingrained(object):
             xfit = self.opt_params.copy()
 
         sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
-                            congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+            congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
 
         sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
 
@@ -403,7 +402,8 @@ class gb_ingrained(object):
         # Load prev_whole_exp.npy that is from the LAMMPS runs
         exp_prev = np.load('prev_whole_exp.npy')
         # in y & x directions # TODO: remove hard-coded values
-        exp_patch_for_vasp = exp_prev[152:279, 12:]
+        #exp_patch_for_vasp = exp_prev[152:279, 12:]
+        exp_patch_for_vasp = exp_prev
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
@@ -423,7 +423,7 @@ class gb_ingrained(object):
         bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
         # Simulate an image
         im_model, __ = bicrys_model.simulate_image(sim_params=self.opt_params)
-        np.save(relax_path + '/model_sim.npy',im_model)
+        np.save(relax_path + '/model_sim.npy', im_model)
 
         # im_model = im_model[132:300] # TODO: remove hard-coded values
         try:
@@ -431,7 +431,7 @@ class gb_ingrained(object):
         except ValueError:
             im_model, im_ref = self.crop_dims(im_model, self.im_ref)
             score = iop.score_ssim(im_model, im_ref)
-            print ('Adjusted image dimensions for model {}'.format(model.label))
+            print('Adjusted image dimensions for model {}'.format(model.label))
 
         filename = relax_path+"/gb_im_model.jpg"
         cv2.imwrite(filename, im_model)
@@ -439,7 +439,7 @@ class gb_ingrained(object):
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
         if model.Xsim1 == 'GB_STEM':
-            model.obj1_val = float((score)*100) # Minimizing the obj vals
+            model.obj1_val = float((score)*100)  # Minimizing the obj vals
         elif model.Xsim2 == 'GB_STEM':
             model.obj2_val = float((score)*100)
         elif model.Xsim3 == 'GB_STEM':
@@ -448,6 +448,34 @@ class gb_ingrained(object):
             model.obj4_val = float((score)*100)
 
         return model, score
+
+    def evaluate_obj_two_models(self, model_one, model_two):
+        '''
+        This function calculates the SSIM for the STEM images of two models.
+        '''
+        relax_path_one = self.main_path + '/calcs/' + \
+            str(model_one.label) + '/relax'
+        relax_path_two = self.main_path + '/calcs/' + \
+            str(model_two.label) + '/relax'
+
+        # Load simulated images
+        im_one = np.load(relax_path_one + '/model_sim.npy')
+        im_two = np.load(relax_path_two + '/model_sim.npy')
+
+        cropped_im_one = im_one[177:259, :]  # expanded from 197:239
+        cropped_im_two = im_two[177:259, :]
+
+        # Calculate score
+        try:
+            score = iop.score_ssim(cropped_im_one, cropped_im_two)
+        except ValueError:
+            cropped_im_one, cropped_im_two = self.crop_dims(
+                cropped_im_one, cropped_im_two)
+            score = iop.score_ssim(cropped_im_one, cropped_im_two)
+            print(
+                f'Adjusted image dimensions for models {model_one.label} and {model_two.label}')
+
+        return float((score) * 100)
 
     def crop_dims(self, img, ref):
         """
@@ -468,14 +496,14 @@ class gb_ingrained(object):
         diff_pix_x = img.shape[0] - ref.shape[0]
         diff_pix_y = img.shape[1] - ref.shape[1]
 
-        if diff_pix_x < 0: # img is smaller & ref should be cropped
-            ref = ref[floor(-1*diff_pix_x/2) : floor(diff_pix_x/2), :]
-        elif diff_pix_x > 0: # ref is smaller & img should be cropped
-            img = img[floor(diff_pix_x/2) : floor(-1*diff_pix_x/2), :]
+        if diff_pix_x < 0:  # img is smaller & ref should be cropped
+            ref = ref[floor(-1*diff_pix_x/2): floor(diff_pix_x/2), :]
+        elif diff_pix_x > 0:  # ref is smaller & img should be cropped
+            img = img[floor(diff_pix_x/2): floor(-1*diff_pix_x/2), :]
 
-        if diff_pix_y < 0: # img is smaller & ref should be cropped
-            ref = ref[:, floor(-1*diff_pix_y/2) : floor(diff_pix_y/2)]
-        if diff_pix_y > 0: # ref is smaller & img should be cropped
-            img = img[:, floor(diff_pix_y/2) : floor(-1*diff_pix_y/2)]
+        if diff_pix_y < 0:  # img is smaller & ref should be cropped
+            ref = ref[:, floor(-1*diff_pix_y/2): floor(diff_pix_y/2)]
+        if diff_pix_y > 0:  # ref is smaller & img should be cropped
+            img = img[:, floor(diff_pix_y/2): floor(-1*diff_pix_y/2)]
 
         return img, ref

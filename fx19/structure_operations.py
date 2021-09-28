@@ -21,9 +21,11 @@ import random
 import copy
 import math
 from math import asin, cos, sqrt, tan, pi
+from os.path import exists
 
 from fx19 import structure_record
 from fx19 import distance_check as dc
+import traceback
 
 
 class Evolve(object):
@@ -511,7 +513,7 @@ class mating(object):
             coords_to_add = coords_to_add + translate
 
         if dc.satisfies_all_dists(coords_to_add, child, self.element_syms,
-                          self.min_dist_dict, new_carts_species=specie_to_add):
+                                  self.min_dist_dict, new_carts_species=specie_to_add):
             child.append(specie_to_add, coords_to_add,
                          coords_are_cartesian=True)
             return True
@@ -641,7 +643,7 @@ class mating(object):
                     continue
                 # Check distance and replace with new coords
                 if dc.satisfies_all_dists(new_cart, child, self.element_syms,
-                                    self.min_dist_dict, atom_index_in_astr=i):
+                                          self.min_dist_dict, atom_index_in_astr=i):
                     child.replace(i, species[i], new_cart,
                                   coords_are_cartesian=True)
                     replaced = True
@@ -707,13 +709,13 @@ class basinhopping(object):
                 self.max_perturbation = basinhopping_params['max_perturbation']
 
         # maximum diameter and box lattice parameters of the cluster (geometry)
-        if shape == 'cluster':
+        if self.shape == 'cluster':
             self.max_dia = basinhopping_params['max_dia']  # default is 8 Å
             self.box_abc = np.array(
                 basinhopping_params['box_abc'])  # default a=b=c=20 Å
 
     def perturb_sites(self, select, pool, surface_thickness=None,
-                                    model_id=None):
+                      model_id=None):
         """
         Displaces atoms in a parent (cluster or gb_iface) using uniform
         distribution
@@ -726,8 +728,8 @@ class basinhopping(object):
         """
         if self.shape == 'surface':
             return self.perturb_surface(select, pool,
-                                       surface_thickness=surface_thickness,
-                                       model_id=None)
+                                        surface_thickness=surface_thickness,
+                                        model_id=None)
 
         indices_fraction = self.indices_fraction
         if model_id is None:
@@ -736,7 +738,8 @@ class basinhopping(object):
             parent = copy.deepcopy(parent_model)
             inheritance = [parent.label]
         else:
-            for model in pool.good_pool:
+            # for model in pool.good_pool:
+            for model in pool.population.models:
                 if model.label == model_id:
                     parent = copy.deepcopy(model)
                     inheritance = [parent.label]
@@ -784,10 +787,10 @@ class basinhopping(object):
                         replaced = True
                         num_perturbed += 1
                 if self.shape == 'gb' and dc.satisfies_all_dists(new_cart,
-                                                          parent.gb_iface,
-                                                          self.element_syms,
-                                                          self.min_dist_dict,
-                                                          atom_index_in_astr=i):
+                                                                 parent.gb_iface,
+                                                                 self.element_syms,
+                                                                 self.min_dist_dict,
+                                                                 atom_index_in_astr=i):
                     parent.gb_iface.replace(i, species[i], new_cart,
                                             coords_are_cartesian=True)
                     replaced = True
@@ -832,8 +835,8 @@ class basinhopping(object):
         parent_carts = parent.astr.cart_coords
         parent_species = parent.astr.species
         max_z_cart = parent_carts[:, 2].max()
-        surface_inds = [i for i, site in enumerate(parent.astr.sites) \
-                            if max_z_cart - site.coords[2] < surface_thickness]
+        surface_inds = [i for i, site in enumerate(parent.astr.sites)
+                        if max_z_cart - site.coords[2] < surface_thickness]
 
         # Get surface_fracs to perturb
         total_surface_atoms = len(surface_inds)
@@ -854,16 +857,16 @@ class basinhopping(object):
                 tries += 1
                 # Max perturbation is in Å
                 radius = self.max_perturbation
-                if tries > 50: # try to move somewhere below max_perturb
+                if tries > 50:  # try to move somewhere below max_perturb
                     radius = unif(0.09, self.max_perturbation)
                 perturb = self.get_point_on_sphere(radius)
                 new_cart = one_coords + perturb
 
                 # check if the new coords satisfies min & max dists
                 if dc.satisfies_all_dists(new_cart, parent.astr,
-                                     self.element_syms, self.min_dist_dict,
-                                     max_dist_dict=self.max_dist_dict,
-                                     atom_index_in_astr=atom_index_in_parent):
+                                          self.element_syms, self.min_dist_dict,
+                                          max_dist_dict=self.max_dist_dict,
+                                          atom_index_in_astr=atom_index_in_parent):
                     parent.astr.replace(atom_index_in_parent,
                                         parent_species[atom_index_in_parent],
                                         new_cart, coords_are_cartesian=True)
@@ -943,6 +946,8 @@ class gb_ops(object):
         if 'slice_axes' in str_constraints:
             self.slice_axes = str_constraints['slice_axes']
 
+        print(f"Hopping mate frac is: {self.hop_mate_frac}")
+
         # num_species is taken from species_dict from structure_record
         self.num_species = str_constraints['num_species']
 
@@ -1020,8 +1025,8 @@ class gb_ops(object):
         # create an astr with only atoms near gb iface from hollow gb
         # get inds of atoms near gb iface within max of min bond dists
         max_of_min_dists = max(self.min_dist_dict.values())
-        half_zrange = ((self.iface_thickness + 2*max_of_min_dists) \
-                                    / (self.init_gb_astr.lattice.c * 2))
+        half_zrange = ((self.iface_thickness + 2*max_of_min_dists)
+                       / (self.init_gb_astr.lattice.c * 2))
         min_z_t = self.iface_z_mid + half_zrange
         max_z_b = self.iface_z_mid - half_zrange
 
@@ -1187,7 +1192,6 @@ class gb_ops(object):
         axis: (int) axis along which to make slices (0, 1, 2 for x, y and z)
         """
 
-
         # sorted_sites = sorted(sites, key=lambda x: x.coords[axis])
         # axis_min, axis_max = sites[0].frac_coords[axis], \
         #                         sites[-1].frac_coords[axis]
@@ -1293,8 +1297,9 @@ class gb_ops(object):
             if dc.satisfies_all_dists(add_carts[i], astr_for_dist_check,
                                       self.element_syms, self.min_dist_dict,
                                       new_carts_species=add_sps[i]):
-                new_gb.append(add_sps[i], add_carts[i], coords_are_cartesian=True)
-            else: # try to perturb the atom coords by self.max_perturbation
+                new_gb.append(add_sps[i], add_carts[i],
+                              coords_are_cartesian=True)
+            else:  # try to perturb the atom coords by self.max_perturbation
                 replaced = False
                 tries = 0
                 while not replaced and tries < 100:
@@ -1307,7 +1312,7 @@ class gb_ops(object):
                                               self.element_syms, self.min_dist_dict,
                                               new_carts_species=add_sps[i]):
                         new_gb.append(add_sps[i], new_cart,
-                                            coords_are_cartesian=True)
+                                      coords_are_cartesian=True)
                         replaced = True
 
         # for sites in new_gb with no sd_flags, add [False, False, False]
@@ -1513,19 +1518,21 @@ class gb_ops(object):
 
         return new_str.get_sorted_structure()
 
-    def mate(self, select, pool):
+    def mate(self, select, pool, same_cluster=None):
         """
         Takes 2 parents and mates them
 
         Args:
         select (obj): Select object
         pool (obj): Pool object
+        same_cluster (bool): Whether to mate from same cluster or not.
+                            If None, then ignored.
 
         Returns child gb structure, method used as string
         """
         # get two parents
         num_parents = 2
-        parents = select.get_parents(pool, num_parents)
+        parents = select.get_parents(pool, num_parents, same_cluster)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
         # choose axis to slice
@@ -1568,6 +1575,7 @@ class gb_ops(object):
 
         gb_model = structure_record.model(gb_iface, reg_id)
         gb_model.inheritance = 'random'
+        gb_model.made_by = 'random'
 
         return gb_model
 
@@ -1589,16 +1597,32 @@ class gb_ops(object):
         hop = self.hop
 
         do_hop = False
-        if random.random() <= hop.hop_mate_frac:
+        if random.random() <= self.hop_mate_frac:
             do_hop = True
 
         correct_comp = False
         tries = 0
+        if do_hop:
+            parent_model = select.get_a_parent(pool)
+            model_copy = copy.deepcopy(parent_model)
+            model_astr = model_copy.astr
+            model_astr.sort()
+            trial_comp = self.gb_iface_comp_check(model_astr)
+            id = parent_model.label
+            # filename = f"/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/{id}.gb_iface_cart_coords.txt"
+            # if not exists(filename):
+            #     np.savetxt(filename, parent_model.gb_iface.cart_coords,
+            #                delimiter=", ")
+            #     filename = f"/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/{id}.cart_coords.txt"
+            #     np.savetxt(filename, parent_model.astr.cart_coords,
+            #                delimiter=", ")
         while correct_comp is False and tries <= 10:
+            # print(
+            #     f"Trying to get model via do_hop={do_hop}: attempt {tries + 1}")
             try:
                 if do_hop:
                     perturbed_iface, inheritance = hop.perturb_sites(
-                        select, pool, gb=True)
+                        select, pool, model_id=id)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     maker = 'perturb_sites'
@@ -1606,6 +1630,13 @@ class gb_ops(object):
                     new_astr, inheritance = self.mate(select, pool)
                     maker = 'fraction_slice'
             except:
+                if do_hop:
+                    parent_model = select.get_a_parent(pool)
+                    model_copy = copy.deepcopy(parent_model)
+                    model_astr = model_copy.astr
+                    model_astr.sort()
+                    trial_comp = self.gb_iface_comp_check(model_astr)
+                    id = parent_model.label
                 continue
             if new_astr is None:
                 continue
@@ -1625,10 +1656,117 @@ class gb_ops(object):
         new_model.inheritance = inheritance
         new_model.made_by = maker
 
-        if not correct_comp:
-            print ('Adjusted the composition of model {}'.format(new_model.label))
+        print(
+            f"New model {new_model.label} inheritance is: {new_model.inheritance}")
 
-        #print ('New model made using {} method on parent models {}'.format(
+        if not correct_comp:
+            print('Adjusted the composition of model {}'.format(new_model.label))
+
+        # print ('New model made using {} method on parent models {}'.format(
+        #                                    maker, inheritance))
+
+        return new_model
+
+    def get_model_auto_adaptive(self, select, pool, reg_id):
+        """
+        The name of this function is set to get_model() to match with the
+        similar model in 'evolve' class.
+
+        A wrapper around the fraction_slice() and
+        join_slices_to_mold() functions
+
+        Args:
+        select (obj): Select object
+        pool (obj): Pool object
+        reg_id (obj): register_id object
+
+        Returns a new gb model object
+        """
+
+        hop = self.hop
+        print(f"Operator frequencies: {select.operator_frequencies}")
+        operator = np.random.choice(
+            select.operators, p=select.operator_frequencies)
+        print(f"Chosen operator: {operator}")
+
+        # do_hop = False
+        # if random.random() <= self.hop_mate_frac:
+        #     do_hop = True
+
+        correct_comp = False
+        tries = 0
+        if operator == "perturb_sites":
+            parent_model = select.get_a_parent(pool)
+            model_copy = copy.deepcopy(parent_model)
+            model_astr = model_copy.astr
+            model_astr.sort()
+            trial_comp = self.gb_iface_comp_check(model_astr)
+            id = parent_model.label
+            # filename = f"/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/{id}.gb_iface_cart_coords.txt"
+            # if not exists(filename):
+            #     np.savetxt(filename, parent_model.gb_iface.cart_coords,
+            #                delimiter=", ")
+            #     filename = f"/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/{id}.cart_coords.txt"
+            #     np.savetxt(filename, parent_model.astr.cart_coords,
+            #                delimiter=", ")
+        while correct_comp is False and tries <= 10:
+            # print(
+            #     f"Trying to get model via do_hop={do_hop}: attempt {tries + 1}")
+            try:
+                if operator == "perturb_sites":
+                    perturbed_iface, inheritance = hop.perturb_sites(
+                        select, pool, model_id=id)
+                    self.move_coords_inside(perturbed_iface)
+                    new_astr = self.grain_implant(perturbed_iface)
+                    maker = 'perturb_sites'
+                elif operator == "fraction_slice_same_cluster":  # Do gb_ops_obj.mate()
+                    new_astr, inheritance = self.mate(
+                        select, pool, same_cluster=True)
+                    maker = 'fraction_slice_same_cluster'
+                elif operator == "fraction_slice_dif_cluster":  # Do gb_ops_obj.mate()
+                    new_astr, inheritance = self.mate(
+                        select, pool, same_cluster=False)
+                    maker = 'fraction_slice_dif_cluster'
+                elif operator == "fraction_slice":
+                    new_astr, inheritance = self.mate(
+                        select, pool)
+                    maker = 'fraction_slice'
+            except:
+                print("Exception!")
+                traceback.print_exc()
+                if operator == "perturb_sites":
+                    parent_model = select.get_a_parent(pool)
+                    model_copy = copy.deepcopy(parent_model)
+                    model_astr = model_copy.astr
+                    model_astr.sort()
+                    trial_comp = self.gb_iface_comp_check(model_astr)
+                    id = parent_model.label
+                continue
+            if new_astr is None:
+                continue
+            if any(np.isnan(new_astr.cart_coords.flatten())):
+                continue
+            new_astr.sort()
+            # update tries for every new_gb created (when reaches this point)
+            tries += 1
+            correct_comp = self.gb_iface_comp_check(new_astr)
+
+        # Adjust composition after 10 failed attempts
+        if not correct_comp:
+            rem_inds = self.get_rem_inds(new_astr)
+            new_astr.remove_sites(rem_inds)
+
+        new_model = structure_record.model(new_astr, reg_id)
+        new_model.inheritance = inheritance
+        new_model.made_by = maker
+
+        print(
+            f"New model {new_model.label} inheritance is: {new_model.inheritance}")
+
+        if not correct_comp:
+            print('Adjusted the composition of model {}'.format(new_model.label))
+
+        # print ('New model made using {} method on parent models {}'.format(
         #                                    maker, inheritance))
 
         return new_model
@@ -1680,12 +1818,14 @@ class gb_ops(object):
 
         return correct_comp
 
+
 class surface_ops(object):
     """
     Contains all the functions related to the structure manipulation of
     surface searches of a slab. Inclues both for initial population and
     mating and basinhopping.
     """
+
     def __init__(self, hop, surface_ops_params):
         """
         Args:
@@ -1721,21 +1861,21 @@ class surface_ops(object):
         """
         # Treat substrates differently based on their areas
         if 'init_slabs_dict' not in surface_ops_params:
-            print ("Error: Please provide path to initial surface "
-                   "configuration slabs as init_slabs_dict")
+            print("Error: Please provide path to initial surface "
+                  "configuration slabs as init_slabs_dict")
         else:
             self.init_slabs_dict = surface_ops_params['init_slabs_dict']
 
-        self.surface_thickness = 1 # in Å
+        self.surface_thickness = 1  # in Å
         if 'surface_thickness' in surface_ops_params:
             self.surface_thickness = surface_ops_params['surface_thickness']
 
-        self.substrate_thickness = 10 # in Å
+        self.substrate_thickness = 10  # in Å
         if 'substrate_thickness' in surface_ops_params:
             self.substrate_thickness = surface_ops_params['substrate_thickness']
 
         # separation between surface layer bottom z and substrate top z
-        self.separation = 2 # Å
+        self.separation = 2  # Å
         if 'separation' in surface_ops_params:
             self.separation = surface_ops_params['separation']
 
@@ -1747,7 +1887,7 @@ class surface_ops(object):
         if 'sd_no_z' in surface_ops_params:
             self.sd_no_z = surface_ops_params['sd_no_z']
 
-        self.sd_cut_off = self.substrate_thickness # default freeze substrate
+        self.sd_cut_off = self.substrate_thickness  # default freeze substrate
         if 'sd_cut_off' in surface_ops_params:
             self.sd_cut_off = surface_ops_params['sd_cut_off']
 
@@ -1769,7 +1909,7 @@ class surface_ops(object):
         # Add basinhopping object (hop) as an attribute for convenience
         self.hop = hop
         # basinhopping vs mating fraction
-        self.hop_mate_frac = 0.3 # 30% hop, 70% mate
+        self.hop_mate_frac = 0.3  # 30% hop, 70% mate
         if 'hop_mate_frac' in surface_ops_params:
             self.hop_mate_frac = surface_ops_params['hop_mate_frac']
 
@@ -1794,14 +1934,14 @@ class surface_ops(object):
         slab_sites = slab_astr.sites
         z_cart_max = slab_astr.cart_coords[:, 2].max()
 
-        surface_sites = [site for site in slab_sites if \
-                        site.coords[2] > (z_cart_max - surface_thickness)]
-        z_carts = np.unique([site.coords[2] for site in surface_sites \
-                        if site.specie.name == element_syms[species_id]])
+        surface_sites = [site for site in slab_sites if
+                         site.coords[2] > (z_cart_max - surface_thickness)]
+        z_carts = np.unique([site.coords[2] for site in surface_sites
+                             if site.specie.name == element_syms[species_id]])
 
         if len(z_carts) == 0:
-            print ('{} atoms are not present in the surface layer '
-                    'of init_slab_astr'.format(element_syms[species_id]))
+            print('{} atoms are not present in the surface layer '
+                  'of init_slab_astr'.format(element_syms[species_id]))
         added = False
         for k in species_dict.keys():
             if species_dict[k]['name'] == element_syms[species_id]:
@@ -1822,7 +1962,7 @@ class surface_ops(object):
         num_species (int): The number of atoms for the species (or z-
                            coordinates required)
         """
-        #TODO: Add a tolerance parameter to slightly vary z-coords
+        # TODO: Add a tolerance parameter to slightly vary z-coords
         species_dict = self.species_dict
         num_species = atoms_per_species[species_name]
 
@@ -1882,13 +2022,13 @@ class surface_ops(object):
         # Get substrate from the slab_astr
         bot_z_cart = slab_astr.cart_coords[:, 2].min()
         slab_sites = slab_astr.sites
-        sub_inds = [i for i, site in enumerate(slab_sites) if \
-                        site.coords[2] - bot_z_cart <= self.substrate_thickness]
+        sub_inds = [i for i, site in enumerate(slab_sites) if
+                    site.coords[2] - bot_z_cart <= self.substrate_thickness]
 
         sub_sps = [slab_astr.species[i] for i in sub_inds]
         sub_fracs = [slab_astr.frac_coords[i] for i in sub_inds]
         substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
-                                        coords_are_cartesian=False)
+                              coords_are_cartesian=False)
         return substrate
 
     def random_surface_layer(self, slab_astr):
@@ -1941,15 +2081,15 @@ class surface_ops(object):
             for key in self.element_syms.keys():
                 self.init_zs_to_species_dict(slab_astr, key)
             z_carts = self.get_zs_for_species(element_syms[1],
-                                                atoms_per_species)
+                                              atoms_per_species)
 
         # Add random coords for species 1
         num_sp1_needed = atoms_per_species[element_syms[1]]
         min_dist = self.min_dist_dict['sp1_sp1']
         max_dist = self.max_dist_dict['sp1_sp1']
         sp1_random_coords = self.get_random_coords_for_species(
-                                        num_sp1_needed, lattice, min_dist,
-                                        max_dist=max_dist, z_carts=z_carts)
+            num_sp1_needed, lattice, min_dist,
+            max_dist=max_dist, z_carts=z_carts)
         sps = [element_syms[1] for i in range(len(sp1_random_coords))]
         coords = sp1_random_coords
 
@@ -1964,25 +2104,25 @@ class surface_ops(object):
             sp2_z_carts = None
             if self.constrain_z:
                 sp2_z_carts = self.get_zs_for_species(element_syms[2],
-                                                        atoms_per_species)
-                if len(sp2_z_carts) == 0: # use random when 0
+                                                      atoms_per_species)
+                if len(sp2_z_carts) == 0:  # use random when 0
                     sp2_z_carts = None
 
             if species_dict['species2']['bonds_to'] is None:
                 # Get random coords for species 2 as well
                 sp2_frac_coords = self.get_secondary_random_coords(
-                                            num_sp2_needed, lattice,
-                                            sp1_random_coords, min_dist_12,
-                                            min_dist_22, z_carts=sp2_z_carts)
+                    num_sp2_needed, lattice,
+                    sp1_random_coords, min_dist_12,
+                    min_dist_22, z_carts=sp2_z_carts)
             elif species_dict['species2']['bonds_to'] == 1:
                 # Get connected coords for species 2
                 sp2_frac_coords = self.get_connected_coords(
-                                            num_sp2_needed, lattice,
-                                            sp1_random_coords, min_dist_12,
-                                            max_dist_12, min_dist_22,
-                                            connected_z_carts=sp2_z_carts)
+                    num_sp2_needed, lattice,
+                    sp1_random_coords, min_dist_12,
+                    max_dist_12, min_dist_22,
+                    connected_z_carts=sp2_z_carts)
             else:
-                print ("Error: Species2 'bonds_to' should be either None or 1")
+                print("Error: Species2 'bonds_to' should be either None or 1")
             sps += [element_syms[2] for i in range(len(sp2_frac_coords))]
             coords += sp2_frac_coords
 
@@ -1997,39 +2137,39 @@ class surface_ops(object):
             sp3_z_carts = None
             if self.constrain_z:
                 sp3_z_carts = self.get_zs_for_species(element_syms[3],
-                                                        atoms_per_species)
-                if len(sp3_z_carts) == 0: # use random when 0
+                                                      atoms_per_species)
+                if len(sp3_z_carts) == 0:  # use random when 0
                     sp3_z_carts = None
 
             if species_dict['species3']['bonds_to'] is None:
                 # Get random coords for species 2 as well
                 sp3_frac_coords = self.get_secondary_random_coords(
-                                            num_sp3_needed, lattice,
-                                            sp1_random_coords, min_dist_13,
-                                            min_dist_33,
-                                            other_min_dist=min_dist_23,
-                                            other_frac_coords=sp2_frac_coords,
-                                            z_carts=sp3_z_carts)
+                    num_sp3_needed, lattice,
+                    sp1_random_coords, min_dist_13,
+                    min_dist_33,
+                    other_min_dist=min_dist_23,
+                    other_frac_coords=sp2_frac_coords,
+                    z_carts=sp3_z_carts)
 
             elif species_dict['species2']['bonds_to'] == 1:
                 # Get connected coords for species 2
                 sp3_frac_coords = self.get_connected_coords(
-                                            num_sp3_needed, lattice,
-                                            sp1_random_coords, min_dist_13,
-                                            max_dist_13, min_dist_33,
-                                            connected_z_carts=sp3_z_carts)
+                    num_sp3_needed, lattice,
+                    sp1_random_coords, min_dist_13,
+                    max_dist_13, min_dist_33,
+                    connected_z_carts=sp3_z_carts)
                 # TODO: Here 2, 3 bond distances are not checked
 
             elif species_dict['species2']['bonds_to'] == 2:
                 # Get connected coords for species 2
                 sp3_frac_coords = self.get_connected_coords(
-                                            num_sp3_needed, lattice,
-                                            sp2_frac_coords, min_dist_23,
-                                            max_dist_23, min_dist_33,
-                                            connected_z_carts=sp3_z_carts)
+                    num_sp3_needed, lattice,
+                    sp2_frac_coords, min_dist_23,
+                    max_dist_23, min_dist_33,
+                    connected_z_carts=sp3_z_carts)
                 # TODO: Here 1, 3 bond distances are not checked
             else:
-                print ("Error: Species3 'bonds_to' should be either None/1/2")
+                print("Error: Species3 'bonds_to' should be either None/1/2")
             sps += [element_syms[3] for i in range(len(sp3_frac_coords))]
             coords += sp3_frac_coords
 
@@ -2055,12 +2195,12 @@ class surface_ops(object):
         # Get substrate from the slab_astr
         #bot_z_cart = slab_astr.cart_coords[:, 2].min()
         #slab_sites = slab_astr.sites
-        #sub_inds = [i for i, site in enumerate(slab_sites) if \
+        # sub_inds = [i for i, site in enumerate(slab_sites) if \
         #              site.coords[2] - bot_z_cart <= self.substrate_thickness]
 
         #sub_sps = [slab_astr.species[i] for i in sub_inds]
         #sub_fracs = [slab_astr.frac_coords[i] for i in sub_inds]
-        #substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
+        # substrate = Structure(slab_astr.lattice, sub_sps, sub_fracs,
         #                                coords_are_cartesian=False)
 
         # Get the surface layer size of the slab
@@ -2076,7 +2216,7 @@ class surface_ops(object):
         # Add the surface atoms to substrate
         for i in range(len(new_surface_carts)):
             substrate.append(surface_layer.species[i], new_surface_carts[i],
-                                            coords_are_cartesian=True)
+                             coords_are_cartesian=True)
 
         surf_model = structure_record.model(substrate, reg_id)
         surf_model.inheritance = 'random'
@@ -2095,11 +2235,11 @@ class surface_ops(object):
                 if random.random() <= self.hop_mate_frac:
                     # basinhopping
                     perturbed_slab, inheritance = hop.perturb_sites(select,
-                                pool, surface_thickness=self.surface_thickness)
+                                                                    pool, surface_thickness=self.surface_thickness)
                     self.move_coords_inside(perturbed_slab)
                     new_astr = perturbed_slab
                     maker = 'perturb_sites'
-                else: # mating
+                else:  # mating
                     new_astr, inheritance = self.mate(select, pool)
                     maker = 'fraction_slice'
             except:
@@ -2133,7 +2273,7 @@ class surface_ops(object):
         for k in species_dict.keys():
             name = species_dict[k]['name']
             num_atoms = random.randint(species_dict[k]['min_num'],
-                                            species_dict[k]['max_num'])
+                                       species_dict[k]['max_num'])
             atoms_per_species[name] = num_atoms
 
         # if comp_dict is given, get the num atoms for other species
@@ -2150,8 +2290,8 @@ class surface_ops(object):
             fixed_num = atoms_per_species[fixed_sps]
 
             for species in all_species:
-                atoms_per_species[species] = int(fixed_num * \
-                                    comp_dict[species] / comp_dict[fixed_sps])
+                atoms_per_species[species] = int(fixed_num *
+                                                 comp_dict[species] / comp_dict[fixed_sps])
 
         return atoms_per_species
 
@@ -2247,7 +2387,7 @@ class surface_ops(object):
         if z_carts is not None:
             z_fracs = np.array(z_carts) / lattice.c
             if len(z_fracs) != num_coords_needed:
-                print ("Error: Z-carts not present for all coords!")
+                print("Error: Z-carts not present for all coords!")
 
         secondary_coords = []
         while num_added < num_coords_needed and tries < 1000:
@@ -2259,15 +2399,15 @@ class surface_ops(object):
 
             add_new_carts = True
             if not len(lattice.get_points_in_sphere(primary_frac_coords,
-                                                new_carts, min_dist_12)) == 0:
+                                                    new_carts, min_dist_12)) == 0:
                 add_new_carts = False
             if not len(secondary_coords) == 0:
                 if not len(lattice.get_points_in_sphere(secondary_coords,
-                                                new_carts, min_dist_22)) == 0:
+                                                        new_carts, min_dist_22)) == 0:
                     add_new_carts = False
             if other_min_dist is not None and other_frac_coords is not None:
                 if not len(lattice.get_points_in_sphere(other_frac_coords,
-                                        new_carts, other_min_dist)) == 0:
+                                                        new_carts, other_min_dist)) == 0:
                     add_new_carts = False
             if add_new_carts:
                 secondary_coords.append(new_fracs)
@@ -2323,22 +2463,22 @@ class surface_ops(object):
                 # Get the xy on the circle which satisfy the distance
                 bond_dist = unif(min_dist_12, max_dist_12)
                 new_carts = self.get_point_on_circle(center_carts, bond_dist,
-                                                    new_coord_z_cart)
+                                                     new_coord_z_cart)
                 # Check if the new point satisfies all minimum distance constraints
                 if len(lattice.get_points_in_sphere(fixed_coords, new_carts,
-                                                            min_dist_12)) == 0:
+                                                    min_dist_12)) == 0:
                     if len(connected_coords) == 0:
                         new_fracs = lattice.get_fractional_coords(new_carts)
                         connected_coords.append(new_fracs)
-                        print (tries)
+                        print(tries)
                         tries = 0
                         found_coord = True
                         continue
                     if len(lattice.get_points_in_sphere(connected_coords, new_carts,
-                                                            min_dist_22)) == 0:
+                                                        min_dist_22)) == 0:
                         new_fracs = lattice.get_fractional_coords(new_carts)
                         connected_coords.append(new_fracs)
-                        print (tries)
+                        print(tries)
                         tries = 0
                         found_coord = True
             if not found_coord:
@@ -2357,9 +2497,9 @@ class surface_ops(object):
                 new_fracs[2] = skipped_z_fracs[num_added]
                 new_carts = lattice.get_cartesian_coords(new_fracs)
                 if len(lattice.get_points_in_sphere(fixed_coords,
-                                                new_carts, min_dist_12)) == 0:
+                                                    new_carts, min_dist_12)) == 0:
                     if len(lattice.get_points_in_sphere(connected_coords,
-                                                new_carts, min_dist_22)) == 0:
+                                                        new_carts, min_dist_22)) == 0:
                         connected_coords.append(new_fracs)
                         num_added += 1
                         tries = 0
@@ -2389,7 +2529,7 @@ class surface_ops(object):
         # Get a random x within x_min and x_max (x1 +- r_horz)
         x = unif(center_carts[0] - r_horz, center_carts[0] + r_horz)
         # Calculate y to satisfy the equation of circle
-        solution = sqrt(radius**2 - (center_carts[0] - x) ** 2 - \
+        solution = sqrt(radius**2 - (center_carts[0] - x) ** 2 -
                         (center_carts[2] - z_cart) ** 2)
 
         if random.random() < 0.5:
@@ -2420,14 +2560,14 @@ class surface_ops(object):
         new_carts = new_astr.cart_coords
         # all_species = new_astr.species
         bot_z_cart = new_carts[:, 2].min()
-        surface_inds = [i for i, site in enumerate(new_astr.sites) \
-                                      if site.coords[2] - bot_z_cart > \
-                                      self.substrate_thickness]
-        surface_species = [new_astr.sites[i].specie.name \
-                                      for i in surface_inds]
+        surface_inds = [i for i, site in enumerate(new_astr.sites)
+                        if site.coords[2] - bot_z_cart >
+                        self.substrate_thickness]
+        surface_species = [new_astr.sites[i].specie.name
+                           for i in surface_inds]
         surface_sites = [new_astr.sites[i] for i in surface_inds]
-        new_non_surf_inds = [i for i in range(len(new_carts)) \
-                                      if i not in surface_inds]
+        new_non_surf_inds = [i for i in range(len(new_carts))
+                             if i not in surface_inds]
         substrate_z_max = new_astr.cart_coords[new_non_surf_inds][:, 2].max()
 
         modified_surf_carts = []
@@ -2442,7 +2582,7 @@ class surface_ops(object):
                     new_z = random.choice(self.species_dict[key]['z_carts'])
                     break
             if new_z is None:
-                print ('Error: Surface site species not in species dict.')
+                print('Error: Surface site species not in species dict.')
 
             modified_carts = [current_carts[0], current_carts[1], new_z]
             modified_surf_carts.append(modified_carts)
@@ -2471,17 +2611,18 @@ class surface_ops(object):
         """
         # Get surface carts from the parent astr
         parent_sites = parent.astr.sites
-        bot_z_cart = parent.astr.cart_coords[:,2].min()
-        surface_inds = [i for i, site in enumerate(parent_sites) \
-                                      if site.coords[2] - bot_z_cart > \
-                                      self.substrate_thickness]
+        bot_z_cart = parent.astr.cart_coords[:, 2].min()
+        surface_inds = [i for i, site in enumerate(parent_sites)
+                        if site.coords[2] - bot_z_cart >
+                        self.substrate_thickness]
         surface_species = [parent_sites[i].specie.name for i in surface_inds]
-        surface_carts = np.array([parent_sites[i].coords for i in surface_inds])
+        surface_carts = np.array(
+            [parent_sites[i].coords for i in surface_inds])
 
         # Translate this bottom_left_xy to be (0, 0)
         surface_xys = surface_carts.T[0:2].T
         shift_xy = np.array([-surface_xys[:, 0].min(),
-                                    -surface_xys[:, 1].min()])
+                             -surface_xys[:, 1].min()])
         surface_xys = surface_xys + shift_xy
 
         # Get the point (x_max/2, y_max_2) & slope for the slicing 2D line
@@ -2491,22 +2632,22 @@ class surface_ops(object):
         # Get surface carts below line (for P1) and above line (for P2)
         below_inds, above_inds = [], []
         for i, xy in enumerate(surface_xys):
-            if xy[1] <= slope * (xy[0] - point[0]) + point [1]:
+            if xy[1] <= slope * (xy[0] - point[0]) + point[1]:
                 below_inds.append(i)
-            elif xy[1] >= slope * (xy[0] - point[0]) + point [1]:
+            elif xy[1] >= slope * (xy[0] - point[0]) + point[1]:
                 above_inds.append(i)
 
         below_xys = np.array([surface_xys[i] for i in below_inds])
         below_zs = np.array([surface_carts[i][2] for i in below_inds])
         below_sps = [surface_species[i] for i in below_inds]
         below_carts = np.concatenate((below_xys, below_zs.reshape(-1, 1)),
-                                                        axis=1)
+                                     axis=1)
 
         above_xys = np.array([surface_xys[i] for i in above_inds])
         above_zs = np.array([surface_carts[i][2] for i in above_inds])
         above_sps = [surface_species[i] for i in above_inds]
         above_carts = np.concatenate((above_xys, above_zs.reshape(-1, 1)),
-                                                        axis=1)
+                                     axis=1)
 
         return below_carts, below_sps, above_carts, above_sps
 
@@ -2541,7 +2682,7 @@ class surface_ops(object):
 
         # Do random translation on xy plane
         random_v = np.array([unif(0, parent1.astr.lattice.a),
-                                unif(0, parent1.astr.lattice.b), 0])
+                             unif(0, parent1.astr.lattice.b), 0])
         child_surf_carts = child_surf_carts + random_v
 
         # Place coords on top of substrate
@@ -2564,7 +2705,7 @@ class surface_ops(object):
                                       max_dist_dict=self.max_dist_dict,
                                       new_carts_species=child_surf_sps[i]):
                 substrate.append(child_surf_sps[i], child_surf_carts[i],
-                                            coords_are_cartesian=True)
+                                 coords_are_cartesian=True)
 
         # move all coords inside the lattice
         self.move_coords_inside(substrate)
@@ -2585,17 +2726,17 @@ class surface_ops(object):
 
         # Get surface carts from the slab astr
         slab_sites = astr.sites
-        bot_z_cart = astr.cart_coords[:,2].min()
-        non_surface_inds = [i for i, site in enumerate(slab_sites) \
-                                      if site.coords[2] - bot_z_cart < \
-                                      self.substrate_thickness]
+        bot_z_cart = astr.cart_coords[:, 2].min()
+        non_surface_inds = [i for i, site in enumerate(slab_sites)
+                            if site.coords[2] - bot_z_cart <
+                            self.substrate_thickness]
         astr.remove_sites(non_surface_inds)
 
         curr_comp = astr.composition.as_dict()
         target_comp = self.comp_dict
         # Check if the composition should be corrected
         if astr.composition.reduced_formula == \
-                        Composition(target_comp).reduced_formula:
+                Composition(target_comp).reduced_formula:
             return slab_astr
 
         curr_comp_arr = np.array(list(curr_comp.values()))
@@ -2613,18 +2754,18 @@ class surface_ops(object):
 
         rem_inds = []
         for i, key in enumerate(curr_comp.keys()):
-            if diff_atoms[i] < 0: # delete random atoms
+            if diff_atoms[i] < 0:  # delete random atoms
                 removed = 0
                 while removed < abs(diff_atoms[i]):
                     rem_i = random.randint(0, slab_astr.num_sites - 1)
                     if slab_sites[rem_i].specie.name == key:
                         rem_inds.append(rem_i)
                         removed += 1
-            elif diff_atoms[i] > 0: # add atoms randomly
+            elif diff_atoms[i] > 0:  # add atoms randomly
                 added = 0
                 while added < diff_atoms[i]:
                     new_fracs = [random.random(), random.random(),
-                                                    random.random()]
+                                 random.random()]
                     if self.constrain_z:
                         # set z from one of the existing atoms
                         rand_i = random.randint(0, slab_astr.num_sites - 1)
@@ -2632,12 +2773,12 @@ class surface_ops(object):
                             new_fracs[2] = slab_sites[rand_i].frac_coords[2]
                     new_carts = astr.lattice.get_cartesian_coords(new_fracs)
                     if dc.satisfies_all_dists(new_carts, slab_astr,
-                                          self.element_syms,
-                                          self.min_dist_dict,
-                                          max_dist_dict=self.max_dist_dict,
-                                          new_carts_species=key):
+                                              self.element_syms,
+                                              self.min_dist_dict,
+                                              max_dist_dict=self.max_dist_dict,
+                                              new_carts_species=key):
                         slab_astr.append(key, new_carts,
-                                          coords_are_cartesian=True)
+                                         coords_are_cartesian=True)
                         added += 1
         slab_astr.remove_sites(rem_inds)
         del astr
@@ -2659,10 +2800,10 @@ class surface_ops(object):
 
         # Get surface carts from the slab astr
         slab_sites = astr.sites
-        bot_z_cart = astr.cart_coords[:,2].min()
-        non_surface_inds = [i for i, site in enumerate(slab_sites) \
-                                      if site.coords[2] - bot_z_cart < \
-                                      self.substrate_thickness]
+        bot_z_cart = astr.cart_coords[:, 2].min()
+        non_surface_inds = [i for i, site in enumerate(slab_sites)
+                            if site.coords[2] - bot_z_cart <
+                            self.substrate_thickness]
         astr.remove_sites(non_surface_inds)
         surf_comp = astr.composition.as_dict()
         inv_syms = {v: k for k, v in self.element_syms.items()}
@@ -2695,7 +2836,7 @@ class surface_ops(object):
         """
         species = astr.species
         fc = astr.frac_coords
-        fc = np.where((fc<0) | (fc>1), fc - np.floor(fc), fc)
+        fc = np.where((fc < 0) | (fc > 1), fc - np.floor(fc), fc)
 
         # replace all the coords in astr
         all_inds = [i for i in range(len(species))]

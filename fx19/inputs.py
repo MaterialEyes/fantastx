@@ -4,9 +4,10 @@ from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
 from fx19 import experimental_simulation
-from fx19 import selection
-#from fx19 import epsilonSelection
+#from fx19 import selection
+from fx19 import epsilonSelection
 from fx19 import structure_operations
+from fx19.clustering import clusterer
 
 import os
 
@@ -81,7 +82,7 @@ def make_objects(i_dict):
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
-    # Pool object (contains good_pool and bad_pool)
+        # Pool object (contains good_pool and bad_pool)
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
@@ -96,8 +97,13 @@ def make_objects(i_dict):
                 species.append(value["name"])
             fingerprint_params["species"] = species
         pool_params['fingerprint_params'] = i_dict['fingerprint_params']
-    #pool = epsilonSelection.Pool(pool_params)
-    pool = selection.Pool(pool_params)
+    # Also create cluster object if cluster_params in i_dict
+    if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
+        cluster_obj = clusterer(i_dict['cluster_params'], Xsim_1)
+        pool_params['cluster_obj'] = cluster_obj
+        all_objects['cluster_obj'] = cluster_obj
+    pool = epsilonSelection.Pool(pool_params)
+    #pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
@@ -114,15 +120,15 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
-        #select = epsilonSelection.Select(select_params)
-        select = selection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
+        #select = selection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
-        #select = epsilonSelection.Select(select_params)
-        select = selection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
+        #select = selection.Select(select_params)
     all_objects['select'] = select
 
     # Mating object from structure_operations

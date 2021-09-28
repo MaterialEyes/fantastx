@@ -10,6 +10,9 @@ from fx19 import inputs
 from fx19 import distance_check as dc
 from fx19.structure_operations import gb_ops
 from fx19.run_ops import *
+from fx19.clustering import clusterer
+import multiprocessing as mp
+import traceback
 
 import time
 import numpy as np
@@ -17,7 +20,7 @@ from time import sleep
 
 # dask import
 from dask_jobqueue import SLURMCluster, PBSCluster
-from dask.distributed import Client
+from dask.distributed import Client, LocalCluster
 
 # change worker unresponsive time to 3h (Assuming max elapsed time for one calc)
 import dask
@@ -98,6 +101,7 @@ if workers['cluster'] == 'SLURM':
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'])
+    client = Client(cluster_job)
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
@@ -105,11 +109,19 @@ elif workers['cluster'] == 'PBS':
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
                              job_extra=workers['job_extra'])
+    client = Client(cluster_job)
+elif workers['cluster'] == 'local':
+    # Before running fantastx, in separate terminal windows run:
+    # $dask-scheduler
+    # and
+    # $dask-worker tcp://127.0.0.1:8786 --nprocs 6 --memory-limit 5GB
+    client = Client('tcp://127.0.0.1:8786')
 else:
-    print('FANTASTX currently supports SLURM and PBS. Provided '
+    print('FANTASTX currently supports SLURM, PBS and local. Provided '
           'scheduler type not identified.')
-cluster_job.scale(jobs=max_workers)  # number of parallel jobs
-client = Client(cluster_job)
+# cluster_job.scale(max_workers)
+# cluster_job.scale(jobs=max_workers)  # number of parallel jobs
+# client = Client(cluster_job)
 
 # full_eval function which uses global variables
 
@@ -132,6 +144,7 @@ def full_eval(model):
     except FileExistsError:
         print('Duplicate label in parallel processes. Skipping..')
         return None
+
     resubmitted = 2
     if model.converged == False:
         for i in range(len(energy_code.resubmit)):
@@ -219,7 +232,71 @@ while len(evald_futures) > 0:
                                                             pool, select,
                                                             data_file, sim_ids)
 
-client.shutdown()
-
+# good_pool = pool.good_pool
+# good_pool_labels = [model.label for model in good_pool]
+# print(f"Current good_pool population models: {good_pool_labels}.")
+non_dominated_pop_models = select.return_nd_pop_models(pool)
+nd_pop_labels = [model.label for model in pool.population.models]
+pop_labels = [model.label for model in pool.population.models]
+archive_labels = [model.label for model in pool.archive.models]
+print(f"Current pool population models: {pop_labels}")
+print(f"Current pool population non-dominated models: {nd_pop_labels}")
+print(f"Current pool archive models: {archive_labels}")
+print(f"Current operator probabilities: {select.operator_frequencies}")
 print('Done!')
 print('Total time: ', time.time() - start_time)
+# new_time = time.time()
+# # Run clustering on TEM images from assembled structures
+# max_clusters = pool.archive.size
+# params = {
+#     "linkage_method": "average",
+#     "cutoff_type": "inconsistent",
+#     "max_clusters": max_clusters,
+#     "min_clusters": 2,
+#     "min_cluster_occupancy": 2,
+#     "max_incons_cutoff": 10.0,
+#     "max_dist_cutoff": 100.0
+# }
+# cluster_obj = clusterer(params)
+# models = pool.population.models
+# obj_fncs = cluster_obj.read_in_objective_functions(data_file)
+# distance_matrix, sorted_labels, sorted_models = cluster_obj.create_distance_matrix(
+#     models, Xsim_1)
+
+# # inconsistency
+# cluster_obj.calculate_clustering(
+#     sorted_models, sorted_labels, obj_fncs, distance_matrix)
+
+# params = {
+#     "linkage_method": "average",
+#     "cutoff_type": "distance",
+#     "max_clusters": max_clusters,
+#     "min_clusters": 2,
+#     "min_cluster_occupancy": 2,
+#     "max_incons_cutoff": 10.0,
+#     "max_dist_cutoff": 100.0
+# }
+# cluster_obj = clusterer(params)
+# cluster_obj.calculate_clustering(
+#     sorted_models, sorted_labels, obj_fncs, distance_matrix)
+
+# params = {
+#     "linkage_method": "average",
+#     "cutoff_type": "maxclust_monocrit",
+#     "max_clusters": max_clusters,
+#     "min_clusters": 2,
+#     "min_cluster_occupancy": 2,
+#     "max_incons_cutoff": 10.0,
+#     "max_dist_cutoff": 100.0
+# }
+# cluster_obj = clusterer(params)
+# cluster_obj.calculate_clustering(
+#     sorted_models, sorted_labels, obj_fncs, distance_matrix)
+
+# # cluster_models(pool, data_file, Xsim_1, cluster_obj)
+# print('Done with clustering!')
+# print('Elapsed time: ', time.time() - new_time)
+
+client.shutdown()
+# print('Done!')
+# print('Total time: ', time.time() - start_time)

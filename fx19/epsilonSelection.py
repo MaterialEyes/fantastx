@@ -26,8 +26,8 @@ randomly.
 Once the "Population" has reached steady-state capacity, full epsilon-MOEA
 is employed. For a thorough explanation, see the citation above. 
 
-Note: single-objective search is also supported to be consistent with
-selection.py. 
+Note: single-objective search is also supported, using the original method
+of V.S.C. Kolluru. 
 """
 import numpy as np
 import random
@@ -41,6 +41,8 @@ from dscribe.descriptors import SOAP
 from ase.ga.ofp_comparator import OFPComparator
 from pymatgen.io.ase import AseAtomsAdaptor
 from fx19 import distance_check as dc
+from fx19.clustering import clusterer
+import copy
 
 
 class Comparator(object):
@@ -663,6 +665,13 @@ class Pool(object):
         else:
             self.epsilons = pool_params['epsilons']
 
+        self.all_models = []
+
+        if 'cluster_obj' not in pool_params:
+            self.cluster_obj = None
+        else:
+            self.cluster_obj = pool_params["cluster_obj"]
+
         if 'fingerprint_params' not in pool_params:
             # no fingerprint comparisons are going to be made
             self.comparator = None
@@ -695,9 +704,13 @@ class Pool(object):
                         fp_params['kg_values'])
                 else:
                     self.comparator.set_rematch_kernel_generator()
+            if 'zbounds' in fp_params:
+                self.zbounds = fp_params['zbounds']
+            else:
+                self.zbounds = None
 
             self.population = Population(
-                self.capacity, ParetoDominance(), self.weights, self.comparator
+                self.capacity, ParetoDominance(), self.weights, self.comparator, self.cluster_obj
             )
             self.archive = Archive(
                 StructuralEpsilonDominance(
@@ -722,6 +735,7 @@ class Pool(object):
         if self.comparator is not None:
             self.create_fingerprint(model)
         no_prior_epsilon = True
+        self.all_models.append(model)
         # If population contains at least one model, check to make sure that
         # the model is unique.
         unique = True
@@ -748,8 +762,33 @@ class Pool(object):
             # Othewise, perform usual epsilon-MOEA
             else:
                 no_prior_epsilon = False
-                self.population.add_to_population(model)
-                self.archive.add_to_archive(model)
+                self.population.add_to_population(
+                    model)
+                added_to_archive = self.archive.add_to_archive(model)
+
+                # Perform auto-adaptive adjustment of genetic operator probabilities
+                if added_to_archive:
+                    # update operator probabilities in select
+                    # Formula: P_i = (C_i + epsilon)/Sum_j=1->N_operators(C_j + epsilon)
+                    # Here epsilon = 1
+                    print(
+                        f"Operator inheritance: {self.archive.operator_inheritance}")
+                    operator_counts = np.zeros(len(select.operator_hashmap))
+                    for operator in self.archive.operator_inheritance:
+                        if operator != "random":
+                            operator_counts[select.operator_hashmap[operator]] += 1
+                        else:
+                            operator_counts += 1/len(select.operator_hashmap)
+                            print(operator_counts)
+                    print(operator_counts)
+                    divisor = self.archive.size + len(select.operator_hashmap)
+                    print(divisor)
+                    select.operator_frequencies = [
+                        (count + 1)/divisor for count in operator_counts]
+                    print(select.operator_frequencies)
+
+                    if self.cluster_obj is not None:
+                        self.cluster_obj.update_max_clusters(self.archive.size)
 
             # If size has now reached capacity, then add models to archive
             # in preparation for epsilon-MOEA
@@ -761,6 +800,8 @@ class Pool(object):
                 self.archive.seed_archive(self.population)
                 model_labels = [model.label for model in self.archive.models]
                 print(f"Archive seeded with models: {model_labels}")
+
+                self.population.init_clustering()
         else:
             print('New model {} rejected because it was the same as'
                   ' as another model in the population!'.format(model.label))
@@ -786,13 +827,21 @@ class Pool(object):
             model.normed_features = normalize(features)
 
         elif self.comparator.label == "bag-of-bonds":
+            model_astr = copy.deepcopy(model.astr)
+            if self.zbounds is not None:
+                site_removal_indices = []
+                for site_index, site in enumerate(model_astr.sites):
+                    if site.coords[2] < self.zbounds[0] or site.coords[2] > self.zbounds[1]:
+                        site_removal_indices.append(site_index)
+                model_astr.remove_sites(site_removal_indices)
+
             # print(f"{self.fingerprint_label} fingerprint is being calculated.")
-            lattice = model.astr.lattice
-            species_set = model.astr.types_of_specie
+            lattice = model_astr.lattice
+            species_set = model_astr.types_of_specie
             coord_sets = {}
             for specie in species_set:
                 coords = [
-                    site.coords for site in model.astr.sites if site.specie == specie]
+                    site.coords for site in model_astr.sites if site.specie == specie]
                 coord_sets[specie] = coords
             pair_cor = {}
             for n, specie1 in enumerate(species_set):
@@ -857,6 +906,16 @@ class Select(object):
         if 'num_required_above_50' in select_obj_params:
             self.num_required_above_50 = \
                 select_obj_params['num_required_above_50']
+
+        # Store operator information for auto-adaptively adjusting the operator
+        # frequency for genetic operations
+        if 'operators' not in select_obj_params:
+            self.operators = ['perturb_sites', 'fraction_slice']
+        else:
+            self.operators = select_obj_params['operators']
+        self.operator_hashmap = {
+            key: index for index, key in enumerate(self.operators)}
+        self.operator_frequencies = [1/len(self.operators)]*len(self.operators)
 
     def linear_update_selection_probs(self, models, good_pool_capacity, sim_ids=None):
         '''
@@ -1025,7 +1084,7 @@ class Select(object):
 
         return (num_required_above_50 - num_above_50)**2
 
-    def get_parents(self, pool, num_parents, same_ab=False, abs_tol=0.2):
+    def get_parents(self, pool, num_parents, same_cluster=None, same_ab=False, abs_tol=0.2):
         '''
         Provide requested number of parent models for mating operations. 
         If archive has not been created, then provide both parents from the population. 
@@ -1064,10 +1123,16 @@ class Select(object):
             parents = []
             while len(parents) < num_parents:
                 # alternate adding population and archive members
-                if len(parents) % 2 == 0:
-                    new_parent = pool.population.produce_model()
-                else:
+                if len(parents) == 0:
                     new_parent = pool.archive.produce_model()
+                else:
+                    # produce model differently if cluster requirements
+                    # are in place
+                    if same_cluster is None:
+                        new_parent = pool.population.produce_model()
+                    else:
+                        new_parent = pool.population.produce_model(
+                            cluster=parents[0].cluster, same=same_cluster)
                 if len(parents) == 0:
                     parents.append(new_parent)
                     self.all_parent_labels.append(new_parent.label)
@@ -1093,16 +1158,17 @@ class Select(object):
         if pool.archive.size == 0:
             new_parent = pool.population.produce_model()
         else:
-            r = np.random.uniform()
-            if r < self.archive_pop_bh_ratio:
-                # should weight selection from archive and from pool
-                print("Producing archive model")
-                new_parent = pool.archive.produce_model()
-                print(f"Archive model is {new_parent.label}")
-            else:
-                print("Producing population model")
-                new_parent = pool.population.produce_model()
-                print(f"Population model is {new_parent.label}")
+            new_parent = pool.archive.produce_model()
+            # r = np.random.uniform()
+            # if r < self.archive_pop_bh_ratio:
+            #     # should weight selection from archive and from pool
+            #     print("Producing archive model")
+            #     new_parent = pool.archive.produce_model()
+            #     print(f"Archive model is {new_parent.label}")
+            # else:
+            #     print("Producing population model")
+            #     new_parent = pool.population.produce_model()
+            #     print(f"Population model is {new_parent.label}")
         self.all_parent_labels.append(new_parent.label)
         return new_parent
 
@@ -1137,12 +1203,14 @@ class Population(object):
     Maintain a list of all models contained
     """
 
-    def __init__(self, capacity, dominance=ParetoDominance(), weights=[1, 1, 1, 1, 1], comparator=None):
+    def __init__(self, capacity, dominance=ParetoDominance(), weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
         """
         Population capacity defines the steady-state level
         """
         self.capacity = capacity
         self.models = []
+        self.cluster_models = {}
+        self.outside_cluster_models = {}
         self._dominance = dominance
         self.size = 0
 
@@ -1154,6 +1222,9 @@ class Population(object):
         # "Good pool" for linear portion of multi-objective search
         self.good_pool = []
         self.comparator = comparator
+
+        # cluster_obj for clustering models
+        self.cluster_obj = cluster_obj
 
     def extend(self, model):
         '''
@@ -1181,6 +1252,18 @@ class Population(object):
                 return False
             else:
                 return True
+
+    def init_clustering(self):
+        '''
+        Initialize the cluster object by seeding it with the population
+        models currently present.
+        '''
+        if self.cluster_obj is not None:
+            # Initialize the clusters with all population models
+            self.cluster_models, self.outside_cluster_models = \
+                self.cluster_obj.initialize_cluster_models(
+                    self.models)
+            print(f"Cluster object seeded with models.")
 
     def basic_addition_to_population(self, model, select, sim_ids=None):
         '''
@@ -1277,6 +1360,10 @@ class Population(object):
         Args:
         model: model object to be added
         sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+
+        Outputs:
+        bool: whether model was added to population or not
+        removed_model (model): model which was removed from the population
         '''
         dominates = []
         dominated = False
@@ -1289,29 +1376,73 @@ class Population(object):
 
         # If dominates any models, then replace one at random
         if len(dominates) > 0:
-            del self.models[np.random.choice(dominates)]
+            if self.cluster_obj is not None:
+                rm_index = np.random.choice(dominates)
+                self.cluster_models, self.outside_cluster_models = self.cluster_obj.update_clustering(
+                    model, self.models.pop(rm_index))
+            else:
+                self.models.pop(np.random.choice(dominates))
             self.models.append(model)
             print(
                 f"Model {model.label} appended to population by domination replacement.")
+            model_labels = [model.label for model in self.models]
+            print(f"New model labels: {model_labels}")
+            return True
         # If does not dominate, but is not dominated, then replace any one
         # population member at random
         elif not dominated:
-            del self.models[np.random.randint(0, self.size - 1)]
+            if self.cluster_obj is not None:
+                rm_index = np.random.randint(
+                    0, self.size - 1)
+                self.cluster_models, self.outside_cluster_models = self.cluster_obj.update_clustering(
+                    model, self.models.pop(rm_index))
+            else:
+                self.models.pop(np.random.randint(0, self.size - 1))
             self.models.append(model)
             print(
                 f"Model {model.label} appended to population by non-domination replacement.")
+            model_labels = [model.label for model in self.models]
+            print(f"New model labels: {model_labels}")
+            return True
         else:
             print(
                 f"Model {model.label} not added to population because dominated by pop member (and does not dominate a pop member).")
+            return False
 
-    def produce_model(self):
+    def produce_model(self, cluster=None, same=True):
         '''
         Produce a model for breeding. Choose two models, and return the 
         non-dominated model. If both are non-dominated, then return one 
         randomly. 
-        '''
 
-        [model_one, model_two] = np.random.choice(self.models, 2)
+        Arguments:
+        cluster (int) - cluster to which the first parent model belonged.
+                        Necessary if requiring that the model comes from
+                        either the same cluster or a different cluster.
+        same (bool) - whether the model needs to belong to the same cluster (True)
+                        as the first parent model, or a different cluster (False)
+        '''
+        if cluster is None:
+            [model_one, model_two] = np.random.choice(self.models, 2)
+        else:
+            # Refer to cluster dictionary to get models
+            if same:
+                models = self.cluster_models[cluster]
+                # Usurp this requirement if cluster is single occupancy
+                if len(models) == 1:
+                    models = self.outside_cluster_models[cluster]
+                    [model_one, model_two] = np.random.choice(models, 2)
+                else:
+                    [model_one, model_two] = np.random.choice(models, 2)
+                    if len(models) == 2:
+                        # return the dominated model, because it is the model which does not live in the archive
+                        nd_model = self._dominance.choose_non_dominated(
+                            model_one, model_two)
+                        return models[models.index(nd_model) - 1]
+            else:
+                models = self.outside_cluster_models[cluster]
+                [model_one, model_two] = np.random.choice(models, 2)
+
         return self._dominance.choose_non_dominated(model_one, model_two)
 
 
@@ -1334,6 +1465,7 @@ class Archive(object):
         self.models = []
         self._dominance = dominance
         self.size = 0
+        self.operator_inheritance = []
 
     def seed_archive(self, population):
         '''
@@ -1342,12 +1474,15 @@ class Archive(object):
         '''
         self.models = self._dominance.get_nondominated_solutions(population)
         self.size = len(self.models)
+        self.operator_inheritance = [model.made_by for model in self.models]
 
     def initialize_models(self, non_dominated_models):
         '''
         Initialize the archive with a set of non-dominated models
         '''
         self.models = non_dominated_models
+        self.operator_inheritance = [
+            model.made_by for model in self.models]
         self.size = len(non_dominated_models)
 
     def add_to_archive(self, model):
@@ -1374,8 +1509,11 @@ class Archive(object):
         if any(dominated):
             return False
         else:
+            # Adjust models and their operator inheritance
             self.models = list(itertools.compress(
                 self.models, nondominated)) + [model]
+            self.operator_inheritance = list(itertools.compress(
+                self.operator_inheritance, nondominated)) + [model.made_by]
             self.size = len(self.models)
             print(f"Size updated. New size: {self.size}")
             return True
