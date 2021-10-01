@@ -1,11 +1,10 @@
-from __future__ import division, unicode_literals, print_function
+"""
+This module contains funcitons to update the pool, evaluate pareto front in
+case of multi-objective optimization and assigns/updates selection probability
+of models
+"""
 
-"""
-This module contains funcitons to update the pareto front in case of multi
-objective problem or the single objective funcition, selects required number of
-parent structures
-(This module comes after evaluation and before genetic operations)
-"""
+from __future__ import division, unicode_literals, print_function
 import numpy as np
 import random
 from math import sqrt, exp
@@ -18,12 +17,14 @@ from scipy.spatial import ConvexHull  # , convex_hull_plot_2d
 
 class Pool(object):
     """
-    A pool of structures who are evaluated. Parents will be selected from here.
+    A pool of structures that are evaluated. Parents will be selected from this
+    pool.
 
     Maintain two lists:
     good_pool - has limited capacity
               - used for selection
-    bad_pool - unlimited capacity (all remaining models)
+
+    all_models - incldues a list of all the models evaluated thus far
 
     NOTE: The best and worst models are chosen based on the model attribute
     "overall_value"
@@ -31,7 +32,12 @@ class Pool(object):
 
     def __init__(self, pool_params):
         """
-        pool capacity is set from i_dict
+        The capacity of the pool is taken from pool_params (i_dict)
+
+        Args:
+
+        pool_params (dict): Dictionary of parameters required to create Pool
+                            object. Ex: {'capacity': 200}
         """
         energy_pkg = pool_params['energy_pkg']
         if 'capacity' not in pool_params:
@@ -48,15 +54,48 @@ class Pool(object):
 
     def add_to_pool(self, model, select, sim_ids=None):
         """
-        add the model to the good_pool or bad_pool
-        if capacity is not full -> add to good_pool
-        else -> compare with worst model in good_pool and add accordingly
+        This function adds the given model to the good_pool if
+        pool capacity is not full. When full, replaces the worst model in
+        good_pool if the new model is better.
 
-        model: model object to be added
+        Part I
+        ------------
+        Get to_good_pool for the specific scenario.
+
+            If multi-obj && no. of models < num_models_before_pareto -->
+                update selection probs according to sum of normalized obj values
+
+            If single-obj --> update_probs_single_obj
+
+            If multi-obj && >num_models_before_pareto -->
+                do select.add_new_model()
+                # checks if model changes selection probs (if pareto optimal)
+
+        PART II
+        ------------
+        if to_good_pool is True && no. of models > capacity -->
+                demote worst model
+                (NOTE: For single-obj, overall_val and obj0_val are same)
+                scale overall_vals for models in good_pool
+                optimize exponent "k" every 100th model
+                get exponential probs (from scaled overall vals)
+                update selection probs
+
+        if to_good_pool is False:
+                Do not add to good_pool && do nothing
+
+        if to_good_pool is None:
+                (NOTE: For single-obj search, to_good_pool would not be None)
+                Model is pareto optimal
+                Update all selection probs
+
+        Args:
+
+        model (obj): structure_record.model() object to be added
 
         select (obj): Select object
 
-        sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+        sim_ids (list of integers): simulation ids. Eg: [1] for one Xsim
         """
         # Add model to all_models
         self.all_models.append(model)
@@ -82,8 +121,9 @@ class Pool(object):
 
         if select.type == 'single':
             # Get updated cutoff value to skip probs for a bad model
-            cutoff_value = select.update_probs_single_obj(self.all_models,
-                                                          self.capacity, update_cutoff_only=True)
+            cutoff_value = select.update_probs_single_obj(
+                                                self.all_models, self.capacity,
+                                                update_cutoff_only=True)
             if cutoff_value >= model.obj0_val:
                 to_good_pool = True
             else:
@@ -159,17 +199,24 @@ class Pool(object):
 
 class Select(object):
     """
-    Values of model from energy calculation and experimental_simulation are
-    saved in the models attributes after evaluation. Use the evaluated
-    attributes to assign selection probabilities to each model.
-    The selection probabilities gets updated for all models after each model is
-    evaulated.
+    Uses the evaluated attributes of a model to assign selection probabilities.
+    Distance from the pareto front is used to evaluate selection probability of
+    a model. When a model is pareto optimal, the selection probabilities gets
+    updated for all models in good_pool.
 
     If single objective - all the weights would be zero and the obj0_val will
     be overall_val.
     """
 
     def __init__(self, select_obj_params):
+        """
+        The dictionary of parameters to make a Select object should be provided.
+
+        Eg: select_obj_params = {'objective_fn_type': 'multi'
+                                 'num_required_above_50': 30
+                                 'num_models_before_pareto': 80
+                                 'adjust_k_every': 100}
+        """
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
         # set defaults
@@ -219,24 +266,25 @@ class Select(object):
 
     def add_new_model(self, model, sim_ids=None):
         """
+        For a multi-obj search, calculated the cutoff value and returns the
+        to_good_pool based on which the new model is added to Pool.
+
         1. Get weighted normalized x, y for the new_model
 
-        2. if point is on pareto front -> return False
+        2. if point is on pareto front -> to_good_pool is None
 
         3. if point not on pareto front
+                - get distance_from_hull
+                - if distance_from_hull > cutoff_value
+                        > to_good_pool is False
+                - if distance from hull <= cutoff value
+                        > to_good_pool is True (i.e., add model to good_pool)
 
-            > get distance_from_hull
+        Args:
 
-            > if distance_from_hull > cutoff_value
-                return True
-            > if distance from hull <= cutoff value
-                add model to good_pool
-                remove worst model from good_pool
+        model (obj): structure_record.model() object
 
-            > if model label not a multiple of 100,
-                use existing opt_k to assign selection prob and return True
-            > else get a new opt_k & update selection probs of all good_pool
-
+        sim_ids (list of integers): simulation ids. Eg: [1] for one Xsim
         """
         # check if pareto_points or other class attributes exist
         if self.pareto_points is None or self.hull_points is None:
@@ -245,10 +293,11 @@ class Select(object):
         model_obj0 = model.obj0_val
         if sim_ids and 1 in sim_ids:
             model_obj1 = model.obj1_val
-        else:
-            print('Single objective function optimization.'
-                  'TODO: Follow different routine..')
-            return 0, model
+        # For single-obj search, this function is not called at all
+        #else:
+        #    print('Single objective function optimization.'
+        #          'TODO: Follow different routine..')
+        #    return 0, model
 
         # normalize
         model_obj0 = (model_obj0 - self.minmax_obj0[0]) / \
@@ -282,9 +331,12 @@ class Select(object):
         probabliites based on an exponential function.
 
         Args:
+
         all_models: (list) of all models evaluated so far
 
         good_pool_capacity: (int) maximum number of models in good pool
+
+        update_cutoff_only: (bool) Returns only cutoff value when True
         """
         # Get all models obj0_val
         model_labels, all_v0 = [], []
@@ -351,10 +403,13 @@ class Select(object):
     def update_all_selection_probs(self, all_models,
                                    good_pool_capacity, sim_ids=None):
         """
-        Calculates the objective function of each model, which is the distance
-        from the pareto front. Updates selection probabilities based on an
-        exponential distribution by optimizing a constant such that to maintain
-        required number of models with probability above 50%.
+        For a single-obj search, calls update_probs_single_obj() method.
+
+        For a multi-obj search, calculates the overall value of each model,
+        which is the distance from the pareto front. Updates selection
+        probabilities based on an exponential distribution by optimizing a
+        constant such that to maintain required number of models with
+        probability above 50%.
 
         Args:
 
@@ -372,14 +427,13 @@ class Select(object):
 
         2. normalize obj0_vals and obj1_vals separately
 
-        3. use linear probs directly if less than 1000 models. This is because
-        linear probs samples the PE landscape evenly than dist from pareto
+        3. assigns probabilities directly based on sum of its obj vals if total
+        models less than 1000 models. This samples the PE landscape evenly than
+        dist from pareto for smaller population at initial stages.
 
         4. If number of models is less than 1000, skip steps 5 - 13
 
         5. make a 2D pareto plot
-           costs = [i, j for i, j in zip(weighted_normalized_obj0s,
-                                         weighted_normalized_obj1s)]
 
         6. get pareto optimal points
 
@@ -397,10 +451,10 @@ class Select(object):
         12. Normalize the values (distances from hull) of all good_pool models
 
         13. Assign probabilities based on exp(kX). Default k = -1. However,
-        optimize k to get required number of models with probability greater
-        than 0.5.
+        optimize "k" once in "adjust_k_every" steps to get required number of
+        models with probability greater than 0.5.
 
-        14. Assign probabilites to models in good pool
+        14. Assign probabilities to models in good pool
 
         """
         # NOTE: Currently only supports pareto distance in 2D (with 2 objective
@@ -716,13 +770,13 @@ class Select(object):
 
     def get_parents(self, pool, num_parents, same_ab=False, abs_tol=0.2):
         """
-        selects requested number of parents based on their probabilities
+        Selects requested number of parents based on their probabilities
         Returns a list of parents
 
         Args:
 
-        pool - pool object
-        num_parents - integer
+        pool - Pool() object
+        num_parents - integer number of parents
         same_ab (bool) - If num_parents > 1, species whether all parents should
                          have same a, b lattice vectors
         abs_tol (float) - The maximum value for the sum of absolute difference

@@ -11,11 +11,14 @@ import os
 
 def make_objects(i_dict):
     """
-    Takes all the user provided input parameters as a dictionary and makes
-    objects for the fantastx run. Assumes defaults for some mandatory
-    parameters if needed.
+    Function to make objects of different classes using the input parameters
+    provided in the input file. Assumes defaults for optional parameters that
+    are not provided.
+
+    Returns a dictionary with all created objects
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
              from yaml file
     """
@@ -167,13 +170,13 @@ def make_objects(i_dict):
 
     return all_objects
 
-
 def get_energy_params(i_dict):
     """
     Returns a dictionary with all the parameters, mandatory and optional, to be
     used to make energy object for each calculation.
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
              from yaml file
     """
@@ -231,7 +234,6 @@ def get_energy_params(i_dict):
 
     return energy_params
 
-
 def get_pdf_params(i_dict, exp_sim_params_id):
     """
     Reads the i_dict and returns pdf_params for experimental simulation method
@@ -240,8 +242,10 @@ def get_pdf_params(i_dict, exp_sim_params_id):
     experimental_simulation module
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
              from yaml file
+
     exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
                         simulation method.
 
@@ -253,15 +257,17 @@ def get_pdf_params(i_dict, exp_sim_params_id):
 
     return pdf_params
 
-
 def get_ingrained_params(i_dict, exp_sim_params_id):
     """
-    Similar to pdf params. Except, defaults are not provided for all params.
-    If some important params are not provided, prints error message and exits.
+    Function to conveniently combine different parameters provided by user and
+    other defualts (if not user-provided) to be used by mating class. Throws
+    error when mandatory parameters are not provided by the user.
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
              from yaml file
+
     exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
                         simulation method.
 
@@ -281,16 +287,16 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
 
     return gb_ingrained_params
 
-
 def get_mating_params(i_dict, str_constraints):
     """
-    Collects all user provided parameters for mating, uses defaults if necessary
-
-    Includes other parameters as required, like num_species from str_constraints
+    Function to conveniently combine different parameters provided by user and
+    other defualts (if not user-provided) to be used by mating class.
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
              from yaml file
+
     str_constraints - (dict) dictionary of all the constraints for making
                       random models
     """
@@ -320,14 +326,15 @@ def get_mating_params(i_dict, str_constraints):
 
     return mating_params
 
-
 def get_evolve_params(i_dict, str_constraints):
     """
-    Returns parameters for the 'evolve' object
+    Returns parameters to be used for the 'evolve' class
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
              from yaml file
+
     str_constraints - (dict) dictionary of all the constraints for making
                       random models
     """
@@ -342,22 +349,3 @@ def get_evolve_params(i_dict, str_constraints):
             if species in str_constraints:
                 evolve_params[species] = str_constraints[species]
     return evolve_params
-
-# assume experimental pdf is given
-
-
-def read_input_exp_files(filename):
-    """
-    Depending on type of experimental data, call corresponding functions
-
-    filename: path to exp data file
-    filename should be of form '{experiment_type}_{composition}_exp.{extension}'
-    experiment_type: {'PDF', 'XRD', 'TEM' ..}
-    composition: {'Al2O3' or 'O3Al2' ..}
-    Ex: 'PDF_IrO2_exp.txt'
-
-    Make folder(s) and save data as required by experimental_simulation(s)
-    return list of path_to_exp_data_folder(s)
-    """
-
-    pass
