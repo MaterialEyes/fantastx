@@ -24,11 +24,17 @@ import os, cv2
 
 class pdf_of_model(object):
     """
-    This class contains functions to calculate the PDF fits it to the
-    experimental pdf. Uses residual to calculate objective function.
+    This class contains functions to calculate the PDF and fit it to the
+    experimental pdf. Uses the residual to calculate objective function.
+
+    Args:
+
+    pdf_params (dict): A dictionary of parameters used for fitting PDF using
+    Diffpy.
     """
     def __init__(self, pdf_params):
-
+        """
+        """
         # main path as in energy.py
         self.name='PDF'
         self.main_path = pdf_params['main_path']
@@ -110,16 +116,17 @@ class pdf_of_model(object):
         if 'var_bounds' in pdf_params:
             self.var_bounds = pdf_params['var_bounds']
 
-
     def write_temp_cif(self, stretch, model):
         """
         Writes temp.cif file in the pdf simulation directory from model.astr
 
         Args:
-        stretch - (float) The ratio by which to stretch the structure when
-                  creating temp.cif
-                  Eg: 1.1 --> stretches 10% ; 0.9 --> shrinks by 10%
-        model - model object
+        stretch (float) - The ratio by which to stretch the structure when
+        creating temp.cif
+        Eg: 1.1 --> stretches 10% ; 0.9 --> shrinks by 10%
+
+        model (obj): structure_record.model() object for which PDF simulation
+                     will be done
         """
         # use the relaxed structure from energy calculation
         astr = model.astr
@@ -135,7 +142,6 @@ class pdf_of_model(object):
         cif_writer = CifWriter(new_structure)
         temp_cif = self.pdf_sim_dir + '/temp.cif'
         cif_writer.write_file(temp_cif)
-
 
     def get_PDF_obj(self):
         """
@@ -156,17 +162,20 @@ class pdf_of_model(object):
 
         return PDF
 
-
     def fit_and_residual(self, PDF, type=None):
         """
-        get diffpy.srfit.fitbase.FitRecipe object
+        get diffpy.srfit.fitbase.FitRecipe object. This function call should be
+        preceeded by get_PDF_obj function.
+        (NOTE: made PDF and Fit two separate functions for convenience)
+
+        Returns fitted_params after PDF fit and the residual
 
         Args:
-        PDF (PDFContribution) - PDF object from get_PDF_obj
-        type - (str) 'opt_stretch' when optimizing stretch factor
-             - None for anything else
 
-        (NOTE: made PDF and Fit two separate functions for convenience)
+        PDF (PDFContribution) - PDF object from get_PDF_obj
+
+        type (str) - 'opt_stretch' when optimizing stretch factor
+                   - None for anything else
         """
         symbols = self.symbols
         Fit = FitRecipe()
@@ -249,29 +258,25 @@ class pdf_of_model(object):
                             + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6] \
                             + ' \n')
 
+            # TODO: why do we modify residual before returning
             return fitted_params, (residual / 600) ** .5
 
     def get_stretch_residual(self, stretch, model, type=None):
         """
         A wrapper function around fit_and_residual to optimize stretch outside
-        main parameters optimization within FitRecipe
+        main parameters optimization done within FitRecipe
 
         Args:
-        stretch - (float) The ratio by which to stretch the structure when
-                  creating temp.cif
-                  Eg: 1.1 --> stretches 10% ; 0.9 --> shrinks by 10%
-        model - model object
-        type - (str) 'opt_stretch' when optimizing stretch factor
-             - None for anything else
-        """
-        """
-        print (stretch)
-        try:
-            iter_stretch = float(stretch[0])
-        except:
-            print ('Key Error: 0')
-            print ('Optimization complete!')
-            iter_stretch = stretch.x[0]
+
+        stretch (float) - The ratio by which to stretch the structure when
+        creating temp.cif
+        Eg: 1.1 --> stretches 10% ; 0.9 --> shrinks by 10%
+
+        model (obj): structure_record.model() object for which energy
+                     evaluation will be done
+
+        type (str) - 'opt_stretch' when optimizing stretch factor
+                   - None for anything else
         """
         self.write_temp_cif(stretch, model)
         # load exp_pdf and temp_cif to PDF object
@@ -284,15 +289,18 @@ class pdf_of_model(object):
             fitted_params, residual = self.fit_and_residual(PDF, type=type)
             return fitted_params, residual
 
-
     def evaluate_obj(self, model):
         """
-        Fits calculated and experimental pdf and returns model.
-        Objective function value is added to model attributes.
-        Residual is the objective function value for pdf.
+        Fits calculated and experimental pdf and returns model. Uses the
+        Residual as the objective function value for pdf. Objective function
+        value is added to model attributes obj1_val.
+
+        Returns model, fitted_params
 
         Args:
-        model - model object
+
+        model (obj): structure_record.model() object for which energy
+                     evaluation will be done
         """
         main_path = self.main_path
         pdf_sim = main_path + '/calcs/' + str(model.label) + '/pdf_sim'
@@ -327,24 +335,24 @@ class pdf_of_model(object):
 
 class gb_ingrained(object):
     """
-    Uses "ingrained" module to make the simulated TEM image of the model
+    This class is used to simulate STEM image of a grain boundary structure
+    with "Ingrained" package
     """
     def __init__(self, gb_ingrained_params):
         """
-        the gb_ingrained_params is a dictionary of the user-provided
-        parameters in the input_file.yaml
+        The gb_ingrained_params is a dictionary of the user-provided
+        parameters from the input_file.yaml.
 
-        1. The experimental image is from the POSCAR_init_gb provided by the
-        user
-        2. The optimized parameters for the initial image matching should be
-        provided in gb_ingrained_params
-            Ex: IW = 0.111786813217729      # image width
-                DF = 1.1488391624705199     # defocus
-                PX = 0.13293286291986323    # pixel size from the .dm3 file
-                left_x, right_x, bot_y, top_y = 0.05, 0.95, 0.4, 0.75
-                border_reduce = (left_x, right_x, bot_y, top_y)
+        A separate Ingrained optimization should be performed prior to running
+        FANTASTX to get an initial grain boundary structure which will be used
+        as starting structure to make new models. Along with it, the final
+        optimium parameters are taken from the progress_file of the Ingrained
+        optimization.
 
-            The inital optimization prints out these params. Use them as it is.
+        Ex:
+
+
+
         """
         self.name = 'GB_STEM'
 
@@ -410,13 +418,20 @@ class gb_ingrained(object):
 
     def evaluate_obj(self, model):
         """
-        This function is a must for overall Fantastx run. All classes in this
-        module should have this function.
+        This function simulated the TEM image of a grain boundary model. Then,
+        compares it with the experimental TEM image (target). The objective
+        function is (1 - SSIM score) which is assigned as a model attribute
+        (obj1_val).
 
-        NOTE: Please refer to the pdf_of_model class and run.py for how this
-        works.
+        This function is a part of the API for all classes in
+        experimental_simulation module.
 
-        Returns model after setting attribute obj()_val = residual
+        Returns model object
+
+        Args:
+
+        model (obj): structure_record.model() object for which TEM simulation
+                     is obtained and a mismatch score is assigned
         """
         relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
         # Initialize a Bicrystal object from relaxed structure
@@ -451,19 +466,20 @@ class gb_ingrained(object):
 
     def crop_dims(self, img, ref):
         """
-        Goal:
-        1. Both images should have same dimensions
-        2. All simulated images should be similar in dimensions
+        This function is used to adjust the 'shape' of the simulated image or
+        the target image to have them both equal. The dimensions in x, y are altered such that minimum number of pixels are lost overall.
 
         NOTE: Since, the lattice in POSCAR is maintained same across all models
         (ISIF=2), the simulated image should be same (or only different by
-        couple of pixels)
+        couple of pixels in each dimension)
 
-        In such cases, use this function -
+        Returns the simulated image and target image with equal dimensions
 
-        > which has less pixels - img or target
-        > find diff_pix in x & y
-        > remove the diff_pix/2 from both ends in x & y
+        Args:
+
+        img (2D arr): the simulated TEM image
+
+        ref (2D arr): the target experimental TEM image
         """
         diff_pix_x = img.shape[0] - ref.shape[0]
         diff_pix_y = img.shape[1] - ref.shape[1]
