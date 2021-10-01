@@ -1,8 +1,11 @@
 #!/usr/bin/env python
 # coding: utf-8
-import os, yaml, sys
+import os
+import yaml
+import sys
 import datetime
-import random, copy
+import random
+import copy
 from fx19 import inputs
 from fx19 import distance_check as dc
 from fx19.structure_operations import gb_ops
@@ -58,20 +61,20 @@ else:
 
 pool = all_objects['pool']
 select = all_objects['select']
-weights = select.weights # If single_objective, weights should be
-                         # [1, 0, 0, 0, 0, 0] - see inputs.py
+weights = select.weights  # If single_objective, weights should be
+# [1, 0, 0, 0, 0, 0] - see inputs.py
 
 # Create a folder 'Calcs' where all calculations take place
 if 'calcs' in os.listdir(main_path):
     now = datetime.datetime.now()
     new_name = 'old_{}_{}_{}_{}_{}_{}'.format(now.year, now.month, now.day,
-                                            now.hour, now.minute, now.second)
+                                              now.hour, now.minute, now.second)
     os.rename('calcs', new_name)
 
 calcs = i_dict['main_path'] + '/calcs'
 os.mkdir(calcs)
 
-####### write data to a file
+# write data to a file
 data_file = main_path + '/data_file'
 with open(data_file, 'w') as f:
     first_line = 'id\tinheritance\t\ttotal energy\tObj_0\t\tObj_1\n\n'
@@ -94,21 +97,25 @@ if workers['cluster'] == 'SLURM':
                                queue=workers['submit_queue'],
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
-                               job_extra=workers['job_extra'])
+                               job_extra=workers['job_extra'],
+                               header_skip=workers['header_skip'])
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
-                               memory=workers['total_mem'],
-                               project=workers['project_name'],
-                               interface=workers['node_type'],
-                               walltime=workers['walltime'],
-                               job_extra=workers['job_extra'])
+                             memory=workers['total_mem'],
+                             project=workers['project_name'],
+                             interface=workers['node_type'],
+                             walltime=workers['walltime'],
+                             job_extra=workers['job_extra'],
+                             header_skip=workers['header_skip'])
 else:
-    print ('FANTASTX currently supports SLURM and PBS. Provided '
-                        'scheduler type not identified.')
-cluster_job.scale(jobs=max_workers) # number of parallel jobs
-client  = Client(cluster_job)
+    print('FANTASTX currently supports SLURM and PBS. Provided '
+          'scheduler type not identified.')
+cluster_job.scale(jobs=max_workers)  # number of parallel jobs
+client = Client(cluster_job)
 
 # full_eval function which uses global variables
+
+
 def full_eval(model):
     """
     A wrapper function around energy_eval and Xsim_eval.
@@ -125,7 +132,7 @@ def full_eval(model):
     try:
         energy_code.relax(model, reg_id)
     except FileExistsError:
-        print ('Duplicate label in parallel processes. Skipping..')
+        print('Duplicate label in parallel processes. Skipping..')
         return None
     resubmitted = 2
     if model.converged == False:
@@ -144,7 +151,7 @@ def full_eval(model):
         # get the relaxed structure
         relaxed_str = model.astr
         if relaxed_str is None:
-            print ('Relaxed structure not available. Skipping Xsim..')
+            print('Relaxed structure not available. Skipping Xsim..')
             return None
         else:
             # if relaxed structure exists
@@ -153,6 +160,7 @@ def full_eval(model):
             return model
     else:
         return model
+
 
 # wait for workers to start on cluster
 client.wait_for_workers(1)
@@ -170,14 +178,15 @@ if input_model_obj is not None:
     # evaluate the input models
     for input_model in input_models:
         new_model, select = make_model(random_model_obj, evolve, select, pool,
-                                reg_id, model_type='inputs', model=input_model)
+                                       reg_id, model_type='inputs',
+                                       model=input_model)
         # relax the model in dask-workers
         out = client.submit(relax, new_model, reg_id, energy_code)
         evald_futures.append(out)
-    print ('Input models are finished. Making random models..')
+    print('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
-num_initial_pop =  i_dict['population_limits']['initial_population']
+num_initial_pop = i_dict['population_limits']['initial_population']
 total_models_needed = i_dict['population_limits']['total_population']
 working_jobs = get_working_jobs(evald_futures)
 
@@ -192,18 +201,19 @@ while models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
             new_model, select = make_model(random_model_obj, evolve, select,
-                                            pool, reg_id, model_type='random')
+                                           pool, reg_id, model_type='random')
         else:
             new_model, select = make_model(random_model_obj, evolve, select,
-                                            pool, reg_id, model_type='evolved')
+                                           pool, reg_id, model_type='evolved')
 
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
-        evald_futures, models_evald, pool, select = update_pool( evald_futures,
-                                                            models_evald,
-                                                            pool, select,
-                                                            data_file, sim_ids)
+        evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                                models_evald,
+                                                                pool, select,
+                                                                data_file,
+                                                                sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
 # process extra calculations running in last batch
@@ -215,5 +225,5 @@ while len(evald_futures) > 0:
 
 client.shutdown()
 
-print ('Done!')
-print ('Total time: ', time.time() - start_time)
+print('Done!')
+print('Total time: ', time.time() - start_time)
