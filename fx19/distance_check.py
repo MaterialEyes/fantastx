@@ -10,13 +10,13 @@ https://medium.com/@andriylazorenko/closest-pair-of-points-in-python-79e2409fc0b
 and been modified
 """
 
-def solution(x, y, z, min_dist, close_coords):
-    x, y, z = list(x), list(y), list(z)
-    a = list(zip(x, y, z))  # This produces list of tuples
-    ax = sorted(a, key=lambda x: x[0])  # Presorting x-wise
-    ay = sorted(a, key=lambda x: x[1])  # Presorting y-wise
-    p1, p2, mi = closest_pair(ax, ay, min_dist, close_coords)  # Recursive D&C function
-    return p1, p2, mi, close_coords
+#def solution(x, y, z, min_dist, close_coords):#
+#    x, y, z = list(x), list(y), list(z)
+#    a = list(zip(x, y, z))  # This produces list of tuples
+#    ax = sorted(a, key=lambda x: x[0])  # Presorting x-wise
+#    ay = sorted(a, key=lambda x: x[1])  # Presorting y-wise
+#    p1, p2, mi = closest_pair(ax, ay, min_dist, close_coords)  # Recursive D&C function
+#    return p1, p2, mi, close_coords
 
 def dist(p1, p2):
     """
@@ -214,7 +214,7 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
         if d < min_dist:
             return False
     return True
-  
+
 def satisfies_all_dists(new_carts, existing_astr, element_syms,
                         min_dist_dict, max_dist_dict=None,
                         atom_index_in_astr=None,

@@ -100,7 +100,8 @@ if workers['cluster'] == 'SLURM':
                                queue=workers['submit_queue'],
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
-                               job_extra=workers['job_extra'])
+                               job_extra=workers['job_extra'],
+                               header_skip=workers['header_skip'])
     client = Client(cluster_job)
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
@@ -108,7 +109,8 @@ elif workers['cluster'] == 'PBS':
                              project=workers['project_name'],
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
-                             job_extra=workers['job_extra'])
+                             job_extra=workers['job_extra'],
+                             header_skip=workers['header_skip'])
     client = Client(cluster_job)
 elif workers['cluster'] == 'local':
     client = Client('tcp://127.0.0.1:8786')
@@ -187,7 +189,8 @@ if input_model_obj is not None:
     # evaluate the input models
     for input_model in input_models:
         new_model, select = make_model(random_model_obj, evolve, select, pool,
-                                       reg_id, model_type='inputs', model=input_model)
+                                       reg_id, model_type='inputs',
+                                       model=input_model)
         # relax the model in dask-workers
         out = client.submit(relax, new_model, reg_id, energy_code)
         evald_futures.append(out)
@@ -220,7 +223,8 @@ while models_evald < total_models_needed:
         evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                                 models_evald,
                                                                 pool, select,
-                                                                data_file, sim_ids)
+                                                                data_file,
+                                                                sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
 # process extra calculations running in last batch
@@ -231,17 +235,17 @@ while len(evald_futures) > 0:
                                                             data_file, sim_ids)
 
 # print statements which output visualization information
-# good_pool = pool.good_pool
-# good_pool_labels = [model.label for model in good_pool]
-# print(f"Current good_pool population models: {good_pool_labels}.")
+good_pool = pool.good_pool
+good_pool_labels = [model.label for model in good_pool]
+print(f"Current good_pool population models: {good_pool_labels}.")
 # non_dominated_pop_models = select.return_nd_pop_models(pool)
 #nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
-pop_labels = [model.label for model in pool.population.models]
-archive_labels = [model.label for model in pool.archive.models]
-print(f"Current pool population models: {pop_labels}")
-#print(f"Current pool population non-dominated models: {nd_pop_labels}")
-print(f"Current pool archive models: {archive_labels}")
-print(f"Current operator probabilities: {select.operator_frequencies}")
+# pop_labels = [model.label for model in pool.population.models]
+# archive_labels = [model.label for model in pool.archive.models]
+# print(f"Current pool population models: {pop_labels}")
+# print(f"Current pool population non-dominated models: {nd_pop_labels}")
+# print(f"Current pool archive models: {archive_labels}")
+# print(f"Current operator probabilities: {select.operator_frequencies}")
 
 print('Done!')
 print('Total time: ', time.time() - start_time)

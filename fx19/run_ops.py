@@ -1,17 +1,17 @@
-###################### Functions for run_fx : Begin ####################################
-import time
 
+"""
+This module contains functions which are used in run_fx.py
+"""
+import time
 
 def get_working_jobs(futures):
     """
-    futures: dictionary of job output future objects labelled w.r.t model
-    labels as keys
-
     Checks if any jobs in futures is still running and returns number of
     running jobs
 
     Args:
-    futures - (list) list of futures objects (concurrent_futures)
+
+    futures - list of future objects (concurrent.futures)
     """
     if len(futures) == 0:
         return 0
@@ -29,23 +29,27 @@ def write_data(model, data_file):
     write the model data to data_file
 
     Args:
-    model - model object
-    data_file - path to the data_file
+
+    model (obj): structure_record.model() object
+
+    data_file (str) - path to the data_file
     """
     with open(data_file, 'a') as f:
         if model.obj1_val:
-            line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\t{4:.6}\n'.format(model.label,
-                                                                   model.inheritance, model.tot_en, model.obj0_val, model.obj1_val)
+            line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\t{4:.6}\n'.format(
+                                model.label, model.inheritance, model.tot_en,
+                                model.obj0_val, model.obj1_val)
         else:
-            line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\n'.format(model.label,
-                                                           model.inheritance, model.tot_en, model.obj0_val)
+            line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\n'.format(
+                                model.label, model.inheritance, model.tot_en,
+                                model.obj0_val)
         f.write(line)
 
 # Temporary selection probs based on overall_value
-
-
 def temp_selection_probs(pool):
     """
+    (Deprecated)
+
     Always the minimum overall value gets selevtion_prob of 1.
     """
     ov = [model.overall_val for model in pool.good_pool]
@@ -59,12 +63,15 @@ def temp_selection_probs(pool):
 
 def relax(model, reg_id, energy_code):
     """
-    Do energy relaxation of the given model
+    Does energy relaxation of the given model
 
     Args:
-    model - model object
-    reg_id  - register_id object
-    energy_code - energy_code object (lammps_code or vasp_code)
+
+    model (obj): structure_record.model() object
+
+    reg_id (obj): structure_record.register_id() object
+
+    energy_code (obj): energy code object (lammps_code or vasp_code)
     """
     try:
         energy_code.relax(model, reg_id)
@@ -87,20 +94,27 @@ def relax(model, reg_id, energy_code):
 def make_model(random_model_obj, evolve, select, pool, reg_id,
                model_type='random', model=None):
     """
-    [random_model_obj, reg_id, evolve, select, pool,]
-    Make a random model or a child model
+    Makes a random model or a child model
 
     Args:
-    random_model_obj - make_random_model object or gb_ops_obj
-    evolve - evolve object
-    select - select object from selection.py
-    pool - pool object from selection.py
-    reg_id - register_id object
+
+    random_model_obj : make_random_model for cluster or gb_ops obj for gb
+                       or surface_ops for surface geometry object
+
+    evolve : structure_operations.evolve() object
+
+    select : select object from selection.py
+
+    pool : pool object from selection.py
+
+    reg_id : structure_record.register_id() object
+
     model_type (str): 'random' or 'evolved'
                       'random' - make random model for initial population
                       'evolved' - make child model by evolution
+
     model (model obj): if a model object is provided as inputs model_type
-                        it is directly taken to energy evaluation step.
+                       it is directly taken to energy evaluation step.
     """
     # read models from input files (if any)
     if model_type == 'inputs':
@@ -124,12 +138,15 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
 def separate_gb(energy_code, gb_ops_obj, model):
     """
     For gb search, separate the gb_iface from the relaxed gb
-    Pass if not gb search
+    Does nothing if not gb search
 
     Args:
-    energy_code - energy_code object (lammps_code or vasp_code)
+
+    energy_code - energy code object (lammps_code or vasp_code)
+
     gb_ops_obj - gb_ops_obj from structure_operations.py
-    model - model obj
+
+    model (obj): structure_record.model() object
     """
     # For grain boundary search, assign grain_interface as model attribute
     if energy_code.shape == 'gb':
@@ -140,11 +157,14 @@ def separate_gb(energy_code, gb_ops_obj, model):
 
 def do_Xsim(model, Xsim_1):
     """
-    Do Xsim if needed and assign the corresponding objective function value
-    Pass if no Xsim
+    Do Xsim if needed and assign the corresponding objective function value. If
+    no experimental simulation needed or Xsim_1 is None, does nothing.
 
-    model - model object
-    Xsim_1 - experimental simulation object (pdf_of_model or gb_ingrained)
+    Args:
+
+    model : structure_record.model() object
+
+    Xsim_1 : experimental simulation object (pdf_of_model or gb_ingrained)
     """
     if Xsim_1:
         # get the relaxed structure
@@ -170,12 +190,18 @@ def update_pool(evald_futures, models_evald, pool, select,
     Returns updated (evald_futures, pool, models_evald)
 
     Args:
-    evald_futures - (list) list of submitted energy evaluation futures objects
-    models_evald - (int) count of number of fully evaluated models
-    pool - pool object from selection.py
-    select - select object from selection.py
-    data_file - path to data_file to write model data
-    sim_ids - (bool) True if experimental simulation is used
+
+    evald_futures : (list) list of submitted energy evaluation futures objects
+
+    models_evald : (int) count of number of fully evaluated models
+
+    pool : pool object from selection.py
+
+    select : select object from selection.py
+
+    data_file : path to data_file to write model data
+
+    sim_ids : (bool) True if experimental simulation is used
     """
     # remove all futures with an exception
     rem_inds, process_inds = [], []

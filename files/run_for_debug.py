@@ -23,7 +23,7 @@ dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('surface_input.yaml') as ifile:
+with open('cluster_input.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
