@@ -66,7 +66,7 @@ class make_model_from_input(object):
         else:
             return 0
 
-
+          
 class make_random_model(object):
 
     def __init__(self, str_constraints):
@@ -161,7 +161,7 @@ class make_random_model(object):
 
             # check distance between different pairs of species
             atoms_too_close = dc.check_all_bonds(cluster, min_dist_dict,
-                                                                    cum_sum)
+                                                 cum_sum)
 
             # check if atleast one nearest neighbor (nn) less than max_bond_dist
             for i in range(len(cluster.sites)):
@@ -192,6 +192,7 @@ class make_random_model(object):
         astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
         rand_model.inheritance = 'random'
+        rand_model.made_by = 'random'
         return rand_model
 
     def get_n_species(self):

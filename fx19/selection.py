@@ -312,7 +312,15 @@ class Select(object):
         if self.is_point_on_pareto((model_obj0, model_obj1)):
             return None, model
 
-        dist_from_hull = self.get_dist_from_hull((model_obj0, model_obj1))
+        # Assuming 2D pareto front from here
+        # Get maximum x & maximum y hull points
+        [Px, Py] = self.hull_points[np.argmax(self.hull_points, axis=0)]
+
+        # slope of line between Px, Py
+        m_pxpy = (Px[1] - Py[1]) / (Px[0] - Py[0])
+
+        dist_from_hull = self.get_dist_from_hull(
+            (model_obj0, model_obj1), m_pxpy)
 
         # set model's overall value
         model.overall_val = dist_from_hull
@@ -546,7 +554,7 @@ class Select(object):
 
             distances_from_hull = []
             for data_of_model in weighted_norm_vals:
-                min_dist = Select._get_dist_from_hull(
+                min_dist = Select.get_dist_from_hull(
                     self, data_of_model, m_pxpy)
                 distances_from_hull.append(min_dist)
 

@@ -18,6 +18,7 @@ from pymatgen.io.vasp.inputs import Poscar
 
 import os
 import shutil
+import time
 # import math
 import numpy as np
 import subprocess as sp
@@ -141,7 +142,6 @@ class lammps_code(object):
         Does not return anything
 
         args:
-
         model (obj): structure_record.model() object for which energy
                          evaluation will be done
 
@@ -151,6 +151,7 @@ class lammps_code(object):
         self.prep_job_folder(model, reg_id)
         # start the lammps calculation
         relax_path = self.relax_path
+        # relax_path = model.relax_path
         os.chdir(relax_path)
         lammps_exec = self.energy_exec_cmd.split()
         with open('log_lammps.{}'.format(model.label), 'w') as log_file:
@@ -164,17 +165,18 @@ class lammps_code(object):
 
         # save total energy to model attributes
         total_energy = None
-        with open('log_lammps.{}'.format(model.label), 'r') as log:
+        with open(f'{relax_path}/log_lammps.{model.label}', 'r') as log:
             lines = log.readlines()
             string = 'Step Temp E_pair E_mol TotEng Press'
             for i, line in enumerate(lines):
                 if string in line:
                     total_energy = float(lines[i+2].split()[4])
+
         if not total_energy:
-            print ('Model {} energy not found in log_lammps.{} file'.format(
-                                                model.label, model.label))
-            print ('LAMMPS relaxation on model {} NOT successful'.format(
-                                                model.label))
+            print('Model {} energy not found in log_lammps.{} file'.format(
+                model.label, model.label))
+            print('LAMMPS relaxation on model {} NOT successful'.format(
+                model.label))
             # quit()
         else:
             model.tot_en = total_energy
@@ -191,7 +193,8 @@ class lammps_code(object):
             for i in astr.species:
                 if i.symbol not in symbols:
                     symbols.append(i.symbol)
-            relaxed_astr = self.get_relaxed_cell('rlx.str', 'in.data', symbols)
+            relaxed_astr = self.get_relaxed_cell(
+                f'{relax_path}/rlx.str', f'{relax_path}/in.data', symbols)
             # save relaxed structure in model.astr and to poscar
             POSCAR_relaxed = relax_path + '/POSCAR_relaxed'
             relaxed_astr.sort()
@@ -562,8 +565,9 @@ class vasp_code(object):
         checks if converged, resubmits if resubmit > 0
         save output files fo previous run with _resubmited_number
         """
-        if not model.converged and self.resubmit !=0:
-            relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
+        if not model.converged and self.resubmit != 0:
+            relax_path = self.main_path + '/calcs/' + \
+                str(model.label) + '/relax'
             os.chdir(relax_path)
             shutil.copy('OUTCAR', 'OUTCAR_{}'.format(self.resubmit-1))
             shutil.copy('CONTCAR', 'CONTCAR_{}'.format(self.resubmit-1))
@@ -695,7 +699,7 @@ class vasp_code(object):
         gb_poscar.write_file(file_name)
 
     def write_surface_poscar(self, model, file_name, sd_cut_off=None,
-                                                 sd_no_z=False):
+                             sd_no_z=False):
         """
         For a newly created model in 'surface' geometry, set sd_flags to each site according to its
         z-coordinate. Assigns [T, T, T] to atoms above sd_cut_ff if provided, else uses the substrate thickness as sd_cut_off. Sets [T, T, F] for atoms if sd_no_z is True.
@@ -712,13 +716,13 @@ class vasp_code(object):
 
         sd_no_z (bool): set to True to allow the atoms to relax in z-direction
         """
-        if not sd_cut_off: # automatically freeze substrate
+        if not sd_cut_off:  # automatically freeze substrate
             sd_cut_off = self.substrate_thickness
 
         slab_sites = model.astr.sites
         bot_z_cart = model.astr.cart_coords[:, 2].min()
-        surface_inds = [i for i, site in enumerate(slab_sites) if \
-                            site.coords[2] - bot_z_cart > sd_cut_off]
+        surface_inds = [i for i, site in enumerate(slab_sites) if
+                        site.coords[2] - bot_z_cart > sd_cut_off]
 
         sd_flags = []
         for i in range(len(slab_sites)):
@@ -729,8 +733,8 @@ class vasp_code(object):
                 else:
                     sd_flag = [1, 1, 1]
             sd_flags.append(sd_flag)
-        sd_flags = [[bool(flag[0]), bool(flag[1]), bool(flag[2])] \
-                                    for flag in sd_flags]
+        sd_flags = [[bool(flag[0]), bool(flag[1]), bool(flag[2])]
+                    for flag in sd_flags]
 
         gb_poscar = Poscar(model.astr, selective_dynamics=sd_flags)
         gb_poscar.write_file(file_name)

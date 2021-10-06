@@ -4,10 +4,14 @@ from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
 from fx19 import experimental_simulation
-from fx19 import selection
+#from fx19 import selection
+from fx19 import epsilonSelection
+#from fx19 import clusteredSelection
 from fx19 import structure_operations
+from fx19.clustering import hierarchical_clusterer, compositional_clusterer
 
 import os
+
 
 def make_objects(i_dict):
     """
@@ -82,11 +86,33 @@ def make_objects(i_dict):
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
-    # Pool object (contains good_pool and bad_pool)
+        # Pool object (contains good_pool and bad_pool)
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
-    pool = selection.Pool(pool_params)
+    pool_params['epsilons'] = i_dict['epsilons']
+    if 'fingerprint_params' in i_dict:
+        fingerprint_params = i_dict["fingerprint_params"]
+        # If the fingerprint is a soap descriptor, then the
+        # species names need to be passed in.
+        if fingerprint_params["label"] == "rematch-soap":
+            species = []
+            for _, value in str_constraints["species_dict"].items():
+                species.append(value["name"])
+            fingerprint_params["species"] = species
+        pool_params['fingerprint_params'] = i_dict['fingerprint_params']
+    # Also create cluster object if cluster_params in i_dict
+    if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
+        if i_dict['cluster_params']['type'] == "hierarchical":
+            cluster_obj = hierarchical_clusterer(
+                i_dict['cluster_params'], Xsim_1)
+        elif i_dict['cluster_params']['type'] == 'compositional':
+            cluster_obj = compositional_clusterer()
+        pool_params['cluster_obj'] = cluster_obj
+        all_objects['cluster_obj'] = cluster_obj
+    pool = epsilonSelection.Pool(pool_params)
+    #pool = clusteredSelection.Pool(pool_params)
+    #pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
@@ -103,13 +129,17 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
-        select = selection.Select(select_params)
+        #select = clusteredSelection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
+        #select = selection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
-        select = selection.Select(select_params)
+        #select = clusteredSelection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
+        #select = selection.Select(select_params)
     all_objects['select'] = select
 
     # Mating object from structure_operations
@@ -153,11 +183,12 @@ def make_objects(i_dict):
     surface_ops_obj = None
     if str_constraints['shape'] == 'surface':
         init_slabs_path = str_record['surface']['init_slabs_dir']
-        init_slabs_dict = {i: init_slabs_path + '/' + slab_file \
-                    for i, slab_file in enumerate(os.listdir(init_slabs_path))}
+        init_slabs_dict = {i: init_slabs_path + '/' + slab_file
+                           for i, slab_file in enumerate(os.listdir(init_slabs_path))}
         str_constraints['init_slabs_dict'] = init_slabs_dict
 
-        surface_ops_obj = structure_operations.surface_ops(hop, str_constraints)
+        surface_ops_obj = structure_operations.surface_ops(
+            hop, str_constraints)
         all_objects['surface_ops_obj'] = surface_ops_obj
 
         energy_code.substrate_thickness = surface_ops_obj.substrate_thickness
@@ -165,8 +196,7 @@ def make_objects(i_dict):
         energy_code.sd_no_z = surface_ops_obj.sd_no_z
         all_objects['energy_code'] = energy_code
 
-    ################### Develop any other below objects
-
+    # Develop any other below objects
 
     return all_objects
 

@@ -10,6 +10,9 @@ from fx19 import inputs
 from fx19 import distance_check as dc
 from fx19.structure_operations import gb_ops
 from fx19.run_ops import *
+from fx19.clustering import hierarchical_clusterer, compositional_clusterer
+import multiprocessing as mp
+import traceback
 
 import time
 import numpy as np
@@ -17,7 +20,7 @@ from time import sleep
 
 # dask import
 from dask_jobqueue import SLURMCluster, PBSCluster
-from dask.distributed import Client
+from dask.distributed import Client, LocalCluster
 
 # change worker unresponsive time to 3h (Assuming max elapsed time for one calc)
 import dask
@@ -99,6 +102,7 @@ if workers['cluster'] == 'SLURM':
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'],
                                header_skip=workers['header_skip'])
+    client = Client(cluster_job)
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
@@ -107,11 +111,17 @@ elif workers['cluster'] == 'PBS':
                              walltime=workers['walltime'],
                              job_extra=workers['job_extra'],
                              header_skip=workers['header_skip'])
+    client = Client(cluster_job)
+elif workers['cluster'] == 'local':
+    client = Client('tcp://127.0.0.1:8786')
 else:
-    print('FANTASTX currently supports SLURM and PBS. Provided '
+    print('FANTASTX currently supports SLURM, PBS and local. Provided '
           'scheduler type not identified.')
-cluster_job.scale(jobs=max_workers)  # number of parallel jobs
-client = Client(cluster_job)
+
+if workers['cluster'] == 'SLURM' or workers['cluster'] == 'PBS':
+    cluster_job.scale(max_workers)
+    cluster_job.scale(jobs=max_workers)  # number of parallel jobs
+    client = Client(cluster_job)
 
 # full_eval function which uses global variables
 
@@ -134,6 +144,7 @@ def full_eval(model):
     except FileExistsError:
         print('Duplicate label in parallel processes. Skipping..')
         return None
+
     resubmitted = 2
     if model.converged == False:
         for i in range(len(energy_code.resubmit)):
@@ -223,7 +234,20 @@ while len(evald_futures) > 0:
                                                             pool, select,
                                                             data_file, sim_ids)
 
-client.shutdown()
+# print statements which output visualization information
+good_pool = pool.good_pool
+good_pool_labels = [model.label for model in good_pool]
+print(f"Current good_pool population models: {good_pool_labels}.")
+# non_dominated_pop_models = select.return_nd_pop_models(pool)
+#nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
+# pop_labels = [model.label for model in pool.population.models]
+# archive_labels = [model.label for model in pool.archive.models]
+# print(f"Current pool population models: {pop_labels}")
+# print(f"Current pool population non-dominated models: {nd_pop_labels}")
+# print(f"Current pool archive models: {archive_labels}")
+# print(f"Current operator probabilities: {select.operator_frequencies}")
 
 print('Done!')
 print('Total time: ', time.time() - start_time)
+
+client.shutdown()

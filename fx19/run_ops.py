@@ -86,6 +86,7 @@ def relax(model, reg_id, energy_code):
                 try:
                     energy_code.re_relax(model)
                 except:
+                    print("Model cannot be relaxed.")
                     continue
     return model
 
@@ -127,7 +128,7 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
 
     # make new model from parents
     if model_type == 'evolved':
-        new_model = evolve.get_model(select, pool, reg_id)
+        new_model = evolve.get_model_auto_adaptive(select, pool, reg_id)
         # add the new_model inheritance to select.all_parent_labels
         select.all_parent_labels += new_model.inheritance
 
@@ -225,3 +226,53 @@ def update_pool(evald_futures, models_evald, pool, select,
         models_evald += 1
 
     return evald_futures, models_evald, pool, select
+
+
+def update_nonparallel_pool(models_evald, model_evaled, pool, select,
+                            data_file, sim_ids):
+    """
+    Calculates the obejctive values for all models and updates pool with
+    best models
+
+    Returns updated (evald_futures, pool, models_evald)
+
+    Args:
+    evald_futures - (list) list of submitted energy evaluation futures objects
+    models_evald - (int) count of number of fully evaluated models
+    pool - pool object from selection.py
+    select - select object from selection.py
+    data_file - path to data_file to write model data
+    sim_ids - (bool) True if experimental simulation is used
+    """
+    model = model_evaled
+    # Add to either good_pool or bad_pool
+    # Selection_probs are also updated
+    select = pool.add_to_pool(model, select, sim_ids=sim_ids)
+    # write data to file
+    write_data(model, data_file)
+    models_evald += 1
+
+    return models_evald, pool, select
+
+
+def cluster_models(pool, data_file, xsim, cluster_obj):
+    '''
+    Clusters models using hierarchical clustering of STEM SSIM scores.
+    Arguments:
+    pool - pool of models.
+    data_file - file containing the objective function values for all
+                evaluated models.
+    xsim - the experimental_simulation object which will calculate the 
+            SSIM scores for each model pair.
+    cluster_obj - the clustering object which will perform all clustering
+                    operations.
+
+    Outputs images of the cluster dendrogram, and the clustering in objective
+    function space. 
+    '''
+    models = pool.all_models
+    obj_fncs = cluster_obj.read_in_objective_functions(data_file)
+    distance_matrix, sorted_labels, sorted_models = cluster_obj.create_distance_matrix(
+        models, xsim)
+    cluster_obj.calculate_clustering(
+        sorted_models, sorted_labels, obj_fncs, distance_matrix)
