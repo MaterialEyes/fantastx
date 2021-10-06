@@ -66,7 +66,7 @@ class make_model_from_input(object):
         else:
             return 0
 
-    def from_other_exp(exp_input):
+    def from_other_exp(self, exp_input):
         """
         (Place holder for other specific exp data)
         Funciton to read experimental data from input file

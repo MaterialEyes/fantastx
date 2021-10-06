@@ -71,6 +71,9 @@ class model(object):
         # selection probability based on overall_val
         # gets updated after every new added strucutre
         self.selection_prob = None
+        self.rank = None
+        self.cluster_rank = None
+        self.cluster = None
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = None
 

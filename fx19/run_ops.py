@@ -240,9 +240,6 @@ def cluster_models(pool, data_file, xsim, cluster_obj):
             SSIM scores for each model pair.
     cluster_obj - the clustering object which will perform all clustering
                     operations.
-    linkage - linkage mechanism for clustering (e.g. average linkage)
-    cutoff_mechanism - mechanism by which to assign the cutoff for forming
-                        flat clusters (e.g. distance, inconsistency, etc.)
 
     Outputs images of the cluster dendrogram, and the clustering in objective
     function space. 

@@ -733,12 +733,16 @@ class basinhopping(object):
 
         indices_fraction = self.indices_fraction
         if model_id is None:
+            print("Getting random model.")
             parent_model = select.get_a_parent(pool)
             # make a copy
             parent = copy.deepcopy(parent_model)
             inheritance = [parent.label]
         else:
             # for model in pool.good_pool:
+            print(f"Getting specific model: {model_id}")
+            all_labels = [model.label for model in pool.population.models]
+            print(f"all_labels: {all_labels}")
             for model in pool.population.models:
                 if model.label == model_id:
                     parent = copy.deepcopy(model)

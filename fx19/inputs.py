@@ -6,8 +6,9 @@ from fx19 import energy
 from fx19 import experimental_simulation
 #from fx19 import selection
 from fx19 import epsilonSelection
+#from fx19 import clusteredSelection
 from fx19 import structure_operations
-from fx19.clustering import clusterer
+from fx19.clustering import hierarchical_clusterer, compositional_clusterer
 
 import os
 
@@ -99,10 +100,15 @@ def make_objects(i_dict):
         pool_params['fingerprint_params'] = i_dict['fingerprint_params']
     # Also create cluster object if cluster_params in i_dict
     if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
-        cluster_obj = clusterer(i_dict['cluster_params'], Xsim_1)
+        if i_dict['cluster_params']['type'] == "hierarchical":
+            cluster_obj = hierarchical_clusterer(
+                i_dict['cluster_params'], Xsim_1)
+        elif i_dict['cluster_params']['type'] == 'compositional':
+            cluster_obj = compositional_clusterer()
         pool_params['cluster_obj'] = cluster_obj
         all_objects['cluster_obj'] = cluster_obj
     pool = epsilonSelection.Pool(pool_params)
+    #pool = clusteredSelection.Pool(pool_params)
     #pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
@@ -120,6 +126,7 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
+        #select = clusteredSelection.Select(select_params)
         select = epsilonSelection.Select(select_params)
         #select = selection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
@@ -127,6 +134,7 @@ def make_objects(i_dict):
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
+        #select = clusteredSelection.Select(select_params)
         select = epsilonSelection.Select(select_params)
         #select = selection.Select(select_params)
     all_objects['select'] = select
