@@ -15,8 +15,9 @@ import os
 
 class register_id(object):
     """
-    An object to keep count of the models
+    An object to assign a unique label to each model.
     """
+
     def __init__(self):
         self.label = 0
 
@@ -28,7 +29,7 @@ class register_id(object):
 class model(object):
     """
     Information related to each model including the pymatgen Structure object
-    are stored as attributes to the model object
+    are stored as attributes to the model object.
     """
 
     def __init__(self, astr, reg_id):
@@ -75,13 +76,17 @@ class model(object):
         # selection probability based on overall_val
         # gets updated after every new added strucutre
         self.selection_prob = None
+        # non-domination rank overall and within the cluster. Used for
+        # clusteredSelection
         self.rank = None
         self.cluster_rank = None
+        # cluster to which the model belongs. Used for epsilonSelection
+        # and clusteredSelection
         self.cluster = None
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = None
 
-        
+
 class structure_constraints(object):
     """
     Reads all the inputs provided by user and assumes defaults for some
@@ -93,11 +98,11 @@ class structure_constraints(object):
         Args:
 
         str_record (dict): dictionary of all the parameters from input file
-                           under structure_record keyword
+        under structure_record keyword
         """
 
-        self.def_min_dist = 2  # minimum distance between atoms in angstroms
-        self.def_max_dist = 5  # minimum distance which should contain one+ bond
+        self.def_min_dist = 2  # min distance between atoms in angstroms
+        self.def_max_dist = 5  # min distance which should contain one+ bond
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
@@ -130,7 +135,8 @@ class structure_constraints(object):
             found_species.append(i)
             if 'name' not in values:
                 print(
-                    'Please specify element name (Ex: \'Al\') of specie ' + str(i) + '.')
+                    'Please specify element name (Ex: \'Al\') of specie '
+                    + str(i) + '.')
             element_syms[i] = values['name']
             if 'min_num' not in values:
                 values['min_num'] = self.min_num_atoms
@@ -160,7 +166,7 @@ class structure_constraints(object):
                 if 'max_dist' in str_record:
                     if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
-        #########################cluster parameters############################
+        #########################cluster parameters###########################
         # shape and related
         if 'cluster' in str_record:
             self.shape = 'cluster'
@@ -186,6 +192,7 @@ class structure_constraints(object):
                 self.max_dia = 8
 
         ####################cluster parameters ends###########################
+
         #########################gb parameters begins#########################
         if self.shape == 'gb':
             init_gb_astr_path = str_record['gb']['init_gb_astr']
@@ -216,20 +223,24 @@ class structure_constraints(object):
             For ingrained, this grain data needs to be provided.
             Grain data is not required for Fantastx.
 
-            self.grain1_data = None # {'orientation': (1,1,1), 'tilt': 15, 'name': Al}
+            self.grain1_data = None # {'orientation': (1,1,1),
+                                       'tilt': 15, 'name': Al}
             #self.grain1_orientation =
             #self.grain1_tilt =
-            self.grain2_data = None # {'orientation': (1,1,0), 'tilt': -10, 'name': Ge}
+            self.grain2_data = None # {'orientation': (1,1,0),
+                                       'tilt': -10, 'name': Ge}
             #self.grain2_orientation =
             #self.grain2.tilt =
             """
         ######################### gb parameters ends #########################
+
         ##################### surface parameters begins ######################
         if self.shape == 'surface':
             surface_params = str_record['surface']
             init_slabs_dir = surface_params['init_slabs_dir']
             poscars = [init_slabs_dir + '/' + i for i in
-                       os.listdir(init_slabs_dir) if i.startswith('POSCAR_slab')]
+                       os.listdir(init_slabs_dir)
+                       if i.startswith('POSCAR_slab')]
             init_slabs_dict = {}
             for p in range(len(poscars)):
                 init_slabs_dict[p+1] = poscars[p]

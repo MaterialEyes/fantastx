@@ -1,5 +1,4 @@
 from __future__ import division, unicode_literals, print_function
-from fx19.structure_operations import gb_ops
 from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
@@ -24,7 +23,7 @@ def make_objects(i_dict):
     Args:
 
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
     """
     all_objects = {}
     # register_id object to id the models
@@ -75,7 +74,7 @@ def make_objects(i_dict):
     if 'exp_sim_1' in i_dict:
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
-            if not 'exp_sim_1_params' in i_dict:
+            if 'exp_sim_1_params' not in i_dict:
                 print('exp_sim_1_params not provided. They are mandatory.')
             if method_1 == 'PDF':
                 Xsim1_params = get_pdf_params(i_dict, 'exp_sim_1_params')
@@ -111,17 +110,17 @@ def make_objects(i_dict):
         pool_params['cluster_obj'] = cluster_obj
         all_objects['cluster_obj'] = cluster_obj
     pool = epsilonSelection.Pool(pool_params)
-    #pool = clusteredSelection.Pool(pool_params)
-    #pool = selection.Pool(pool_params)
+    # pool = clusteredSelection.Pool(pool_params)
+    # pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
-    if not 'select_params' in i_dict:
+    if 'select_params' not in i_dict:
         print('Error: Please provide select_params keyword and objective'
               ' keyword specifying single or multiobjective optimization.')
     else:
         select_params = i_dict['select_params']
-    if not 'objective_fn_type' in select_params.keys():
+    if 'objective_fn_type' not in select_params.keys():
         print('Error: Please provide select_params keyword and objective'
               ' keyword specifying single or multiobjective optimization.')
 
@@ -129,17 +128,17 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
-        #select = clusteredSelection.Select(select_params)
+        # select = clusteredSelection.Select(select_params)
         select = epsilonSelection.Select(select_params)
-        #select = selection.Select(select_params)
+        # select = selection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
-        #select = clusteredSelection.Select(select_params)
+        # select = clusteredSelection.Select(select_params)
         select = epsilonSelection.Select(select_params)
-        #select = selection.Select(select_params)
+        # select = selection.Select(select_params)
     all_objects['select'] = select
 
     # Mating object from structure_operations
@@ -184,7 +183,8 @@ def make_objects(i_dict):
     if str_constraints['shape'] == 'surface':
         init_slabs_path = str_record['surface']['init_slabs_dir']
         init_slabs_dict = {i: init_slabs_path + '/' + slab_file
-                           for i, slab_file in enumerate(os.listdir(init_slabs_path))}
+                           for i, slab_file in
+                           enumerate(os.listdir(init_slabs_path))}
         str_constraints['init_slabs_dict'] = init_slabs_dict
 
         surface_ops_obj = structure_operations.surface_ops(
@@ -200,6 +200,7 @@ def make_objects(i_dict):
 
     return all_objects
 
+
 def get_energy_params(i_dict):
     """
     Returns a dictionary with all the parameters, mandatory and optional, to be
@@ -208,7 +209,7 @@ def get_energy_params(i_dict):
     Args:
 
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
     """
     energy_params = {}
     # add main_path, i.e., where the search started to energy_params
@@ -237,7 +238,8 @@ def get_energy_params(i_dict):
             mu[index] = species_dict[species]['mu']
         else:
             print('Error encountered with species ' + str(index) + ': '
-                  'Chemical potentials must be provided in the dictionary for each species!')
+                  'Chemical potentials must be provided in the dictionary'
+                  + ' for each species!')
             mu[index] = 0
 
     energy_params['mu'] = mu
@@ -264,6 +266,7 @@ def get_energy_params(i_dict):
 
     return energy_params
 
+
 def get_pdf_params(i_dict, exp_sim_params_id):
     """
     Reads the i_dict and returns pdf_params for experimental simulation method
@@ -274,10 +277,10 @@ def get_pdf_params(i_dict, exp_sim_params_id):
     Args:
 
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
 
     exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-                        simulation method.
+    simulation method.
 
     #TODO: add 'exp_sim_2_params' if 2 sim methods are used
     """
@@ -286,6 +289,7 @@ def get_pdf_params(i_dict, exp_sim_params_id):
     pdf_params['main_path'] = i_dict['main_path']
 
     return pdf_params
+
 
 def get_ingrained_params(i_dict, exp_sim_params_id):
     """
@@ -296,10 +300,10 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
     Args:
 
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
 
     exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-                        simulation method.
+    simulation method.
 
     #TODO: add 'exp_sim_2_params' if 2 sim methods are used
     """
@@ -312,10 +316,11 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
         gb_ingrained_params['progress_file'] = None
     if 'ing_opt_params' not in gb_ingrained_params:
         gb_ingrained_params['ing_opt_params'] = None
-    if not 'dm3_path' in gb_ingrained_params:
+    if 'dm3_path' not in gb_ingrained_params:
         gb_ingrained_params['dm3_path'] = None
 
     return gb_ingrained_params
+
 
 def get_mating_params(i_dict, str_constraints):
     """
@@ -325,10 +330,10 @@ def get_mating_params(i_dict, str_constraints):
     Args:
 
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
 
     str_constraints - (dict) dictionary of all the constraints for making
-                      random models
+    random models
     """
     # NOTE: There aren't any mandatory params for mating.
     # If there are not any in input_file.yaml, assume all defaults and proceed
@@ -356,6 +361,7 @@ def get_mating_params(i_dict, str_constraints):
 
     return mating_params
 
+
 def get_evolve_params(i_dict, str_constraints):
     """
     Returns parameters to be used for the 'evolve' class
@@ -363,10 +369,10 @@ def get_evolve_params(i_dict, str_constraints):
     Args:
 
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
 
     str_constraints - (dict) dictionary of all the constraints for making
-                      random models
+    random models
     """
     evolve_params = {}
     if 'evolve_probabilities' in i_dict:

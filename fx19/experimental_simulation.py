@@ -2,15 +2,17 @@
 from __future__ import division, unicode_literals, print_function
 
 import scipy
-#from scipy import optimize
 from pymatgen.core.structure import Structure
 from pymatgen.io.cif import CifWriter
-from diffpy.Structure import loadStructure
-from diffpy.srfit.pdf import PDFContribution
-from diffpy.srfit.fitbase import FitRecipe, FitResults
+try:
+    from diffpy.Structure import loadStructure
+    from diffpy.srfit.pdf import PDFContribution
+    from diffpy.srfit.fitbase import FitRecipe, FitResults
+except ImportError:
+    print('Install Diffpy-CMI for PDF simulation. Otherwise ignore..')
 
 # For preprocessing experimental image
-#from skimage.transform import rescale
+# from skimage.transform import rescale
 from skimage import restoration
 from skimage.exposure import equalize_adapthist
 
@@ -128,7 +130,7 @@ class pdf_of_model(object):
         Eg: 1.1 --> stretches 10% ; 0.9 --> shrinks by 10%
 
         model (obj): structure_record.model() object for which PDF simulation
-                     will be done
+        will be done
         """
         # use the relaxed structure from energy calculation
         astr = model.astr
@@ -376,7 +378,8 @@ class gb_ingrained(object):
         if not self.dm3_path:
             print('Provide path (dm3_path) to experimental image')
 
-        # Prepare experimental image (make sure this procedure matches the procedure in 'run.py')
+        # Prepare experimental image
+        # (make sure this procedure matches the procedure in 'run.py')
         image_data = iop.image_open(self.dm3_path)
         exp_img = iop.apply_rotation(
             image_data['Pixels'], 1)[271-10:783+10, 0:520]
@@ -414,7 +417,7 @@ class gb_ingrained(object):
         # Load prev_whole_exp.npy that is from the LAMMPS runs
         exp_prev = np.load('prev_whole_exp.npy')
         # in y & x directions # TODO: remove hard-coded values
-        #exp_patch_for_vasp = exp_prev[152:279, 12:]
+        # exp_patch_for_vasp = exp_prev[152:279, 12:]
         exp_patch_for_vasp = exp_prev
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
@@ -471,6 +474,13 @@ class gb_ingrained(object):
     def evaluate_obj_two_models(self, model_one, model_two):
         '''
         This function calculates the SSIM for the STEM images of two models.
+        Used to cluster models using SSIM scores as distance metrics.
+
+        Returns the SSIM score.
+
+        Args:
+
+        model_one and model_two (model objs): models which are being compared.
         '''
         relax_path_one = self.main_path + '/calcs/' + \
             str(model_one.label) + '/relax'
@@ -492,14 +502,16 @@ class gb_ingrained(object):
                 cropped_im_one, cropped_im_two)
             score = iop.score_ssim(cropped_im_one, cropped_im_two)
             print(
-                f'Adjusted image dimensions for models {model_one.label} and {model_two.label}')
+                f'Adjusted image dimensions for models {model_one.label}'
+                + f' and {model_two.label}')
 
         return float((score) * 100)
 
     def crop_dims(self, img, ref):
         """
         This function is used to adjust the 'shape' of the simulated image or
-        the target image to have them both equal. The dimensions in x, y are altered such that minimum number of pixels are lost overall.
+        the target image to have them both equal. The dimensions in x, y are
+        altered such that minimum number of pixels are lost overall.
 
         NOTE: Since, the lattice in POSCAR is maintained same across all models
         (ISIF=2), the simulated image should be same (or only different by
