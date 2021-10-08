@@ -66,7 +66,7 @@ class make_model_from_input(object):
         else:
             return 0
 
-          
+
 class make_random_model(object):
 
     def __init__(self, str_constraints):
@@ -163,7 +163,8 @@ class make_random_model(object):
             atoms_too_close = dc.check_all_bonds(cluster, min_dist_dict,
                                                  cum_sum)
 
-            # check if atleast one nearest neighbor (nn) less than max_bond_dist
+            # check if atleast one nearest neighbor (nn) less
+            # than max_bond_dist
             for i in range(len(cluster.sites)):
                 nn = cluster.get_neighbors(cluster.sites[i], max_bond_dist)
                 if len(nn) < 1:
@@ -187,7 +188,8 @@ class make_random_model(object):
         Use the random structure created and make it into a Model object
 
         Args:
-        reg_id - reg_id object
+
+        reg_id: the reg_id object which assigns the model its unique label.
         """
         astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
@@ -212,7 +214,8 @@ class make_random_model(object):
                 num_species = self.min_num_sp[sp_index]
             else:
                 num_species = int(
-                    unif(self.min_num_sp[sp_index], self.max_num_sp[sp_index]+1))
+                    unif(self.min_num_sp[sp_index],
+                         self.max_num_sp[sp_index]+1))
             for _ in range(num_species):
                 species.append(target_species)
             count.append(num_species)
@@ -233,9 +236,9 @@ class make_random_model(object):
 
         Args:
 
-        astr (obj) - pymatgen structure object
+        astr (obj): pymatgen structure object
 
-        axis (int) - 0, 1, 2 for x, y, and z axes respectively
+        axis (int): 0, 1, 2 for x, y, and z axes respectively
         """
         cart_coords = astr.cart_coords
         axis_coords = cart_coords[:, axis]

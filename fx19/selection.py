@@ -63,7 +63,8 @@ class Pool(object):
         Get to_good_pool for the specific scenario.
 
             If multi-obj && no. of models < num_models_before_pareto -->
-                update selection probs according to sum of normalized obj values
+                update selection probs according to sum of normalized 
+                obj values
 
             If single-obj --> update_probs_single_obj
 
@@ -122,8 +123,8 @@ class Pool(object):
         if select.type == 'single':
             # Get updated cutoff value to skip probs for a bad model
             cutoff_value = select.update_probs_single_obj(
-                                                self.all_models, self.capacity,
-                                                update_cutoff_only=True)
+                self.all_models, self.capacity,
+                update_cutoff_only=True)
             if cutoff_value >= model.obj0_val:
                 to_good_pool = True
             else:
@@ -132,7 +133,7 @@ class Pool(object):
             # check if model changes existing selection probs
             to_good_pool, model = select.add_new_model(model, sim_ids=sim_ids)
 
-        if to_good_pool == True:
+        if to_good_pool is True:
             # Add model to good_pool
             self.good_pool.append(model)
             good_pool_values = np.array(
@@ -160,10 +161,12 @@ class Pool(object):
             if model.label % select.adjust_k_every == 0:
                 initial_k = select.optimum_k
                 # optimize k
-                res = minimize(Select._optimize_exponential_constant, initial_k,
+                res = minimize(Select._optimize_exponential_constant,
+                               initial_k,
                                args=(select.num_required_above_50,
                                      scaled_values),
-                               method='Nelder-Mead', options={'maxiter': 100})
+                               method='Nelder-Mead',
+                               options={'maxiter': 100})
                 # Store new optimum k
                 select.optimum_k = res.x[0]
 
@@ -177,9 +180,8 @@ class Pool(object):
 
             return select
 
-        if to_good_pool == False:
+        if to_good_pool is False:
             print('New Model {} not added to good_pool'.format(model.label))
-
             return select
 
         if to_good_pool is None:
@@ -193,6 +195,27 @@ class Pool(object):
                 self.good_pool = self.all_models
             else:
                 print('New Model {} is pareto efficient!'.format(model.label))
+                if select.operator_assignment == "auto-adaptive":
+                    # update operator probabilities in select
+                    # Formula:
+                    # P_i = (C_i + epsilon)/Sum_j=1->N_operators(C_j+epsilon)
+                    # Here epsilon = 1
+                    operator_counts = np.zeros(
+                        len(select.operator_hashmap))
+                    for operator in select.operator_inheritance:
+                        if operator != "random":
+                            operator_counts[
+                                select.operator_hashmap[operator]
+                            ] += 1
+                        else:
+                            operator_counts += 1 / \
+                                len(select.operator_hashmap)
+                    divisor = len(select.pareto_labels[-1]) + \
+                        len(select.operator_hashmap)
+                    select.operator_frequencies = [
+                        (count + 1)/divisor for count in operator_counts]
+                    print(
+                        f"Operator frequencies: {select.operator_frequencies}")
 
             return select
 
@@ -210,12 +233,20 @@ class Select(object):
 
     def __init__(self, select_obj_params):
         """
-        The dictionary of parameters to make a Select object should be provided.
+        The dictionary of parameters to make a Select object should be
+        provided.
 
         Eg: select_obj_params = {'objective_fn_type': 'multi'
                                  'num_required_above_50': 30
                                  'num_models_before_pareto': 80
                                  'adjust_k_every': 100}
+
+        Some functionality is not included if not listed in the params
+        dictionary. Namely, auto-adaptive operator selection (where the
+        relative frequency of each operator in the evolutionary process
+        will be updated based on the operators which were used to create
+        the pareto-optimal solutions) can be used if listed in the
+        dictionary, but will not be used otherwise.
         """
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
@@ -264,6 +295,26 @@ class Select(object):
         # store all sets of pareto points labels
         self.pareto_labels = []
 
+        # Store operator information for mating operations
+        if 'operators' not in select_obj_params:
+            self.operators = ['perturb_sites', 'fraction_slice']
+        else:
+            self.operators = select_obj_params['operators']
+        if 'operator_assignment' in select_obj_params:
+            self.operator_assignment = select_obj_params['operator_assignment']
+        else:
+            self.operator_assignment = "fixed"
+
+        self.operator_hashmap = {
+            key: index for index, key in enumerate(self.operators)}
+        if 'operator_frequencies' in select_obj_params:
+            self.operator_frequencies = select_obj_params[
+                'operator_frequencies'
+            ]
+        else:
+            self.operator_frequencies = [
+                1/len(self.operators)]*len(self.operators)
+
     def add_new_model(self, model, sim_ids=None):
         """
         For a multi-obj search, calculated the cutoff value and returns the
@@ -294,7 +345,7 @@ class Select(object):
         if sim_ids and 1 in sim_ids:
             model_obj1 = model.obj1_val
         # For single-obj search, this function is not called at all
-        #else:
+        # else:
         #    print('Single objective function optimization.'
         #          'TODO: Follow different routine..')
         #    return 0, model
@@ -509,7 +560,7 @@ class Select(object):
             # Get indices of points (models) which are pareto efficient
             pareto_true_inds = Select._is_pareto_efficient(weighted_norm_vals)
             pareto_points_inds = [i for i, b in enumerate(pareto_true_inds)
-                                  if b == True]
+                                  if b is True]
             pareto_points = [list(weighted_norm_vals[i]) for i in
                              pareto_points_inds]
             # store pareto optimal points as class attribute
@@ -518,12 +569,19 @@ class Select(object):
             pareto_labels = [model_labels[i] for i in pareto_points_inds]
             self.pareto_labels.append(pareto_labels)
 
-            # Add origin in the beginning to get convex hull visible from origin
+            # Add origin in the beginning to get convex hull
+            # visible from origin
             pareto_points = [[0 for i in range(len(pareto_points[0]))]] + \
                 pareto_points
             # Sort by the first objective function
             pareto_points.sort()
             pareto_points = np.array(pareto_points)
+
+            if self.operator_assignment == "auto-adaptive":
+                pareto_models = [all_models[i] for i in pareto_points_inds]
+                # update operator inheritance based on pareto points
+                self.operator_inheritance = [
+                    model.made_by for model in pareto_models]
 
             try:
                 # Make convex hull with pareto points
@@ -588,21 +646,25 @@ class Select(object):
             scaled_good_pool_values = \
                 scaler.fit_transform(good_pool_values)[:, 0]
 
-            # optimize contant (k) in the exponential function e^(-kx) such that
-            # required number of models have probability greater than 0.5
+            # optimize contant (k) in the exponential function e^(-kx)
+            # such that required number of models have probability
+            # greater than 0.5
             initial_k = [-1]
             if len(good_pool) > self.adjust_k_every and \
                     len(good_pool) > self.num_required_above_50:
-                res = minimize(Select._optimize_exponential_constant, initial_k,
+                res = minimize(Select._optimize_exponential_constant,
+                               initial_k,
                                args=(self.num_required_above_50,
                                      scaled_good_pool_values),
-                               method='Nelder-Mead', options={'maxiter': 100})
+                               method='Nelder-Mead',
+                               options={'maxiter': 100})
                 opt_k = res.x[0]
                 self.optimum_k = opt_k
                 # Get probabilities by min max exponential function
                 # using the opt_k
                 exponential_probs = [(exp(opt_k * i) - exp(opt_k)) /
-                                     (1 - exp(opt_k)) for i in scaled_good_pool_values]
+                                     (1 - exp(opt_k)) for i in
+                                     scaled_good_pool_values]
             else:
                 opt_k = initial_k[0]
                 # Get probabilities by simple exponential function
@@ -613,7 +675,8 @@ class Select(object):
 
         else:  # if len(all_models) <= 1000
             all_models_values = np.array([sum(weighted_norm_vals[i])
-                                          for i in range(len(weighted_norm_vals))])
+                                          for i in
+                                          range(len(weighted_norm_vals))])
 
             # get cutoff for good_pool
             if len(all_models) <= good_pool_capacity:
@@ -668,7 +731,8 @@ class Select(object):
 
         new_point: (list/tuple) of a 2D point weighted normalized
                                             [obj0_val, obj1_val]
-        m_pxpy: (float) the slope of the line connecting the extrema of the pareto front
+        m_pxpy: (float) the slope of the line connecting the extrema of the
+                                                              pareto front
         """
 
         # get equation of line perpendicular to PxPy & passes through model
@@ -688,7 +752,9 @@ class Select(object):
     @staticmethod
     def _is_pareto_efficient(costs):
         """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+        Source:
+        https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
 
         Find the pareto-efficient points
 
@@ -715,7 +781,8 @@ class Select(object):
 
         Args:
 
-        k: (a list or an array) of the variable for minimize function (Eg: [-1])
+        k: (a list or an array) of the variable for minimize function
+           (Eg: [-1])
 
         scaled_good_pool_values: (1D array or list) The objective function
                                  values of models in good pool scaled between 0

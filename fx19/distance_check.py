@@ -1,31 +1,38 @@
 from __future__ import division, unicode_literals, print_function
 
 import numpy as np
-import math, copy
+import math
 
 """
-This class checks the distance between all the atoms, the angles between
-lattice vectors. This is a Divide and Conquer algorithm taken from (source):
-https://medium.com/@andriylazorenko/closest-pair-of-points-in-python-79e2409fc0b2
+This file contains functions to check the distance between all the atoms,
+and the angles between lattice vectors. It uses a Divide and Conquer
+algorithm taken from (source): https://medium.com/@andriylazorenko
+/closest-pair-of-points-in-python-79e2409fc0b2
 and been modified
 """
 
-#def solution(x, y, z, min_dist, close_coords):#
+# def solution(x, y, z, min_dist, close_coords):#
 #    x, y, z = list(x), list(y), list(z)
 #    a = list(zip(x, y, z))  # This produces list of tuples
 #    ax = sorted(a, key=lambda x: x[0])  # Presorting x-wise
 #    ay = sorted(a, key=lambda x: x[1])  # Presorting y-wise
-#    p1, p2, mi = closest_pair(ax, ay, min_dist, close_coords)  # Recursive D&C function
+#    p1, p2, mi = closest_pair(ax, ay, min_dist, close_coords)
 #    return p1, p2, mi, close_coords
+
 
 def dist(p1, p2):
     """
-    calculates and returns the distance between two 3D points
+    Calculates and returns the distance between two 3D points.
+
+    Args:
+
+    p1 and p2: coordinates of the two 3D points. Can be provided as
+    list, tuple or array.
     """
-    if len(p1)==len(p2)==3: #if points are in 3D
+    if len(p1) == len(p2) == 3:  # if points are in 3D
         d = math.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2 +
                       (p1[2] - p2[2]) ** 2)
-    #elif len(p1)==len(p2)==2: # if points are in 2D
+    # elif len(p1)==len(p2)==2: # if points are in 2D
     #    d = math.sqrt((p1[0] - p2[0])** 2 + (p1[1] - p2[1])** 2)
     return d
 
@@ -35,13 +42,19 @@ def brute(ax, min_dist, close_coords):
     Calculates the min distance between points if the number of points are less
     than "3"
 
-    ax: list of points sorted based on the x-coods
+    Args:
+
+    ax (list): list of points sorted based on the x-coods
+
+    min_dist (float): distance cutoff within which to consider the points close
+
+    close_coords (list): paired coordinates of points which are close.
     """
     mi = dist(ax[0], ax[1])
     p1 = ax[0]
     p2 = ax[1]
     if mi < min_dist:
-        close_coords.append([p1,p2])
+        close_coords.append([p1, p2])
     ln_ax = len(ax)
     if ln_ax == 2:
         return p1, p2, mi
@@ -58,14 +71,24 @@ def brute(ax, min_dist, close_coords):
 def closest_pair(ax, ay, min_dist, close_coords):
     """
     Finds the closest pair of points and the minimum distance between them
-    Divide and Conquer algorithm
+    using a Divide and Conquer algorithm.
 
-    ax, ay and axz are sorted list of points w.r.t x-coords, y-coords and
-    z-coords respectively
+    Returns the pair of points and the minimum distance.
+
+    Args:
+
+    ax (list): sorted list of points w.r.t x-coords
+
+    ay (list): sorted list of points w.r.t y-coords
+
+    min_dist (float): distance cutoff within which to consider points close
+
+    close_coords (list): paired coordinates of points which are close.
     """
     ln_ax = len(ax)  # It's quicker to assign variable
     if ln_ax <= 3:
-        return brute(ax, min_dist, close_coords)  # A call to bruteforce comparison
+        # A call to bruteforce comparison
+        return brute(ax, min_dist, close_coords)
     mid = ln_ax // 2  # Division without remainder, need int
     Qx = ax[:mid]  # Two-part split into Q and R
     Rx = ax[mid:]
@@ -115,7 +138,7 @@ def closest_split_pair(p_x, p_y, delta, best_pair, min_dist, close_coords):
                 best_pair = p, q
                 best = dst
             if dst < min_dist:
-                close_coords.append([p,q])
+                close_coords.append([p, q])
     return best_pair[0], best_pair[1], best
 
 
@@ -128,16 +151,22 @@ def check_angles(astr, min_angle, max_angle):
     """
     pass
 
+
 def one_to_many_distances(one_point, many_points, min_dist):
     """
     Checks the distances of one point to a list of many points
 
-    one_point : coordinates of single point as list or an array
-    many_points: list of other points
-    min_dist: the minimum distance that is to be satisfied for all distances
-
     Returns False if the point is at less distance than min_dist. If satisfies
     min_dist requirement for all points in list, returns True.
+
+    Args:
+
+    one_point: coordinates of single point as list or an array
+
+    many_points (list): list of coordinates of other points
+
+    min_dist (float): the minimum distance that is to be satisfied for
+    all distances
     """
     for each_point in many_points:
         d = dist(one_point, each_point)
@@ -145,13 +174,17 @@ def one_to_many_distances(one_point, many_points, min_dist):
             return False
     return True
 
+
 def dist_pbc(p1, p2, lattice):
     """
     Calculates and returns the distance between two points
     in periodic boundary conditions, using minimum image representation.
 
-    Arguments:
-    p1 and p2: cartesian coordinates of the PeriodicSites
+    Args:
+
+    p1 and p2: cartesian coordinates of the PeriodicSites. Preferred
+    formats are numpy arrays, but can be provided as lists or tuples.
+
     lattice: pymatgen lattice object of the structure
     """
     if not type(p1) is np.ndarray or not type(p2) is np.ndarray:
@@ -183,8 +216,10 @@ def dist_pbc_pymatgen(p1, p2, lattice):
     in periodic boundary conditions, using pymatgen lattice functions.
     Slower than dist_pbc(), but more robust
 
-    Arguments:
+    Args:
+
     p1 and p2: cartesian coordinates of the PeriodicSites
+
     lattice: pymatgen lattice object of the structure
     """
     # convert each point into fractional lattice coordinates
@@ -196,6 +231,7 @@ def dist_pbc_pymatgen(p1, p2, lattice):
     (d, jimage) = lattice.get_distance_and_image(f1, f2, None)
 
     return d
+
 
 def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
     """
@@ -215,6 +251,7 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
             return False
     return True
 
+
 def satisfies_all_dists(new_carts, existing_astr, element_syms,
                         min_dist_dict, max_dist_dict=None,
                         atom_index_in_astr=None,
@@ -232,24 +269,24 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     new_carts(list/array): Cartesian coordinates of the new atom to be added
 
     existing_astr (obj): Pymatgen structure object of the parent to which new
-                         coord is added
+    coord is added
 
-    element_syms (dict): dictionary of species which specifies the species index
+    element_syms (dict): dictionary of species which specifies the species 
+    index
 
     min_dist_dict (dict): dictionary of minimum distances with respect to
-                          different species
+    different species
 
     max_dist_dict (dict): dictionary of maximum bond distances with respect to
-                          different species
+    different species
 
     atom_index_in_astr (int): (For basinhopping only) The index of the atom in
-                              the parent structure that is perturbed
+    the parent structure that is perturbed
 
     new_carts_species (str): The species of the new atom as a string. If
-                             atom_index_in_astr is given, it is used to get the
-                             new atom species and overwrites this argument. At
-                             least one of these two parameters should be
-                             provided.
+    atom_index_in_astr is given, it is used to get the new atom species and
+    overwrites this argument. At least one of these two parameters should
+    be provided.
 
     """
     max_of_min_dists = max(min_dist_dict.values())
@@ -257,8 +294,10 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     all_frac_points = existing_astr.frac_coords
     all_species = existing_astr.species
 
-    atoms_nearby = existing_astr.lattice.get_points_in_sphere(all_frac_points,
-                                                new_carts, max_of_min_dists)
+    atoms_nearby = \
+        existing_astr.lattice.get_points_in_sphere(all_frac_points,
+                                                   new_carts,
+                                                   max_of_min_dists)
     if atom_index_in_astr is not None:
         # Remove duplicate atom from the atoms nearby
         for i, atom_data in enumerate(atoms_nearby):
@@ -295,11 +334,11 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         key2 = spx + '_' + new_atom_sym
         if key1 in min_dist_dict:
             if dist < min_dist_dict[key1]:
-                #print (1, dist, min_dist_dict[key1])
+                # print (1, dist, min_dist_dict[key1])
                 dists_ok = False
         if key2 in min_dist_dict:
             if dist < min_dist_dict[key2]:
-                #print (2, dist, min_dist_dict[key1])
+                # print (2, dist, min_dist_dict[key1])
                 dists_ok = False
 
     if not max_dist_dict:
@@ -314,13 +353,13 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
             keys_to_check.append(dist_key)
 
     for each_dist, each_key in zip(max_dists_to_check, keys_to_check):
-        if dists_ok == False:
+        if dists_ok is False:
             # min_dist check failed (initial loop)
             # OR max_dist check failed in previous loop
             break
 
         atoms_nearby = existing_astr.lattice.get_points_in_sphere(
-                                  all_frac_points, new_carts, max_of_min_dists)
+            all_frac_points, new_carts, max_of_min_dists)
 
         # Remove duplicate atom from the atoms nearby
         if atom_index_in_astr is not None:
@@ -340,15 +379,15 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         species_nearby = [i for i in species_nearby if i in inv_syms]
 
         # Get species_keys_nearby
-        species_keys_nearby = [inv_syms[each_sps] for each_sps in \
-                                            species_nearby]
+        species_keys_nearby = [inv_syms[each_sps] for each_sps in
+                               species_nearby]
 
         if len(species_keys_nearby) == 0:
             # No atom within the max bond dist
             dists_ok = False
         else:
             for key_nearby in species_keys_nearby:
-                if not key_nearby in each_key:
+                if key_nearby not in each_key:
                     dists_ok = False
                 else:
                     dists_ok = True

@@ -1,34 +1,4 @@
 from __future__ import division, unicode_literals, print_function
-from typing import no_type_check_decorator
-
-from numpy.random.mtrand import random_sample
-from scipy.spatial.distance import MetricInfo
-
-"""
-This module contains functions to conduct multi-objective search. 
-It contains a pool of structures which contains "Population" and 
-"Archive" sub-groups. The "Population" group is the primary breeding
-pool for genetic operations. The "Archive" group is an elite population
-which ensures that the structure search is always conducting genetic
-operations with at least one structure on the Pareto front. The
-algorithm is steady-state, adding one child structure at a time. 
-
-The primary multi-objective search algorithm is epsilon-MOEA. 
-[Citation: Deb K, Mohan M, Mishra S. Evol Comput. 2005 Winter;13(4):501-25]
-However, until the "Population" sub-group has reached the steady-state
-capacity, the "Archive" remains uninitialized, and a linear
-selection protocol is used instead. In this protocol, every child
-structure is added to the "Population" and is assigned a selection
-probability which corresponds to its distance to the minimums of each
-objective function. Parents for genetic operations are then chosen 
-randomly. 
-
-Once the "Population" has reached steady-state capacity, full epsilon-MOEA
-is employed. For a thorough explanation, see the citation above. 
-
-Note: single-objective search is also supported, using the original method
-of V.S.C. Kolluru. 
-"""
 import numpy as np
 import random
 import math
@@ -41,15 +11,41 @@ from dscribe.descriptors import SOAP
 from ase.ga.ofp_comparator import OFPComparator
 from pymatgen.io.ase import AseAtomsAdaptor
 from fx19 import distance_check as dc
-from fx19.clustering import hierarchical_clusterer
 import copy
+
+"""
+This module contains functions to conduct multi-objective search.
+It contains a pool of structures which contains "Population" and
+"Archive" sub-groups. The "Population" group is the primary breeding
+pool for genetic operations. The "Archive" group is an elite population
+which ensures that the structure search is always conducting genetic
+operations with at least one structure on the Pareto front. The
+algorithm is steady-state, adding one child structure at a time.
+
+The primary multi-objective search algorithm is epsilon-MOEA.
+Citation:
+[Deb K, Mohan M, Mishra S. Evol Comput. 2005 Winter;13(4):501-25]
+However, until the "Population" sub-group has reached the steady-state
+capacity, the "Archive" remains uninitialized, and a linear
+selection protocol is used instead. In this protocol, every child
+structure is added to the "Population" and is assigned a selection
+probability which corresponds to its distance to the minimums of each
+objective function. Parents for genetic operations are then chosen
+randomly.
+
+Once the "Population" has reached steady-state capacity, full epsilon-MOEA
+is employed. For a thorough explanation, see the citation above.
+
+Note: single-objective search is also supported, using the original method
+of V.S.C. Kolluru.
+"""
 
 
 class Comparator(object):
     '''
-    A modified version of epsilon dominance. The epsilon boxes are still used,
-    but now both structures within an epsilon box are kept unless they are
-    classified as nearly identical by comparing their global fingerprints.
+    Class which handles all structural fingerprinting. Contains functions
+    to create fingerprints, compare fingerprint, and compare models
+    based on their fingerprints (whether local or global).
     '''
 
     def __init__(self, label='bag-of-bonds', tolerances=None):
@@ -68,9 +64,21 @@ class Comparator(object):
         self.zbounds = None
 
     def set_soap_descriptor(self, _species, soap_values=None):
+        '''
+        Creates the class SOAP descriptor object.
+
+        Arguments:
+
+        _species: (string array) containing the element names of
+        all atomic species handled by the descriptor.
+
+        soap_values: (dictionary) containing user-defined
+        values for some or all SOAP descriptor parameters.
+        '''
         if soap_values is None:
             self.desc = SOAP(species=_species, rcut=5.0, nmax=9, lmax=6,
-                             sigma=0.5, periodic=True, crossover=True, sparse=False)
+                             sigma=0.5, periodic=True, crossover=True,
+                             sparse=False)
         else:
             _rcut = 5.0
             _nmax = 9
@@ -86,15 +94,23 @@ class Comparator(object):
                 _sigma = soap_values["sigma"]
             self.desc = SOAP(species=_species,
                              rcut=_rcut, nmax=_nmax,
-                             sigma=_sigma, periodic=True,
-                             crossover=True, sparse=False)
+                             lmax=_lmax, sigma=_sigma,
+                             periodic=True, crossover=True, sparse=False)
 
     def set_valle_oganov_comparator(self, comp_values=None):
+        '''
+        Creates the class valle-oganov comparator object.
+
+        Arguments:
+
+        comp_values: (dictionary) containing user-defined
+        values for some or all valle-oganov comparator parameters.
+        '''
         if comp_values is None:
             self.comp = OFPComparator(n_top=None, dE=None,
-                                      cos_dist_max=1e-3, rcut=10., binwidth=0.05,
-                                      pbc=[True, True, True], sigma=0.05, nsigma=4,
-                                      recalculate=False)
+                                      cos_dist_max=1e-3, rcut=10.,
+                                      binwidth=0.05, pbc=[True, True, True],
+                                      sigma=0.05, nsigma=4, recalculate=False)
         else:
             _n_top = None
             _dE = None
@@ -126,10 +142,20 @@ class Comparator(object):
                 _recalculate = comp_values['recalculate']
             self.comp = OFPComparator(n_top=_n_top, dE=_dE,
                                       cos_dist_max=_cos_dist_max, rcut=_rcut,
-                                      binwidth=_binwidth, pbc=_pbc, sigma=_sigma,
-                                      nsigma=_nsigma, recalculate=_recalculate)
+                                      binwidth=_binwidth, pbc=_pbc,
+                                      sigma=_sigma, nsigma=_nsigma,
+                                      recalculate=_recalculate)
 
     def set_rematch_kernel_generator(self, kg_values=None):
+        '''
+        Creates the class SOAP REMatch kernel generator object, to map
+        local SOAP descriptors to a global descriptor.
+
+        Arguments:
+
+        kg_values: (dictionary) containing user-defined values for
+        some or all REMatch kernel generator parameters.
+        '''
         if kg_values is None:
             self.kernel_gen = REMatchKernel(
                 metric="linear", alpha=1, threshold=1e-6)
@@ -148,25 +174,43 @@ class Comparator(object):
 
     def compare_fingerprints(self, test_model, ref_model):
         '''
-        Compare the fingerprints between two structures. Each model contains a fingerprint
-        dictionary, which has all the relevant information for the appropriate fingerprint.
-        In the case of the Valle-Oganov fingerprint, this information is contained within
-        an ASE Atoms structure.
-        In the case of the bag-of-bonds fingerprint, this information is contained within
-        a pair_cor dictionary. 
-        In the case of the REMatch SOAP kernel, this information is contained within a set
-        of normalized soap descriptors called normed_features.
+        Compare the fingerprints between two structures. Each model
+        contains a fingerprint dictionary, assigned using the
+        create_fingerprint function, which has all the relevant
+        information for the appropriate fingerprint. In the case of the
+        Valle-Oganov fingerprint, this information is contained within
+        an ASE Atoms structure. In the case of the bag-of-bonds
+        fingerprint, this information is contained within a pair_cor
+        dictionary. In the case of the REMatch SOAP kernel, this
+        information is contained within a set of normalized soap
+        descriptors called normed_features.
 
-        Returns a tuple of length 2. Only the bag-of-bonds comparison completely fills the tuple.
+        Returns a tuple of length 2, quantifying the fingerprint
+        similarity. Only the bag-of-bonds comparison completely
+        fills the tuple, all other comparisons only result in one
+        similarity or distance metric.
+
+        Note: the order of the test_model and ref_models are irrelevant,
+        the function will return the same value if models A and B are
+        swapped.
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison
+
+        ref_model (obj): structure_record.model() B for the comparison.
         '''
         if self.label == "valle-oganov":
-            return (self.comp._compare_structure(test_model.fingerprint["ase"], ref_model.fingerprint["ase"]),)
+            return (self.comp._compare_structure(test_model.fingerprint["ase"],
+                                                 ref_model.fingerprint["ase"]),
+                    )
 
         elif self.label == "rematch-soap":
-            return (self.kernel_gen.create([test_model.fingerprint["normed_features"], ref_model.fingerprint["normed_features"]]),)
+            return (self.kernel_gen.create([test_model.fingerprint[
+                "normed_features"],
+                ref_model.fingerprint["normed_features"]]),)
 
         elif self.label == "bag-of-bonds":
-            # print(f"{self.fingerprint_label} fingerprint is being calculated.")
             pair_cor1 = test_model.pair_cor
             pair_cor2 = ref_model.pair_cor
             total_cum_diff = 0.
@@ -191,14 +235,25 @@ class Comparator(object):
 
     def compare_models(self, test_model, ref_model):
         '''
-        Runs comparison of models, utilizing the appropriate tolerance parameters
-        depending on the global fingerprint used.
-        Returns 0 if the models are exactly same, 1 if the models are the same
-        within tolerance, and -1 if they are not within tolerance of each other.
+        Runs comparison of models, utilizing the appropriate tolerance
+        parameters depending on the global fingerprint used.
+
+        Returns 0 if the models are exactly same, 1 if the models are
+        the same within tolerance, and -1 if they are not within
+        tolerance of each other.
+
+        Note: test_model and ref_model are interchangeable, the same
+        comparison result will be yielded if models A and B are swapped.
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison.
+
+        ref_model (obj): structure_record.model() B for the comparison.
         '''
         try:
             comparison = self.compare_fingerprints(test_model, ref_model)
-        except:
+        except AssertionError:
             # models did not contain the same number of atoms (bag-of-bonds)
             return -1
         if self.label == "valle-oganov":
@@ -210,7 +265,8 @@ class Comparator(object):
                 return -1
 
         elif self.label == "bag-of-bonds":
-            if np.isclose(comparison[0], 0.0, atol=1e-5) and np.isclose(comparison[1], 0.0, atol=1e-5):
+            if np.isclose(comparison[0], 0.0, atol=1e-5) and \
+                    np.isclose(comparison[1], 0.0, atol=1e-5):
                 return 0
             elif comparison[0] < self.tolerances["bag-of-bonds"][0] and \
                     comparison[1] < self.tolerances["bag-of-bonds"][1]:
@@ -231,10 +287,14 @@ class Comparator(object):
 
     def create_fingerprint(self, model):
         '''
-        Create fingerprint for model
+        Create the fingerprint for the model object.
+
+        Args:
+
+        model (obj): structure_record.model() which will be assigned a
+        fingerprint.
         '''
         if self.label == "valle-oganov":
-            # print(f"{self.fingerprint_label} fingerprint is being calculated.")
             ase_atoms = AseAtomsAdaptor.get_atoms(model.astr)
             fp, typedic = self.comp._take_fingerprints(ase_atoms)
             ase_atoms.info['fingerprints'] = self.comp._json_encode(
@@ -242,7 +302,6 @@ class Comparator(object):
             model.ase = ase_atoms
 
         elif self.label == "rematch-soap":
-            # print(f"{self.fingerprint_label} fingerprint is being calculated.")
             ase_atoms = AseAtomsAdaptor.get_atoms(model.astr)
             features = self.desc.create(ase_atoms)
             model.normed_features = normalize(features)
@@ -252,17 +311,18 @@ class Comparator(object):
             if self.zbounds is not None:
                 site_removal_indices = []
                 for site_index, site in enumerate(model_astr.sites):
-                    if site.coords[2] < self.zbounds[0] or site.coords[2] > self.zbounds[1]:
+                    if site.coords[2] < self.zbounds[0] or \
+                            site.coords[2] > self.zbounds[1]:
                         site_removal_indices.append(site_index)
                 model_astr.remove_sites(site_removal_indices)
 
-            # print(f"{self.fingerprint_label} fingerprint is being calculated.")
             lattice = model_astr.lattice
             species_set = model_astr.types_of_specie
             coord_sets = {}
             for specie in species_set:
                 coords = [
-                    site.coords for site in model_astr.sites if site.specie == specie]
+                    site.coords for site in model_astr.sites
+                    if site.specie == specie]
                 coord_sets[specie] = coords
             pair_cor = {}
             for n, specie1 in enumerate(species_set):
@@ -277,12 +337,9 @@ class Comparator(object):
                             for j in coord_sets[specie2]:
                                 dists.append(dc.dist_pbc(i, j, lattice))
                     dists.sort()
-                    # if specie1 == specie2:
-                    #     norm_factor = len(
-                    #         coord_sets[specie1])/(2*len(astr_from_file))
-                    # else:
                     norm_factor = (
-                        len(coord_sets[specie1]) + len(coord_sets[specie2]))/(2*len(model.astr))
+                        len(coord_sets[specie1]) + len(coord_sets[specie2])) \
+                        / (2*len(model.astr))
 
                     pair_cor[str(specie1) + "-" + str(specie2)
                              ] = (norm_factor, np.array(dists))
@@ -290,20 +347,34 @@ class Comparator(object):
 
 
 class ParetoDominance(object):
+    '''
+    Class which performs non-dominance calculations. Non-dominance is
+    determined simply based on the relation between objective function
+    values of two models. If all objective function values for model A
+    are better (lower) than those of model B, then model A dominates
+    model B. If at least one (but not all) model B objective function
+    value is better than that of model A, then the models are
+    non-dominated.
+    '''
+
     def get_nondominated_solutions(self, population):
         """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
 
         Return all non-dominated solutions (the Pareto front) from
-        a set of models. 
+        a set of models.
 
-        param costs: An (n_points, n_costs) array
+        Returns the list of non-dominated models.
 
-        returns: A (n_points, ) boolean array, indicating whether each point is
-                 Pareto efficient
+        Args:
+
+        population (obj): the population from which the
+        non-dominated solutions are being obtained.
         """
         is_efficient = np.ones(population.size, dtype=bool)
-        # Iterate once through the population to assemble the array of objective values
+        # Iterate once through the population to assemble
+        # the array of objective values
         objectives = []
         for model in population.models:
             # TODO: make flexible with number of objectives
@@ -321,12 +392,29 @@ class ParetoDominance(object):
         return list(itertools.compress(population.models, is_efficient))
 
     def alt_nondominance(self, population):
+        """
+        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
+
+        An alternative non-dominance calculator which uses the self
+        calculated comparison flags between models to determine
+        non-dominance.
+
+        Returns the list of non-dominated models.
+
+        Args:
+
+        population (obj): the population from which the
+        non-dominated solutions are being obtained.
+        """
         is_efficient = np.ones(population.size, dtype=bool)
         for index, model in enumerate(population.models):
             if is_efficient[index]:
                 flags = [
-                    self.compare(m, model) for m in list(itertools.compress(population.models, is_efficient))]
-                # keep any point which either dominated the model or was non-dominated
+                    self.compare(m, model) for m in list(itertools.compress(
+                        population.models, is_efficient))]
+                # keep any point which either dominated the model
+                # or was non-dominated
                 equal_or_better = [x < 0 or x == 0 for x in flags]
                 is_efficient[is_efficient] = equal_or_better
                 is_efficient[index] = True  # and keep self
@@ -335,11 +423,17 @@ class ParetoDominance(object):
 
     def compare(self, test_model, ref_model):
         '''
+        Function which performs comparison between models
 
-        Outputs:
         Returns -1 if test_model dominates the ref_model
         Returns 0 if both non-dominated
         Returns +1 if test_model dominated by the ref_model
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison
+
+        ref_model (obj): structure_record.model() B for the comparison
         '''
 
         dominate_test = False
@@ -375,8 +469,15 @@ class ParetoDominance(object):
 
     def choose_non_dominated(self, model1, model2):
         '''
-        Outputs:
-        The non-dominated model, or a random selection if both non-dominated
+        Function which compares two models and returns the model
+        which dominates the other. If the two models are
+        non-dominated, returns one at random.
+
+        Args:
+
+        model1 (obj): structure_record.model() A for the comparison
+
+        model2 (obj): structure_record.model() B for the comparison
         '''
         dominate1 = False
         dominate2 = False
@@ -419,7 +520,26 @@ class ParetoDominance(object):
 
 
 class EpsilonDominance(object):
+    '''
+    Class which performs non-dominance calculations. Compared to 
+    ParetoDominance, here non-dominance is determined based on an
+    additional factor. Rather than a normal non-dominance check,
+    non-dominance here is calculated based on an "epsilon" grid
+    which discretizes the objective function space. If two models
+    occupy the same grid square (with side lengths of epsilon_a
+    and epsilon_b), then the model which is closest to the corner
+    of the square is considered to dominate the other model.
+    '''
+
     def __init__(self, epsilons=None):
+        '''
+        Args:
+
+        epsilons (list of floats): the grid size of the multiobjective
+        space. Should be the same length as the number of objectives,
+        and should be in the same order as the objectives are assigned
+        to the models.
+        '''
         # Assign default epsilons if none are provided
         if epsilons is None:
             self.epsilons = [.1, .1]
@@ -428,22 +548,25 @@ class EpsilonDominance(object):
 
     def get_nondominated_solutions(self, population):
         """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
 
-        Return all non-dominated solutions (the Pareto front) from
-        a set of models. 
+        Returns the list of non-dominated models, based on comparison
+        function flags.
 
-        param costs: An (n_points, n_costs) array
+        Args:
 
-        returns: A (n_points, ) boolean array, indicating whether each point is
-                 Pareto efficient
+        population (obj): the population for whom non-domination
+        will be determined.
         """
         is_efficient = np.ones(population.size, dtype=bool)
         for index, model in enumerate(population.models):
             if is_efficient[index]:
                 flags = [
-                    self.compare(m, model) for m in list(itertools.compress(population.models, is_efficient))]
-                # keep any point which either dominated the model or was non-dominated
+                    self.compare(m, model) for m in list(itertools.compress(
+                        population.models, is_efficient))]
+                # keep any point which either dominated the model
+                # or was non-dominated
                 equal_or_better = [x < 0 or x == 0 for x in flags]
                 is_efficient[is_efficient] = equal_or_better
                 is_efficient[index] = True  # and keep self
@@ -452,10 +575,17 @@ class EpsilonDominance(object):
 
     def compare(self, test_model, ref_model):
         '''
-        Outputs:
+        Function which performs comparison between models
+
         Returns -1 if test_model dominates the ref_model
         Returns 0 if both non-dominated
         Returns +1 if test_model dominated by the ref_model
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison
+
+        ref_model (obj): structure_record.model() B for the comparison
         '''
 
         dominate_test = False
@@ -485,7 +615,8 @@ class EpsilonDominance(object):
                 if dominate_test:
                     return 0
 
-        # If neither one is better than the other at all, they are in the same box
+        # If neither one is better than the other at all,
+        # they are in the same box
         if not dominate_ref and not dominate_test:
             # Check for distance to box corner
             d_test = 0.0
@@ -521,12 +652,32 @@ class EpsilonDominance(object):
 
 class StructuralEpsilonDominance(object):
     '''
-    A modified version of epsilon dominance. The epsilon boxes are still used,
-    but now both structures within an epsilon box are kept unless they are
-    classified as nearly identical by comparing their global fingerprints.
+    Class which performs non-dominance calculations. Compared to 
+    ParetoDominance, here non-dominance is determined based on two
+    additional factors. First, non-dominance is calculated based on
+    a grid which discretizes the objective function space. If two
+    models occupy the same grid square (with side lengths of
+    epsilon_a and epsilon_b), then the model which is closest to the
+    corner of the square is considered to dominate the other model.
+    HOWEVER, if the two models are structurally similar, then a flag
+    is thrown. This has the advantage of only performing structural
+    similarity checks for models which lie within the same grid box,
+    which may save large amounts of computational expense depending
+    on which fingerprinting method is used.
     '''
 
     def __init__(self, comparator=Comparator(), epsilons=None):
+        '''
+        Args:
+
+        comparator (obj): instance of the comparator class
+        which will perform all structural similarity checks
+
+        epsilons (list of floats): the grid size of the multiobjective
+        space. Should be the same length as the number of objectives,
+        and should be in the same order as the objectives are assigned
+        to the models.
+        '''
         # Assign default epsilons if none are provided
         if epsilons is None:
             self.epsilons = [.1, .1]
@@ -538,22 +689,25 @@ class StructuralEpsilonDominance(object):
 
     def get_nondominated_solutions(self, population):
         """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
 
-        Return all non-dominated solutions (the Pareto front) from
-        a set of models. 
+        Returns the list of non-dominated models, based on comparison
+        function flags.
 
-        param costs: An (n_points, n_costs) array
+        Args:
 
-        returns: A (n_points, ) boolean array, indicating whether each point is
-                 Pareto efficient
+        population (obj): the population for which non-domination will be
+        determined.
         """
         is_efficient = np.ones(population.size, dtype=bool)
         for index, model in enumerate(population.models):
             if is_efficient[index]:
                 flags = [
-                    self.compare(m, model) for m in list(itertools.compress(population.models, is_efficient))]
-                # keep any point which either dominated the model or was non-dominated
+                    self.compare(m, model) for m in list(itertools.compress(
+                        population.models, is_efficient))]
+                # keep any point which either dominated the model
+                # or was non-dominated
                 equal_or_better = [x < 0 or x == 0 for x in flags]
                 is_efficient[is_efficient] = equal_or_better
                 is_efficient[index] = True  # and keep self
@@ -562,11 +716,24 @@ class StructuralEpsilonDominance(object):
 
     def compare(self, test_model, ref_model):
         '''
-        Outputs:
+        Function which performs comparison between models
+
         Returns -1 if test_model dominates the ref_model
         Returns 0 if both non-dominated
         Returns +1 if test_model dominated by the ref_model
-        Returns +2 if the models are identical within tolerance
+
+        If the models are similar, then standard epsilon
+        non-domination is used. If the models are exactly the
+        same, then only the model already in the population
+        is kept (the ref_model). Otherwise, models within the
+        same epsilon box are considered to be non-dominated
+        with respect to each other.
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison
+
+        ref_model (obj): structure_record.model() B for the comparison
         '''
 
         dominate_test = False
@@ -596,17 +763,21 @@ class StructuralEpsilonDominance(object):
                 if dominate_test:
                     return 0
 
-        # If neither one is better than the other at all, they are in the same box
+        # If neither one is better than the other at all,
+        # they are in the same box
         if not dominate_ref and not dominate_test:
-            # Check for structural similarity. Note: if the model was exactly the same
+            # Check for structural similarity.
+            # Note: if the model was exactly the same
             # as a population member, it was already ruled out.
-            # If models fall within similarity tolerance, then keep model which is closest
-            # to the corner of the epsilon box
+            # If models fall within similarity tolerance, then keep model
+            # which is closest to the corner of the epsilon box
             # Otherwise, keep both models
             similarity = self.comparator.compare_models(test_model, ref_model)
             if similarity > 0:
                 print(
-                    f"Models {test_model.label} and {ref_model.label} are similar within tolerance. Checking proximity to epsilon box corner.")
+                    f"Models {test_model.label} and {ref_model.label} are \
+                        similar within tolerance. Checking proximity to \
+                            epsilon box corner.")
                 d_test = 0.0
                 d_ref = 0.0
 
@@ -621,13 +792,15 @@ class StructuralEpsilonDominance(object):
                         ref_obj = ref_model.obj1_val
 
                     print(
-                        f"Non-floored objective values are: {test_obj} and {ref_obj}")
+                        f"Non-floored objective values are: {test_obj} \
+                            and {ref_obj}")
 
                     test_eps_val = math.floor(test_obj / epsilon)
                     ref_eps_val = math.floor(ref_obj / epsilon)
 
                     print(
-                        f"Floored objective values are : {test_eps_val} and {ref_eps_val}.")
+                        f"Floored objective values are : {test_eps_val} \
+                            and {ref_eps_val}.")
 
                     d_test += (test_obj / epsilon - test_eps_val)**2
                     d_ref += (ref_obj / epsilon - ref_eps_val)**2
@@ -668,15 +841,20 @@ class Pool(object):
 
     def __init__(self, pool_params):
         """
+        Args:
+
         Initialize a pool with the following parameters set from i_dict:
-        Capacity (int) - the steady-state population size for epsilon-MOEA
-        Weights (list) - the weights of the objective functions for linear
-                         selection protocol.
-        Epsilons (list) - the epsilon values defining the grid for epsilon
-                          dominance. Used for the "Archive" only. 
-        Tolerances (dict) - the tolerance values used for global structural
-                            fingerprint comparison to determine similarity
-                            of structures.
+
+        Capacity (int): the steady-state population size for epsilon-MOEA
+
+        Weights (list): the weights of the objective functions for linear
+        selection protocol.
+
+        Epsilons (list): the epsilon values defining the grid for epsilon
+        dominance. Used for the "Archive" only.
+
+        fingerprint_params (dict): contains all necessary parameters to
+        initialize the Comparator object for the population.
 
         Here the "Population" and "Archive" objects are also initialized.
         The "Population" uses ParetoDominance and a zero-tolerance comparator, 
@@ -734,9 +912,10 @@ class Pool(object):
                     self.comparator.set_valle_oganov_comparator()
             elif fp_label == "rematch-soap":
                 if 'soap_values' in fp_params:
-                    self.comparator.set_soap_descriptor(_species=fp_params['species'],
-                                                        soap_values=fp_params['soap_values']
-                                                        )
+                    self.comparator.set_soap_descriptor(
+                        _species=fp_params['species'],
+                        soap_values=fp_params['soap_values']
+                    )
                 else:
                     self.comparator.set_soap_descriptor(
                         _species=fp_params['species'])
@@ -750,7 +929,8 @@ class Pool(object):
                 self.comparator.zbounds = fp_params['zbounds']
 
             self.population = Population(
-                self.capacity, ParetoDominance(), self.weights, self.comparator, self.cluster_obj
+                self.capacity, ParetoDominance(), self.weights,
+                self.comparator, self.cluster_obj
             )
             self.archive = Archive(
                 StructuralEpsilonDominance(
@@ -761,13 +941,26 @@ class Pool(object):
         """
         Attempt to add the model to the pool. If single objective
         function search, or population has not reached capacity yet,
-        add the model only to the population. If multi objective function
-        search, and population has reached capacity, add model to both 
-        the population and the archive.
+        simply add the model to the population. If the population size
+        has not reached a set minimum capacity then the model is added
+        without any further steps. If the population is larger than the
+        minimum capacity but has not reached its steady state capacity,
+        then the model is also ranked within the population using a
+        simple measure of the distance to the lowest possible objective
+        function values. This is also used if single objective optimization
+        is employed. 
+
+        If multi objective function search, and population has reached
+        steady-state capacity, add model to the population using the full
+        procedure.
 
         Args:
-        model: model object to be added
-        select (obj): Select object
+
+        model (obj): structure_record.model() to add to the pool
+
+        select (obj): instance of Select which will be updated by
+        model addition.
+
         sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
         """
         # If global fingerprint comparison is going to be made, calculate
@@ -789,11 +982,13 @@ class Pool(object):
                 if select.type == "single":
                     self.population.good_pool.append(model)
 
-            # If population size less than capacity, or single-objective function search,
-            # use linear method instead of epsilon-MOEA. Note: the model will
-            # be appended no matter what here. However, the model selection criteria
-            # will be different than usual.
-            elif 10 <= self.population.size < self.capacity or select.type == "single":
+            # If population size less than capacity, or single-objective
+            # function search, use linear method instead of epsilon-MOEA.
+            # Note: the model will be appended no matter what here.
+            # However, the model selection criteria will be different than
+            # usual.
+            elif 10 <= self.population.size < self.capacity \
+                    or select.type == "single":
                 self.population.basic_addition_to_population(
                     model, select, sim_ids=sim_ids)
                 print(f'New model {model.label} added to population based'
@@ -806,17 +1001,21 @@ class Pool(object):
                     model)
                 added_to_archive = self.archive.add_to_archive(model)
 
-                # Perform auto-adaptive adjustment of genetic operator probabilities
+                # Perform auto-adaptive adjustment of genetic
+                # operator probabilities
                 if added_to_archive:
-                    if select.operator_inheritance == "auto-adaptive":
+                    if select.operator_assignment == "auto-adaptive":
                         # update operator probabilities in select
-                        # Formula: P_i = (C_i + epsilon)/Sum_j=1->N_operators(C_j + epsilon)
+                        # Formula:
+                        # P_i=(C_i+epsilon)/Sum_j=1->N_operators(C_j+epsilon)
                         # Here epsilon = 1
                         operator_counts = np.zeros(
                             len(select.operator_hashmap))
                         for operator in self.archive.operator_inheritance:
                             if operator != "random":
-                                operator_counts[select.operator_hashmap[operator]] += 1
+                                operator_counts[
+                                    select.operator_hashmap[operator]
+                                ] += 1
                             else:
                                 operator_counts += 1 / \
                                     len(select.operator_hashmap)
@@ -825,6 +1024,10 @@ class Pool(object):
                         select.operator_frequencies = [
                             (count + 1)/divisor for count in operator_counts]
 
+                        print(
+                            f"Operator frequencies: \
+                                {select.operator_frequencies}")
+
                     if self.cluster_obj is not None:
                         if self.cluster_obj.type == "hierarchical":
                             self.cluster_obj.update_max_clusters(
@@ -832,10 +1035,10 @@ class Pool(object):
 
             # If size has now reached capacity, then add models to archive
             # in preparation for epsilon-MOEA
-            if self.population.size == self.population.capacity and no_prior_epsilon:
-                #non_dominated_models = ParetoDominance().get_nondominated_solutions(self.population)
-                # self.archive.initialize_models(non_dominated_models)
-                print("Pool has reached steady-state capacity. Seeding the archive with the \
+            if self.population.size == self.population.capacity \
+                    and no_prior_epsilon:
+                print("Pool has reached steady-state capacity. \
+                Seeding the archive with the \
                 structural-epsilon-non-dominated models.")
                 self.archive.seed_archive(self.population)
                 model_labels = [model.label for model in self.archive.models]
@@ -850,15 +1053,59 @@ class Pool(object):
 
     def provide_parent_models(self, select, num_parents):
         '''
-        Provide parent models for mating operations. If archive has not been
-        created, then provide both parents from the population. Otherwise,
-        provide one parent from the population, and one parent from the archive.
+        Provide parent models for mating operations. If archive
+        has not been created, then provide both parents from the
+        population. Otherwise, provide the first parent from the
+        archive, and subsequent parents from the population.
+
+        Args:
+
+        select (obj): the instance of select which is used to select
+        the parents.
+
+        num_parents (int): the number of parents to choose.
         '''
         return select.get_parents(self, num_parents)
 
 
 class Select(object):
+    '''
+    Class which handles choosing parents for mating operations.
+
+    Selection is done using the following scheme:
+    When selecting a parent from the archive, the model is chosen
+    at random from the archive members (NOTE: the archive contains
+    all of the non-dominated members of the population).
+    When selecting a parent from the population, two candidate parents
+    are chosen, and the parent which dominates the other is selected.
+    If the two parents are non-dominated, one of them is selected at
+    random.
+    When choosing multiple parents, the first parent is selected from
+    the archive, and subsequent parents are chosen from the population.
+
+    In the case of single-objective optimization, this selection
+    procedure is discarded. Instead, models are assigned a selection
+    probability which depends on the evaluated attributes of the model.
+    Selection is then done using a roulette scheme, where a random model
+    is selected, and then the model is chosen if a second number
+    is lower than the models pre-determined selection probability.
+    '''
+
     def __init__(self, select_obj_params):
+        '''
+        Args:
+
+        select_obj_params (dictionary): all params which are needed to
+        create the object. All parameters have default values which are
+        assigned if they are not found in the dictionary.
+
+        Some functionality is not included if not listed in the params
+        dictionary. Namely, auto-adaptive operator selection (where the 
+        relative frequency of each operator in the evolutionary process
+        will be updated based on the operators which were used to create
+        the non-dominated [or otherwise elite] solutions) can be used
+        if listed in the dictionary, but will not be used otherwise.
+        '''
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
 
@@ -875,7 +1122,8 @@ class Select(object):
         if 'archive_pop_bh_ratio' not in select_obj_params:
             self.archive_pop_bh_ratio = 0.7
         else:
-            self.archive_pop_bh_ratio = select_obj_params['archive_pop_bh_ratio']
+            self.archive_pop_bh_ratio = \
+                select_obj_params['archive_pop_bh_ratio']
 
         # Information required for single objective optimization:
         # store optimized k; gets updated every 100th model
@@ -893,31 +1141,35 @@ class Select(object):
             self.operators = ['perturb_sites', 'fraction_slice']
         else:
             self.operators = select_obj_params['operators']
-        if 'operator_inheritance' in select_obj_params:
-            self.operator_inheritance = select_obj_params['operator_inheritance']
+        if 'operator_assignment' in select_obj_params:
+            self.operator_assignment = select_obj_params['operator_assignment']
         else:
-            self.operator_inheritance = "fixed"
+            self.operator_assignment = "fixed"
 
         self.operator_hashmap = {
             key: index for index, key in enumerate(self.operators)}
         if 'operator_frequencies' in select_obj_params:
-            self.operator_frequencies = select_obj_params['operator_frequencies']
+            self.operator_frequencies = \
+                select_obj_params['operator_frequencies']
         else:
             self.operator_frequencies = [
                 1/len(self.operators)]*len(self.operators)
 
-    def linear_update_selection_probs(self, models, good_pool_capacity, sim_ids=None):
+    def linear_update_selection_probs(self, models, good_pool_capacity,
+                                      sim_ids=None):
         '''
-        Calculates the overall objective function of each model based on linear distance to
-        lowest objective function values. Returns the "good pool" of models, which are the
-        top models up to a number determined by the good_pool_capacity.
+        Calculates the overall objective function of each model based
+        on linear distance to lowest objective function values. Returns
+        the "good pool" of models, which are the top models up to a
+        number determined by the good_pool_capacity.
+
         Args:
 
-        all_models: (list) of all models evaluated so far
+        all_models (list): of all models evaluated so far
 
-        good_pool_capacity: (int) maximum number of models in good pool
+        good_pool_capacity (int): maximum number of models in good pool
 
-        sim_ids: (list of ints) indices which specifies how many exp sim
+        sim_ids (list of ints): indices which specifies how many exp sim
         objective functions are used.
         '''
         # Call a function to get probs based only on obj0_val (single obj)
@@ -985,9 +1237,12 @@ class Select(object):
         probabliites based on an exponential function.
 
         Args:
-        all_models: (list) of all models evaluated so far
 
-        good_pool_capacity: (int) maximum number of models in good pool
+        all_models (list): all models evaluated so far
+
+        good_pool_capacity (int): maximum number of models in good pool
+
+        update_cutoff_only (bool): Returns only cutoff value when True
         """
         # Get all models obj0_val
         model_labels, all_v0 = [], []
@@ -1036,8 +1291,9 @@ class Select(object):
             self.optimum_k = opt_k
             # Get probabilities by min max exponential function
             # using the opt_k
-            exponential_probs = [(math.exp(opt_k * i) - math.exp(opt_k)) /
-                                 (1 - math.exp(opt_k)) for i in good_pool_vals]
+            exponential_probs = [(math.exp(
+                opt_k * i) - math.exp(opt_k)) / (1 - math.exp(opt_k))
+                for i in good_pool_vals]
         else:
             opt_k = initial_k[0]
             # Get probabilities by simple exponential function
@@ -1055,17 +1311,16 @@ class Select(object):
     def _optimize_exponential_constant(k, num_required_above_50,
                                        scaled_good_pool_values):
         """
-        A scalar function to minimize the exponential constant to give required
-        number of models with probability above 0.5 (or 50%).
+        A scalar function to minimize the exponential constant to give
+        required number of models with probability above 0.5 (or 50%).
 
         Args:
 
-        k: (a list or an array) of the variable for minimize function (Eg: [-1])
+        k: (a list or an array) of the variable for
+        minimize function (Eg: [-1])
 
         scaled_good_pool_values: (1D array or list) The objective function
-                                 values of models in good pool scaled between 0
-                                 and 1. For example, distances_from_hull for
-                                 multiobjective optimization
+        values of models in good pool scaled between 0 and 1.
         """
         # Get probs based on constant k
         exponential_probs = [math.exp(k[0]*i) for i in scaled_good_pool_values]
@@ -1073,21 +1328,31 @@ class Select(object):
 
         return (num_required_above_50 - num_above_50)**2
 
-    def get_parents(self, pool, num_parents, same_cluster=None, same_ab=False, abs_tol=0.2):
+    def get_parents(self, pool, num_parents, same_cluster=None, same_ab=False,
+                    abs_tol=0.2):
         '''
         Provide requested number of parent models for mating operations. 
-        If archive has not been created, then provide both parents from the population. 
-        Otherwise, alternate providing one parent from the population, 
-        and one parent from the archive.
+        If archive has not been created, then provide both parents from 
+        the population. Otherwise, alternate providing one parent from 
+        the population, and one parent from the archive.
 
         Args:
 
-        pool            - pool object
-        num_parents     - integer
-        same_ab (bool)  - If num_parents > 1, species whether all parents should
-                         have same a, b lattice vectors
-        abs_tol (float) - The maximum value for the sum of absolute difference
-                         between the "ab" of two lattice vectors
+        pool (obj): the pool from which parents will be selected.
+        Contains both the archive and the population.
+
+        num_parents (int): how many parents to draw.
+
+        same_cluster (bool): If performing clustering, whether to choose
+        the 2nd parent from the same cluster as the initial parent, or a
+        different cluster than the initial parent.
+
+        same_ab (bool): If num_parents > 1, specifies whether all parents 
+        should have same a, b lattice vectors
+
+        abs_tol (float): If num_parents > 1, specifies the the maximum value
+        for the sum of the absolute difference between the "ab" of two
+        lattice vectors
         '''
         if pool.archive.size == 0 or self.type == "single":
             parents = []
@@ -1133,7 +1398,8 @@ class Select(object):
                             ab_1 = existing_parent.astr.lattice.matrix[:2]
                             ab_2 = new_parent.astr.lattice.matrix[:2]
                             diff = np.array(ab_1) - np.array(ab_2)
-                            # return first match since keys are already shuffled
+                            # return first match since keys are
+                            # already shuffled
                             if np.absolute(diff).sum() < abs_tol:
                                 parents.append(new_parent)
                                 self.all_parent_labels.append(new_parent.label)
@@ -1143,7 +1409,18 @@ class Select(object):
             return parents
 
     def get_a_parent(self, pool):
-        # produce a parent model from the archive if it exists, otherwise from the population
+        '''
+        Function to draw a single parent from the pool's archive, using
+        the archive's "produce_model" function. If the archive has not
+        been initialized, the model is instead draw from the pool's
+        population, using the population's "produce_model" function.
+
+        Args:
+
+        pool (obj): the pool whose population is being drawn from.
+        '''
+        # produce a parent model from the archive if it exists, otherwise from
+        # the population
         if pool.archive.size == 0:
             new_parent = pool.population.produce_model()
         else:
@@ -1163,9 +1440,19 @@ class Select(object):
 
     def get_a_linear_parent(self, pool):
         """
-        Returns exactly one parent from the population, selected at random. 
-        If single objective function search, use the population good_pool. 
-        Otherwise, draw from all models.
+        When the pool's capacity is below the steady-state capacity, model
+        selection probabilities are assigned based on the distance from
+        the lowest possible objective function values. Roulette selection
+        is used, where a model is chosen at random, and then a 2nd random
+        is drawn to determine if the model is selected for mating. If
+        rejected, a different random model is chosen. Unlike the function
+        "get_a_parent", here the model is drawn from the populations
+        "good_pool" or entire set of models instead of from the
+        non-dominated set.
+
+        Args:
+
+        pool (obj): the pool from which the model is being drawn.
         """
         done = False
         models = pool.population.models
@@ -1181,20 +1468,47 @@ class Select(object):
                         return parent
 
     def return_nd_pop_models(self, pool):
+        '''
+        Function which calculates and returns the non-dominated
+        members of the pool's population.
+
+        Args:
+
+        pool (obj): the pool for which non-domination is being
+        determined.
+        '''
         population = pool.population
         return ParetoDominance().alt_nondominance(population)
 
 
 class Population(object):
     """
-    The entire population of models. The archive is a subset of the population.
-
-    Maintain a list of all models contained
+    Class which manages one of the active set of models which are being
+    used for mating operations. Contains all breeding models, while the
+    archive contains only the non-dominated models.
     """
 
-    def __init__(self, capacity, dominance=ParetoDominance(), weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
+    def __init__(self, capacity, dominance=ParetoDominance(),
+                 weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
         """
-        Population capacity defines the steady-state level
+        Args:
+
+        capacity (int): the number of models which are held in the
+        population when it has reached the steady-state level.
+
+        dominance (Dominance object): the dominance class instance
+        which computes all pareto quantities, including ranking the models.
+
+        weights (list of floats): the weights of each objective function.
+        Only used for linear selection.
+
+        comparator (Comparator object): the comparator class instance
+        which handles all model similarity checks.
+
+        cluster_obj (Clustering object): the cluster class instance
+        which handles the clustering of all models. If not included, then
+        no clustering will be conducted. Supports both hierarchical and
+        compositional clustering.
         """
         self.capacity = capacity
         self.models = []
@@ -1217,18 +1531,31 @@ class Population(object):
 
     def extend(self, model):
         '''
-        Add a model to the population
+        Add a model to the population.
+
+        Args:
+
+        model (obj): the structure_record.model() which is being added.
         '''
         self.models.append(model)
         self.size += 1
 
-    def check_uniqueness(self, model):
+    def check_uniqueness(self, model, exact=True):
         '''
         Check whether a model is unique.
-        Returns True if the model is unique, 
-        return False if the model is the (exact) same as another model.
-        Note: if the models are considered the same "within tolerance",
-        this method still returns True. 
+
+        Returns True if the model is unique, returns False if the model
+        is the same (or "similar" if exact is False) as another model.
+
+        Args:
+
+        model (obj): the structure_record.model() for which uniqueness
+        is being tested.
+
+        exact (boolean): if True, models are considered unique if they
+        are not exactly the same as another model. If False, models are
+        considered unique if they are not the same as another model
+        within tolerance limits.
         '''
         if self.comparator is None:
             # No comparator, so automatic return True
@@ -1236,7 +1563,10 @@ class Population(object):
         else:
             flags = [self.comparator.compare_models(
                 model, m) for m in self.models]
-            same = [f == 0 for f in flags]
+            if exact:
+                same = [f == 0 for f in flags]
+            else:
+                same = [f >= 0 for f in flags]
             if any(same):
                 return False
             else:
@@ -1246,18 +1576,33 @@ class Population(object):
         '''
         Initialize the cluster object by seeding it with the population
         models currently present.
+
+        Only occurs if a cluster object was provided upon initialization
+        of the population.
         '''
         if self.cluster_obj is not None:
             # Initialize the clusters with all population models
             self.cluster_models, self.multi_model_clusters = \
                 self.cluster_obj.initialize_clusters(
                     self.models)
-            print(f"Cluster object seeded with models.")
+            print("Cluster object seeded with models.")
 
     def basic_addition_to_population(self, model, select, sim_ids=None):
         '''
-        Linear addition based on proximity to lowest possible
-        values in all objective functions
+        Linear addition based on proximity to lowest possible values in
+        all objective functions. Only used when the population has
+        not yet reached its steady state capacity.
+
+        Args:
+
+        model (obj): the structure_record.model() being added to the
+        population.
+
+        select (obj): the select instance which is being used to
+        assign selection probabilities to the models.
+
+        sim_ids (list of ints): indices which specifies how many exp sim
+        objective functions are used.
         '''
         self.extend(model)
 
@@ -1275,14 +1620,16 @@ class Population(object):
 
         elif select.type == 'single':
             # Get updated cutoff value to skip probs for a bad model
-            cutoff_value = select.update_probs_single_obj(self.models,
-                                                          self.capacity, update_cutoff_only=True)
+            cutoff_value = \
+                select.update_probs_single_obj(self.models,
+                                               self.capacity,
+                                               update_cutoff_only=True)
             if cutoff_value >= model.obj0_val:
                 to_good_pool = True
             else:
                 to_good_pool = False
 
-            if to_good_pool == True:
+            if to_good_pool is True:
                 # Add model to good_pool
                 self.good_pool.append(model)
                 good_pool_values = np.array(
@@ -1296,10 +1643,11 @@ class Population(object):
                     remove_ind = np.argmax(good_pool_values)
                     demoted_label = self.good_pool[remove_ind].label
                     del self.good_pool[remove_ind]
-                    print('New Model {} added to good_pool and Model {} demoted'
-                          ' from good_pool'.format(model.label, demoted_label))
+                    print(f'New Model {model.label} added to good_pool'
+                          + f'and Model {demoted_label} demoted from'
+                          + 'good_pool')
                 else:
-                    print('New Model {} added to good_pool'.format(model.label))
+                    print(f'New Model {model.label} added to good_pool')
 
                 # scale the good_pool_values using MinMaxScaler
                 good_pool_values = good_pool_values.reshape(-1, 1)
@@ -1310,25 +1658,29 @@ class Population(object):
                 if model.label % select.adjust_k_every == 0:
                     initial_k = select.optimum_k
                     # optimize k
-                    res = minimize(Select._optimize_exponential_constant, initial_k,
+                    res = minimize(Select._optimize_exponential_constant,
+                                   initial_k,
                                    args=(select.num_required_above_50,
                                          scaled_values),
-                                   method='Nelder-Mead', options={'maxiter': 100})
+                                   method='Nelder-Mead',
+                                   options={'maxiter': 100})
                     # Store new optimum k
                     select.optimum_k = res.x[0]
 
                 opt_k = select.optimum_k
-                # Update probabilities by min max exponential function using opt_k
+                # Update probabilities by min max
+                # exponential function using opt_k
                 exponential_probs = [(math.exp(opt_k * i) - math.exp(opt_k)) /
-                                     (1 - math.exp(opt_k)) for i in scaled_values]
+                                     (1 - math.exp(opt_k))
+                                     for i in scaled_values]
                 # Assign probabilities to the models
                 for m, prob in zip(self.good_pool, exponential_probs):
                     m.selection_prob = prob
 
                 return select
 
-            if to_good_pool == False:
-                print('New Model {} not added to good_pool'.format(model.label))
+            if to_good_pool is False:
+                print(f'New Model {model.label} not added to good_pool')
 
                 return select
 
@@ -1346,13 +1698,12 @@ class Population(object):
         not checked for domination. Over time, these dominated population
         members will be bred out of the population.
 
-        Args:
-        model: model object to be added
-        sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+        Returns (bool) indicating whether the model was added to the
+        population (True), or if it was rejected (False)
 
-        Outputs:
-        bool: whether model was added to population or not
-        removed_model (model): model which was removed from the population
+        Args:
+
+        model (obj): structure_record.model() for which addition is being tested.
         '''
         dominates = []
         dominated = False
@@ -1367,13 +1718,15 @@ class Population(object):
         if len(dominates) > 0:
             if self.cluster_obj is not None:
                 rm_index = np.random.choice(dominates)
-                self.cluster_models, self.multi_model_clusters = self.cluster_obj.update_clustering(
-                    model, self.models.pop(rm_index))
+                self.cluster_models, self.multi_model_clusters = \
+                    self.cluster_obj.update_clustering(
+                        model, self.models.pop(rm_index))
             else:
                 self.models.pop(np.random.choice(dominates))
             self.models.append(model)
             print(
-                f"Model {model.label} appended to population by domination replacement.")
+                f"Model {model.label} appended to population "
+                + "by domination replacement.")
             model_labels = [model.label for model in self.models]
             print(f"New model labels: {model_labels}")
             return True
@@ -1383,33 +1736,42 @@ class Population(object):
             if self.cluster_obj is not None:
                 rm_index = np.random.randint(
                     0, self.size - 1)
-                self.cluster_models, self.multi_model_clusters = self.cluster_obj.update_clustering(
-                    model, self.models.pop(rm_index))
+                self.cluster_models, self.multi_model_clusters = \
+                    self.cluster_obj.update_clustering(
+                        model, self.models.pop(rm_index))
             else:
                 self.models.pop(np.random.randint(0, self.size - 1))
             self.models.append(model)
             print(
-                f"Model {model.label} appended to population by non-domination replacement.")
+                f"Model {model.label} appended to population by "
+                + "non-domination replacement.")
             model_labels = [model.label for model in self.models]
             print(f"New model labels: {model_labels}")
             return True
         else:
             print(
-                f"Model {model.label} not added to population because dominated by pop member (and does not dominate a pop member).")
+                f"Model {model.label} not added to population because "
+                + "dominated by pop member (and does not dominate "
+                + "a pop member).")
             return False
 
     def produce_model(self, cluster=None, same=True):
         '''
-        Produce a model for breeding. Choose two models, and return the 
-        non-dominated model. If both are non-dominated, then return one 
-        randomly. 
+        Produce a model for breeding. Choose two models, and return the
+        non-dominated model. If both are non-dominated, then return one
+        randomly.
 
-        Arguments:
-        cluster (int or string) - id of the cluster to which the first parent model belonged.
-                        Necessary if requiring that the model comes from
-                        either the same cluster or a different cluster.
-        same (bool) - whether the model needs to belong to the same cluster (True)
-                        as the first parent model, or a different cluster (False)
+        Returns selected model object.
+
+        Args:
+
+        cluster (int or string): id of the cluster to which the first
+        parent model belonged. Necessary if requiring that the model comes
+        from either the same cluster or a different cluster.
+
+        same (bool): whether the model needs to belong to the same
+        cluster (True) as the first parent model, or a different cluster
+        (False).
         '''
         if cluster is None:
             [model_one, model_two] = np.random.choice(self.models, 2)
@@ -1425,13 +1787,15 @@ class Population(object):
                 else:
                     [model_one, model_two] = np.random.choice(models, 2)
                     if len(models) == 2:
-                        # return the dominated model, because it is the model which does not live in the archive
+                        # return the dominated model, because it is the model
+                        # which does not live in the archive
                         nd_model = self._dominance.choose_non_dominated(
                             model_one, model_two)
                         return models[models.index(nd_model) - 1]
             else:
                 other_cluster = np.random.choice(self.multi_model_clusters)
-                while other_cluster == cluster and len(self.multi_model_clusters) != 1:
+                while other_cluster == cluster and \
+                        len(self.multi_model_clusters) != 1:
                     other_cluster = np.random.choice(self.multi_model_clusters)
                 models = self.cluster_models[other_cluster]
                 [model_one, model_two] = np.random.choice(models, 2)
@@ -1440,19 +1804,27 @@ class Population(object):
 
 
 class Archive(object):
-    '''
-    An archive containing only the elite non-dominated models
-    '''
+    """
+    Class which manages one of the active set of models which are being
+    used for mating operations. Contains only the non-domianted models,
+    while the population contains the entire set of breeding models.
+    """
 
-    def __init__(self, dominance=StructuralEpsilonDominance(comparator=Comparator(),
-                                                            epsilons=[1, 1])):
+    def __init__(self, dominance=StructuralEpsilonDominance(
+        comparator=Comparator(),
+        epsilons=[1, 1]
+    )):
         """
-        Initialize the archive with the following attributes:
-        models (list) - a list of the non-dominated models
-        _dominance - the dominance algorithm which is employed. This can
-                     be either standard Pareto dominance, or epsilon
-                     dominance. 
-        size (int) - the number of models in the archive
+        Args:
+
+        dominance (Dominance object): the dominance class instance
+        which computes all pareto quantities, including ranking the models.
+
+        comparator (Comparator object): the comparator class instance
+        which handles all model similarity checks.
+
+        epsilons (list of floats): the epsilon values which will
+        discretize the archive objective function space.
         """
 
         self.models = []
@@ -1462,8 +1834,13 @@ class Archive(object):
 
     def seed_archive(self, population):
         '''
-        Seed the archive with the initial set of non-dominated models, according
-        to the archive dominance criteria.
+        Seed the archive with the initial set of non-dominated models, 
+        according to the archive dominance criteria.
+
+        Args:
+
+        population (obj): the population from which the
+        non-dominated models will be obtained.
         '''
         self.models = self._dominance.get_nondominated_solutions(population)
         self.size = len(self.models)
@@ -1471,7 +1848,13 @@ class Archive(object):
 
     def initialize_models(self, non_dominated_models):
         '''
-        Initialize the archive with a specific set of non-dominated models
+        Unlike seed_archive, initialize the archive with a specific set
+        of non-dominated models, not from a population object
+
+        Args:
+
+        non_dominated_models (list of model objs): the non-dominated models
+        (structure_record.model()) which are seeding the archive.
         '''
         self.models = non_dominated_models
         self.operator_inheritance = [
@@ -1487,9 +1870,12 @@ class Archive(object):
         If model is dominated by an archive member, reject
         If neither, then add the model to the archive
 
+        Returns a boolean which indicates if the model was successfully
+        added (True), or if it was rejected (False)
+
         Args:
-        model: model object to be added
-        sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+        model (obj): the structure_record.model() for which addition
+        is being tested.
         '''
 
         flags = [self._dominance.compare(model, m) for m in self.models]
@@ -1509,6 +1895,7 @@ class Archive(object):
 
     def produce_model(self):
         '''
-        Returns randomly selected model
+        Returns randomly selected model, chosen from all models in the
+        archive.
         '''
         return np.random.choice(self.models)

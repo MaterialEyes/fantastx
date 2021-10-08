@@ -18,8 +18,6 @@ from pymatgen.io.vasp.inputs import Poscar
 
 import os
 import shutil
-import time
-# import math
 import numpy as np
 import subprocess as sp
 
@@ -46,7 +44,8 @@ class lammps_code(object):
         # lammps execution command as a string
         # Ex: 'lmp_mpi -in in.min'
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
-        # Make a new folder to store all lammps.label (log files) for convenience
+        # Make a new folder to store all lammps.label
+        # (log files) for convenience
         # save hollow_botz and hollow_topz for use in sd_flags
         self.hollow_botz = None
         self.hollow_topz = None
@@ -219,7 +218,8 @@ class lammps_code(object):
         # Following are done in relax:
         # save relaxed_structure - done in do_relaxation
         # relaxed_structure is now the structure of the model
-        # save other attributes of the model after relaxation (energy, gamma etc)
+        # save other attributes of the model after relaxation
+        # (energy, gamma etc)
         # checks if relaxation is successful; gives error message and do not go
         # ahead with the structure (goes back and creates new strucutre)
 
@@ -348,7 +348,7 @@ class lammps_code(object):
 class gulp_code(object):
     # TODO: create all functions for running gulp energy code
     """
-    funcitons to create a folder,
+    functions to create a folder,
     copy input files and structure (model),
     relax,
     get_energy
@@ -363,8 +363,8 @@ class gulp_code(object):
 
     def get_structure_file(self, model):
         """
-        function to make required structure file (cif?) from the structure/atoms
-        object
+        Function to make required structure file (cif?) from the
+        structure/atoms object
         """
 
     def relax(self, path_to_input_files, model):
@@ -441,7 +441,8 @@ class vasp_code(object):
             with open(a_pot) as f:
                 lines = f.readlines()
                 for line in lines:
-                    if 'TITEL' in line:  # assuming only PBE TODO: LDA and others
+                    # assuming only PBE TODO: LDA and others
+                    if 'TITEL' in line:
                         x = line.split('PBE')[1].split()[0]
                         if '_' in x:
                             x = x.split('_')[0]
@@ -470,7 +471,7 @@ class vasp_code(object):
         Args:
 
         model (obj): structure_record.model() object for which energy
-                     evaluation will be done
+        evaluation will be done
 
         reg_id (obj): structure_record.register_id() object for bookkeeping
         """
@@ -579,14 +580,14 @@ class vasp_code(object):
 
     def run_vasp(self, model):
         """
-        run vasp in the job directory (relax_path)
-        check if converged and resubmit if necessary
-        save energy and objective function to model object
+        Runs vasp in the job directory (relax_path), checks if converged
+        and resubmits if necessary. Saves energy and objective function
+        value to model object.
 
         Args:
 
         model (obj): structure_record.model() object for which energy
-                     evaluation will be done
+        evaluation will be done
         """
         # returns nothing
 
@@ -639,7 +640,8 @@ class vasp_code(object):
                           relaxed_astr.composition.elements]
 
             # DU
-            # Evaluate free energy by calculating chemical potential contribution
+            # Evaluate free energy by calculating
+            # chemical potential contribution
             free_en = total_energy
             for elem in astr_elems:
                 if elem in self.sym_mu_dict.keys():
@@ -682,7 +684,7 @@ class vasp_code(object):
         Args:
 
         model (obj): structure_record.model() object for which energy
-                     evaluation will be done
+        evaluation will be done
 
         file_name (str): the file name of the structure to be written as POSCAR
         """
@@ -701,20 +703,25 @@ class vasp_code(object):
     def write_surface_poscar(self, model, file_name, sd_cut_off=None,
                              sd_no_z=False):
         """
-        For a newly created model in 'surface' geometry, set sd_flags to each site according to its
-        z-coordinate. Assigns [T, T, T] to atoms above sd_cut_ff if provided, else uses the substrate thickness as sd_cut_off. Sets [T, T, F] for atoms if sd_no_z is True.
+        For a newly created model in 'surface' geometry, set sd_flags
+        to each site according to its z-coordinate. Assigns [T, T, T]
+        to atoms above sd_cut_ff if provided, else uses the substrate
+        thickness as sd_cut_off. Sets [T, T, F] for atoms if sd_no_z
+        is True.
 
         Args:
 
         model (obj): structure_record.model() object for which energy
-                     evaluation will be done
+        evaluation will be done
 
-        file_name (str): the file name of the structure to be written as POSCAR
+        file_name (str): the file name of the structure to be written
+        as POSCAR
 
-        sd_cut_off (float): the cut off distance from bottom of the slab. The
-        atoms below it will be frozen. Default is substrate thickness.
+        sd_cut_off (float): the cut off distance from bottom of the slab.
+        The atoms below it will be frozen. Default is substrate thickness.
 
-        sd_no_z (bool): set to True to allow the atoms to relax in z-direction
+        sd_no_z (bool): set to True to allow the atoms to relax
+        in z-direction
         """
         if not sd_cut_off:  # automatically freeze substrate
             sd_cut_off = self.substrate_thickness
