@@ -560,7 +560,7 @@ class Select(object):
             # Get indices of points (models) which are pareto efficient
             pareto_true_inds = Select._is_pareto_efficient(weighted_norm_vals)
             pareto_points_inds = [i for i, b in enumerate(pareto_true_inds)
-                                  if b is True]
+                                  if b == True]
             pareto_points = [list(weighted_norm_vals[i]) for i in
                              pareto_points_inds]
             # store pareto optimal points as class attribute

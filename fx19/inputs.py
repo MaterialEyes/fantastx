@@ -3,8 +3,8 @@ from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
 from fx19 import experimental_simulation
-from fx19 import selection
-#from fx19 import epsilonSelection
+#from fx19 import selection
+from fx19 import epsilonSelection
 #from fx19 import clusteredSelection
 from fx19 import structure_operations
 from fx19.clustering import hierarchical_clusterer, compositional_clusterer
@@ -109,7 +109,7 @@ def make_objects(i_dict):
             cluster_obj = compositional_clusterer()
         pool_params['cluster_obj'] = cluster_obj
         all_objects['cluster_obj'] = cluster_obj
-    pool = selection.Pool(pool_params)
+    pool = epsilonSelection.Pool(pool_params)
     # pool = clusteredSelection.Pool(pool_params)
     # pool = selection.Pool(pool_params)
     all_objects['pool'] = pool
@@ -129,7 +129,7 @@ def make_objects(i_dict):
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
         # select = clusteredSelection.Select(select_params)
-        select = selection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
         # select = selection.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
@@ -137,7 +137,7 @@ def make_objects(i_dict):
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
         # select = clusteredSelection.Select(select_params)
-        select = selection.Select(select_params)
+        select = epsilonSelection.Select(select_params)
         # select = selection.Select(select_params)
     all_objects['select'] = select
 

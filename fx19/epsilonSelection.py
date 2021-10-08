@@ -969,6 +969,7 @@ class Pool(object):
             self.comparator.create_fingerprint(model)
         no_prior_epsilon = True
         self.all_models.append(model)
+
         # If population contains at least one model, check to make sure that
         # the model is unique.
         unique = True
@@ -1037,9 +1038,9 @@ class Pool(object):
             # in preparation for epsilon-MOEA
             if self.population.size == self.population.capacity \
                     and no_prior_epsilon:
-                print("Pool has reached steady-state capacity. \
-                Seeding the archive with the \
-                structural-epsilon-non-dominated models.")
+                print("Pool has reached steady-state capacity. "
+                      + "Seeding the archive with the "
+                      + "structural-epsilon-non-dominated models.")
                 self.archive.seed_archive(self.population)
                 model_labels = [model.label for model in self.archive.models]
                 print(f"Archive seeded with models: {model_labels}")
@@ -1582,7 +1583,7 @@ class Population(object):
         '''
         if self.cluster_obj is not None:
             # Initialize the clusters with all population models
-            self.cluster_models, self.multi_model_clusters = \
+            self.cluster_models, self.multi_model_clusters, _ = \
                 self.cluster_obj.initialize_clusters(
                     self.models)
             print("Cluster object seeded with models.")
@@ -1718,7 +1719,7 @@ class Population(object):
         if len(dominates) > 0:
             if self.cluster_obj is not None:
                 rm_index = np.random.choice(dominates)
-                self.cluster_models, self.multi_model_clusters = \
+                self.cluster_models, self.multi_model_clusters, _ = \
                     self.cluster_obj.update_clustering(
                         model, self.models.pop(rm_index))
             else:
@@ -1728,7 +1729,7 @@ class Population(object):
                 f"Model {model.label} appended to population "
                 + "by domination replacement.")
             model_labels = [model.label for model in self.models]
-            print(f"New model labels: {model_labels}")
+            # print(f"New model labels: {model_labels}")
             return True
         # If does not dominate, but is not dominated, then replace any one
         # population member at random
@@ -1736,7 +1737,7 @@ class Population(object):
             if self.cluster_obj is not None:
                 rm_index = np.random.randint(
                     0, self.size - 1)
-                self.cluster_models, self.multi_model_clusters = \
+                self.cluster_models, self.multi_model_clusters, _ = \
                     self.cluster_obj.update_clustering(
                         model, self.models.pop(rm_index))
             else:

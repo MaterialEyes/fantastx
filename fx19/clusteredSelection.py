@@ -835,23 +835,62 @@ class StructuralEpsilonDominance(object):
             if similarity >= 0:
                 return 2
             else:
-                d_test = 0.0
-                d_ref = 0.0
+                # NOTE: Currently have changed it so that it is really
+                # "structural pareto dominance" instead of structural
+                # epsilon dominance. The epsilon grid is only used to reduce
+                # the number of structural comparisons which are made. The
+                # commented out code is standard epsilon dominance
+
+                ################# EPSILON DOMINANCE #######################
+                # d_test = 0.0
+                # d_ref = 0.0
+
+                # # TODO: make flexible with number of objectives
+                # for n in range(2):
+                #     epsilon = float(self.epsilons[n % len(self.epsilons)])
+                #     if n == 0:
+                #         test_obj = test_model.obj0_val
+                #         ref_obj = ref_model.obj0_val
+                #     elif n == 1:
+                #         test_obj = test_model.obj1_val
+                #         ref_obj = ref_model.obj1_val
+                #     test_eps_val = math.floor(test_obj / epsilon)
+                #     ref_eps_val = math.floor(ref_obj / epsilon)
+                #     d_test += (test_obj / epsilon - test_eps_val)**2
+                #     d_ref += (ref_obj / epsilon - ref_eps_val)**2
+                # if d_test < d_ref or np.isclose(d_test, d_ref, atol=1e-5):
+                #     return -1
+                # else:
+                #     return 1
+
+                #################### PARETO DOMINANCE ####################
+                pareto_dom_test = False
+                pareto_dom_ref = False
 
                 # TODO: make flexible with number of objectives
                 for n in range(2):
-                    epsilon = float(self.epsilons[n % len(self.epsilons)])
+
                     if n == 0:
                         test_obj = test_model.obj0_val
                         ref_obj = ref_model.obj0_val
                     elif n == 1:
                         test_obj = test_model.obj1_val
                         ref_obj = ref_model.obj1_val
-                    test_eps_val = math.floor(test_obj / epsilon)
-                    ref_eps_val = math.floor(ref_obj / epsilon)
-                    d_test += (test_obj / epsilon - test_eps_val)**2
-                    d_ref += (ref_obj / epsilon - ref_eps_val)**2
-                if d_test < d_ref or np.isclose(d_test, d_ref, atol=1e-5):
+
+                    if test_obj < ref_obj:
+                        pareto_dom_test = True
+                        # Check for non-domination
+                        if pareto_dom_ref:
+                            return 0
+
+                    elif test_obj > ref_obj:
+                        pareto_dom_ref = True
+                        # Check for non-domination
+                        if pareto_dom_test:
+                            return 0
+
+                # Otherwise one dominates the other, return the appropriate value
+                if pareto_dom_test:
                     return -1
                 else:
                     return 1
@@ -1596,7 +1635,7 @@ class Population(object):
         models currently present. Also ranks the models, both on
         the population level, as well as on the individual cluster level.
         '''
-        self.cluster_models, self.multi_model_clusters = \
+        self.cluster_models, self.multi_model_clusters, _ = \
             self.cluster_obj.initialize_clusters(self.models)
 
         self._dominance.rank_models(
@@ -1735,9 +1774,9 @@ class Population(object):
         if exclude_model is not None:
             if exclude_model in candidates:
                 exclude_index = candidates.index(exclude_model)
-                print(
-                    "Model was added to back of level structure! "
-                    + f"Index: {exclude_index}")
+                # print(
+                #     "Model was added to back of level structure! "
+                #     + f"Index: {exclude_index}")
         if len(candidates) == 1:
             return self.model_level_structure.pop(-1)[0]
         if not use_cumulative_rank:
@@ -1746,7 +1785,7 @@ class Population(object):
             while (exclude_index is not None) \
                     and (chosen_index == exclude_index):
                 chosen_index = np.random.choice(index_options)
-            print(f"Chosen index: {chosen_index}")
+            # print(f"Chosen index: {chosen_index}")
             return self.model_level_structure[-1].pop(chosen_index)
         else:
             worst_candidates = [candidates[0]]

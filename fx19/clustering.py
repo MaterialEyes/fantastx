@@ -260,7 +260,7 @@ class hierarchical_clusterer(object):
                 cluster_models[cluster].append(model)
                 if len(cluster_models[cluster]) == 2:
                     multi_model_clusters.append(cluster)
-        return cluster_models, multi_model_clusters
+        return cluster_models, multi_model_clusters, None
 
     def update_clustering(self, new_model, old_model):
         '''
