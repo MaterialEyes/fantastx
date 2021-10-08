@@ -4,9 +4,12 @@ from __future__ import division, unicode_literals, print_function
 import scipy
 from pymatgen.core.structure import Structure
 from pymatgen.io.cif import CifWriter
-from diffpy.Structure import loadStructure
-from diffpy.srfit.pdf import PDFContribution
-from diffpy.srfit.fitbase import FitRecipe
+try:
+    from diffpy.Structure import loadStructure
+    from diffpy.srfit.pdf import PDFContribution
+    from diffpy.srfit.fitbase import FitRecipe, FitResults
+except ImportError:
+    print('Install Diffpy-CMI for PDF simulation. Otherwise ignore..')
 
 # For preprocessing experimental image
 # from skimage.transform import rescale
