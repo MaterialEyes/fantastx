@@ -600,8 +600,17 @@ class basinhopping(object):
             self.box_abc = np.array(
                 basinhopping_params['box_abc'])
 
-    def perturb_sites(self, select, pool, surface_thickness=None,
-                      model_id=None):
+        # delta_comps list to modify the composition
+        # Ex: ['AlO', 'Al2O', 'Al3O', 'Al4O', 'O2', 'Al2', 'Al3']
+        self.delta_comps = []
+        if 'delta_comps' in basinhopping_params:
+            self.delta_comps = basinhopping_params['delta_comps']
+
+        self.add_rem_comp_frac = 0.6 # add unit comp 60% of the time
+        if 'add_rem_comp_frac' in basinhopping_params:
+            self.add_rem_comp_frac = basinhopping_params['add_rem_comp_frac']
+
+    def perturb_sites(self, select, pool, surface_thickness=None, model_id=None):
         """
         Displaces atoms in a parent (cluster or gb_iface or surface layer)
         using uniform distribution within max_perturbation
@@ -617,6 +626,10 @@ class basinhopping(object):
 
         model_id (int): If given, basinhopping is done on this specific model
         """
+        all_models = pool.good_pool
+        if 'population' in pool.__dict__.keys():
+            all_models = pool.population.models
+
         if self.shape == 'surface':
             return self.perturb_surface(select, pool,
                                         surface_thickness=surface_thickness,
@@ -629,7 +642,7 @@ class basinhopping(object):
             parent = copy.deepcopy(parent_model)
             inheritance = [parent.label]
         else:
-            for model in pool.population.models:
+            for model in all_models:
                 # for model in pool.good_pool:
                 if model.label == model_id:
                     parent = copy.deepcopy(model)
@@ -696,8 +709,7 @@ class basinhopping(object):
         else:
             return None, None
 
-    def perturb_surface(self, select, pool, surface_thickness=1,
-                        model_id=None):
+    def perturb_surface(self, select, pool, surface_thickness=1, model_id=None):
         """
         Displaces atoms in a surface layer using uniform distribution
 
@@ -775,6 +787,92 @@ class basinhopping(object):
             return parent.astr, inheritance
         else:
             return None, None
+
+    def perturb_comp(self, select, pool, dc_astr=None, model_id=None):
+        """
+        Function to generate a child model by changing the composition of a
+        parent model.
+        If delta_comps list exists, adds or removes one unit comp from it.
+
+        NOTE: The species listed in delta_comps should always be subset of the
+              species present in parent
+        Args:
+
+        select (obj): Select object
+
+        pool (obj): Pool object
+
+        model_id (int): If given, basinhopping is done on this specific model
+        """
+        all_models = pool.good_pool
+        if 'population' in pool.__dict__.keys():
+            all_models = pool.population.models
+        if model_id is None:
+            parent_model = select.get_a_parent(pool)
+            parent = copy.deepcopy(parent_model)
+            # make a copy
+        else:
+            for model in all_models:
+                # for model in pool.good_pool:
+                if model.label == model_id:
+                    parent = copy.deepcopy(model)
+                    break
+        parent_astr = parent.astr
+        parent_comp = parent_astr.composition.as_dict()
+        inheritance = [parent.label]
+
+        # if delta comps list exists
+        # select a unit composition from the delta comps list
+        if len(self.delta_comps) > 0:
+            unit = np.random.choice(self.delta_comps)
+            unit_comp = Composition(unit).as_dict()
+        else: # else select random unit compositon
+            unit_comp = {}
+            while True:
+                for sym in self.element_syms.values():
+                    unit_comp[sym] = np.random.randint(3)
+                if sum(unit_comp.values()) > 0:
+                    break
+
+        # choose whether to add or remove the unit composition
+        add_unit_comp = False
+        if random.random() < self.add_rem_comp_frac:
+            add_unit_comp = True
+
+        # Add random sites to the parent
+        if add_unit_comp:
+            for sps in unit_comp.keys():
+                num_added = 0
+                while num_added < unit_comp[sps]:
+                    fracs = [unif(0, 1), unif(0, 1), unif(0, 1)]
+                    carts = parent_astr.lattice.get_cartesian_coords(fracs)
+                    # Check dists with rest of the atoms in parent_astr
+                    if dc.satisfies_all_dists(carts, parent.astr,
+                                    self.element_syms, self.min_dist_dict,
+                                    new_carts_species=sps):
+                        if dc_astr:
+                            # check with dc_astr as well (if gb geometry)
+                            if dc.satisfies_all_dists(carts, dc_astr,
+                                    self.element_syms, self.min_dist_dict,
+                                    new_carts_species=sps):
+                                dc_astr.append(sps, carts,
+                                            coords_are_cartesian=True)
+                                parent_astr.append(sps, carts,
+                                            coords_are_cartesian=True)
+                        else:
+                            parent_astr.append(sps, carts,
+                                            coords_are_cartesian=True)
+                        num_added += 1
+        else: # remove random sites from the parent
+            rem_inds = []
+            for sps in unit_comp.keys():
+                n_sps = int(parent_comp[sps])
+                n_rem_sps = int(unit_comp[sps])
+                inds = np.random.choice(n_sps, n_rem_sps, replace=False)
+                rem_inds += list(inds)
+            parent_astr.remove_sites(rem_inds)
+
+        return parent_astr, inheritance
 
     def get_point_on_sphere(self, r):
         """
@@ -1572,7 +1670,7 @@ class gb_ops(object):
 
         return gb_model
 
-    def get_model(self, select, pool, reg_id):
+    def get_model_old(self, select, pool, reg_id):
         """
         Function to get a child model through basinhopping or mating operations
 
@@ -1649,7 +1747,7 @@ class gb_ops(object):
 
         return new_model
 
-    def get_model_auto_adaptive(self, select, pool, reg_id):
+    def get_model(self, select, pool, reg_id):
         """
         Function to get a child model through basinhopping or mating operations.
         Operators are provided from the select object. Available operators for
@@ -1675,11 +1773,11 @@ class gb_ops(object):
 
         correct_comp = False
         tries = 0
-        if operator == "perturb_sites":
+        if operator == "perturb_sites" or operator == "perturb_comp":
             parent_model = select.get_a_parent(pool)
-            model_copy = copy.deepcopy(parent_model)
-            model_astr = model_copy.astr
-            model_astr.sort()
+            #model_copy = copy.deepcopy(parent_model)
+            #model_astr = model_copy.astr
+            #model_astr.sort()
             label = parent_model.label
         while correct_comp is False and tries <= 10:
             try:
@@ -1688,28 +1786,35 @@ class gb_ops(object):
                         select, pool, model_id=label)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
-                    maker = 'perturb_sites'
+                    #maker = 'perturb_sites'
+                elif operator == "perturb_comp":
+                    perturbed_iface, inheritance = hop.perturb_comp(
+                            select, pool, dc_astr=self.astr_for_dist_check,
+                            model_id=label)
+                    self.move_coords_inside(perturbed_iface)
+                    new_astr = self.grain_implant(perturbed_iface)
+                    #maker = 'perturb_comp'
                 elif operator == "fraction_slice_same_cluster":
                     new_astr, inheritance = self.mate(
                         select, pool, same_cluster=True)
-                    maker = 'fraction_slice_same_cluster'
+                    #maker = 'fraction_slice_same_cluster'
                 elif operator == "fraction_slice_dif_cluster":
                     new_astr, inheritance = self.mate(
                         select, pool, same_cluster=False)
-                    maker = 'fraction_slice_dif_cluster'
+                    #maker = 'fraction_slice_dif_cluster'
                 elif operator == "fraction_slice":
                     new_astr, inheritance = self.mate(
                         select, pool)
-                    maker = 'fraction_slice'
+                    #maker = 'fraction_slice'
             except:
                 print("Exception!")
                 traceback.print_exc()
-                if operator == "perturb_sites":
-                    parent_model = select.get_a_parent(pool)
-                    model_copy = copy.deepcopy(parent_model)
-                    model_astr = model_copy.astr
-                    model_astr.sort()
-                    label = parent_model.label
+                #if operator == "perturb_sites" or operator == "perturb_comp":
+                #    parent_model = select.get_a_parent(pool)
+                #    model_copy = copy.deepcopy(parent_model)
+                #    model_astr = model_copy.astr
+                #    model_astr.sort()
+                #    label = parent_model.label
                 continue
             if new_astr is None:
                 continue
@@ -1727,7 +1832,7 @@ class gb_ops(object):
 
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
-        new_model.made_by = maker
+        new_model.made_by = operator
 
         print(
             f"New model {new_model.label} inheritance is: "
