@@ -3,9 +3,7 @@ from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
 from fx19 import experimental_simulation
-#from fx19 import selection
-from fx19 import epsilonSelection
-#from fx19 import clusteredSelection
+from fx19 import selection, epsilonSelection, clusteredSelection
 from fx19 import structure_operations
 from fx19.clustering import hierarchical_clusterer, compositional_clusterer
 
@@ -85,11 +83,28 @@ def make_objects(i_dict):
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
-        # Pool object (contains good_pool and bad_pool)
+    # Get the MOEA and search mode based on provided inputs
+    selection_mod = selection # uses distance from pareto MOEA
+    mod_str = 'selection.py'
+    ob_fn = 'Distance from pareto'
+    cl_bool = False
+    if 'epsilons' in i_dict:
+        selection_mod = epsilonSelection # uses epsilon MOEA & NO clustering
+        mod_str = 'epsilonSelection.py'
+        ob_fn = 'Epsilon-MOEA'
+        if 'cluster_params' in i_dict:
+            selection_mod = clusteredSelection # uses epsilon MOEA & clustering
+            mod_str = 'clusteredSelection.py'
+            cl_bool = True
+    print ('Objective function: {}\nClustering: {}'.format(ob_fn, cl_bool))
+    print ('Using Pool & Select classes from {} module'.format(mod_str))
+
+    # Pool object (contains good_pool and bad_pool)
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
-    pool_params['epsilons'] = i_dict['epsilons']
+    if 'epsilons' in i_dict:
+        pool_params['epsilons'] = i_dict['epsilons']
     if 'fingerprint_params' in i_dict:
         fingerprint_params = i_dict["fingerprint_params"]
         # If the fingerprint is a soap descriptor, then the
@@ -109,9 +124,7 @@ def make_objects(i_dict):
             cluster_obj = compositional_clusterer()
         pool_params['cluster_obj'] = cluster_obj
         all_objects['cluster_obj'] = cluster_obj
-    pool = epsilonSelection.Pool(pool_params)
-    # pool = clusteredSelection.Pool(pool_params)
-    # pool = selection.Pool(pool_params)
+    pool = selection_mod.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
@@ -128,17 +141,13 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
-        # select = clusteredSelection.Select(select_params)
-        select = epsilonSelection.Select(select_params)
-        # select = selection.Select(select_params)
+        select = selection_mod.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
-        # select = clusteredSelection.Select(select_params)
-        select = epsilonSelection.Select(select_params)
-        # select = selection.Select(select_params)
+        select = selection_mod.Select(select_params)
     all_objects['select'] = select
 
     # Mating object from structure_operations
