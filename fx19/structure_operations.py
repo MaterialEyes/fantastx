@@ -626,7 +626,8 @@ class basinhopping(object):
 
         model_id (int): If given, basinhopping is done on this specific model
         """
-        all_models = pool.good_pool
+        if 'good_pool' in pool.__dict__.keys():
+            all_models = pool.good_pool
         if 'population' in pool.__dict__.keys():
             all_models = pool.population.models
 
@@ -804,7 +805,8 @@ class basinhopping(object):
 
         model_id (int): If given, basinhopping is done on this specific model
         """
-        all_models = pool.good_pool
+        if 'good_pool' in pool.__dict__.keys():
+            all_models = pool.good_pool
         if 'population' in pool.__dict__.keys():
             all_models = pool.population.models
         if model_id is None:
