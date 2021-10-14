@@ -362,6 +362,10 @@ class Comparator(object):
         considered unique if they are not the same as another model
         within tolerance limits.
         '''
+        # create a new fingerprint got the model
+        # either before (new_model) or after relaxation (relaxed_astr)
+        self.create_fingerprint(model)
+        # compare
         flags = [self.compare_models(model, m) for m in all_models]
         if exact:
             same = [f == 0 for f in flags]
@@ -1019,8 +1023,8 @@ class Pool(object):
                     or select.type == "single":
                 self.population.basic_addition_to_population(
                     model, select, sim_ids=sim_ids)
-                print(f'New model {model.label} added to population based'
-                      ' on their objective values only!')
+                #print(f'New model {model.label} added to population based'
+                #      ' on their objective values only!')
 
             # Othewise, perform usual epsilon-MOEA
             else:
