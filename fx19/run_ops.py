@@ -36,13 +36,13 @@ def write_data(model, data_file):
     """
     with open(data_file, 'a') as f:
         if model.obj1_val:
-            line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\t{4:.6}\n'.format(
-                                model.label, model.inheritance, model.tot_en,
-                                model.obj0_val, model.obj1_val)
+            line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
+                            model.label, str(model.inheritance), model.tot_en,
+                            model.obj0_val, model.obj1_val, model.made_by)
         else:
-            line = '{0}\t{1}\t\t{2:.6f}\t{3:.6f}\n'.format(
-                                model.label, model.inheritance, model.tot_en,
-                                model.obj0_val)
+            line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4}\n'.format(
+                            model.label, str(model.inheritance), model.tot_en,
+                            model.obj0_val, model.made_by)
         f.write(line)
 
 # Temporary selection probs based on overall_value
@@ -128,7 +128,12 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
 
     # make new model from parents
     if model_type == 'evolved':
-        new_model = evolve.get_model_auto_adaptive(select, pool, reg_id)
+        model_is_unique = False
+        while not model_is_unique:
+            new_model = evolve.get_model(select, pool, reg_id)
+            # check redundancy of the new model with all previous models
+            model_is_unique = pool.comparator.check_uniqueness(new_model,
+                                                pool.all_models, exact=False)
         # add the new_model inheritance to select.all_parent_labels
         select.all_parent_labels += new_model.inheritance
 
@@ -262,13 +267,13 @@ def cluster_models(pool, data_file, xsim, cluster_obj):
     pool - pool of models.
     data_file - file containing the objective function values for all
                 evaluated models.
-    xsim - the experimental_simulation object which will calculate the 
+    xsim - the experimental_simulation object which will calculate the
             SSIM scores for each model pair.
     cluster_obj - the clustering object which will perform all clustering
                     operations.
 
     Outputs images of the cluster dendrogram, and the clustering in objective
-    function space. 
+    function space.
     '''
     models = pool.all_models
     obj_fncs = cluster_obj.read_in_objective_functions(data_file)
