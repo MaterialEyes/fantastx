@@ -79,9 +79,11 @@ os.mkdir(calcs)
 ####### write data to a file
 data_file = main_path + '/data_file'
 with open(data_file, 'w') as f:
-    first_line = 'id\tinheritance\t\ttotal energy\tObj_0\t\tObj_1\n\n'
+    first_line = 'Label   Inheritance     Total Energy    Obj_0' + \
+                        '           Obj_1           Operator\n\n'
     if not Xsim_1:
-        first_line = 'id\t\tinheritance\t\ttotal energy\tObj_0\n\n'
+        first_line = 'Label   Inheritance     Total Energy    Obj_0' + \
+                        '           Operator\n\n'
     f.write(first_line)
 
 # set up everything for calculations
