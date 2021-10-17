@@ -253,7 +253,7 @@ class Comparator(object):
         '''
         try:
             comparison = self.compare_fingerprints(test_model, ref_model)
-        except AssertionError:
+        except (AssertionError, KeyError):
             # models did not contain the same number of atoms (bag-of-bonds)
             return -1
         if self.label == "valle-oganov":
