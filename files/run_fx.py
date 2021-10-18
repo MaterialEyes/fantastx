@@ -159,6 +159,13 @@ def full_eval(model):
 
     # separate gb_iface for the energy evaluated futures
     separate_gb(energy_code, gb_ops_obj, model)
+    # check if the relaxed structure is unique
+    model_is_unique = pool.comparator.check_uniqueness(new_model,
+                                        pool.all_models, exact=False)
+    if not model_is_unique:
+        print ('Model {} is removed as it is not unique'.format(model.label))
+        return None
+
     # Do Xsim if required
     if Xsim_1:
         # get the relaxed structure
