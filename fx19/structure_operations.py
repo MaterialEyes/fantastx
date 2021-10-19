@@ -1697,8 +1697,6 @@ class gb_ops(object):
         if do_hop:
             parent_model = select.get_a_parent(pool)
             model_copy = copy.deepcopy(parent_model)
-            model_astr = model_copy.astr
-            model_astr.sort()
             label = parent_model.label
         while correct_comp is False and tries <= 10:
             try:
@@ -1715,8 +1713,6 @@ class gb_ops(object):
                 if do_hop:
                     parent_model = select.get_a_parent(pool)
                     model_copy = copy.deepcopy(parent_model)
-                    model_astr = model_copy.astr
-                    model_astr.sort()
                     label = parent_model.label
                 continue
             if new_astr is None:
@@ -1777,9 +1773,6 @@ class gb_ops(object):
         tries = 0
         if operator == "perturb_sites" or operator == "perturb_comp":
             parent_model = select.get_a_parent(pool)
-            #model_copy = copy.deepcopy(parent_model)
-            #model_astr = model_copy.astr
-            #model_astr.sort()
             label = parent_model.label
         while correct_comp is False and tries <= 10:
             try:
@@ -1811,12 +1804,9 @@ class gb_ops(object):
             except:
                 print("Exception!")
                 traceback.print_exc()
-                #if operator == "perturb_sites" or operator == "perturb_comp":
-                #    parent_model = select.get_a_parent(pool)
-                #    model_copy = copy.deepcopy(parent_model)
-                #    model_astr = model_copy.astr
-                #    model_astr.sort()
-                #    label = parent_model.label
+                if operator == "perturb_sites" or operator == "perturb_comp":
+                    parent_model = select.get_a_parent(pool)
+                    label = parent_model.label
                 continue
             if new_astr is None:
                 continue
