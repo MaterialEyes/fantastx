@@ -182,7 +182,7 @@ if input_model_obj is not None:
         new_model, select = make_model(random_model_obj, evolve, select, pool,
                                 reg_id, model_type='inputs', model=input_model)
         # relax the model in dask-workers
-        out = client.submit(relax, new_model, reg_id, energy_code)
+        out = client.submit(full_eval, new_model, reg_id, energy_code)
         evald_futures.append(out)
     print ('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
