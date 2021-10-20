@@ -44,39 +44,11 @@ class Evolve(object):
         hop (obj): a basinhopping object
 
         evolve_params (dict): The keys are the following:
-                              'basinhopping_fraction': 0.34
-                              'mate_by_slice_fraction': 0.33
-                              'mate_by_swap_fraction': 0.33
                               (sum of the three fractions should be 1)
                               'num_species': (int) number of species
         """
         self.mate = mate
         self.hop = hop
-
-        # probability given as fraction to choose evolve method
-        self.basinhopping_fraction = 0.34
-        self.mate_by_slice_fraction = 0.33
-        self.mate_by_swap_fraction = 0.33
-
-        if 'basinhopping_fraction' in evolve_params:
-            self.basinhopping_fraction = evolve_params['basinhopping_fraction']
-
-        if 'mate_by_slice_fraction' in evolve_params:
-            self.mate_by_slice_fraction = \
-                evolve_params['mate_by_slice_fraction']
-
-        if 'mate_by_swap_fraction' in evolve_params:
-            self.mate_by_swap_fraction = evolve_params['mate_by_swap_fraction']
-
-        if not self.basinhopping_fraction + self.mate_by_slice_fraction + \
-                self.mate_by_swap_fraction == 1:
-            print('Sum of the provided evolve method fractions is not equal'
-                  ' to 1. So, using default values of 0.33, 0.33, 0.34 for'
-                  ' hop,mate_by_swap and mate_by_slice respectively.')
-            self.basinhopping_fraction = 0.34
-            self.mate_by_slice_fraction = 0.33
-            self.mate_by_swap_fraction = 0.33
-
         self.num_species = evolve_params['num_species']
 
         # Make species dicts as attributes
@@ -105,34 +77,59 @@ class Evolve(object):
         """
         hop = self.hop
         mate = self.mate
-        method = np.random.choice([1, 2, 3], p=[self.basinhopping_fraction,
-                                                self.mate_by_slice_fraction,
-                                                self.mate_by_swap_fraction])
-        methods_dict = {1: 'basinhopping',
-                        2: 'mate_by_slice',
-                        3: 'mate_by_swap'}
+        operator = np.random.choice(
+                        select.operators, p=select.operator_frequencies)
 
         correct_comp = False
-        while correct_comp is False:
+        tries = 0
+        if operator == "perturb_sites" or operator == "perturb_comp":
+            parent_model = select.get_a_parent(pool)
+            label = parent_model.label
+        while correct_comp is False and tries <= 10:
             try:
-                if method == 1:
-                    new_astr, inheritance = hop.perturb_sites(select, pool)
-                elif method == 2:
+                if operator == "perturb_sites":
+                    new_astr, inheritance = hop.perturb_sites(
+                                                select, pool, model_id=label)
+                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
+
+                elif operator == "perturb_comp":
+                    new_astr, inheritance = hop.perturb_comp(
+                                                select, pool, model_id=label)
+                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
+
+                elif operator == "fraction_slice_same_cluster":
+                    new_astr, inheritance = self.mate_by_slicing(
+                                            select, pool, same_cluster=True)
+                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
+
+                elif operator == "fraction_slice_dif_cluster":
+                    new_astr, inheritance = self.mate_by_slicing(
+                                            select, pool, same_cluster=False)
+                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
+
+                elif operator == "fraction_slice":
                     new_astr, inheritance = mate.mate_by_slicing(select, pool)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
-                elif method == 3:
-                    new_astr, inheritance = mate.mate_by_random_swap(select,
-                                                                     pool)
+
+                elif operator == "mate_by_swap":
+                    new_astr, inheritance = mate.mate_by_random_swap(
+                                                                select, pool)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
             except:
+                print("Exception!")
+                traceback.print_exc()
+                if operator == "perturb_sites" or operator == "perturb_comp":
+                    parent_model = select.get_a_parent(pool)
+                    label = parent_model.label
                 continue
             if new_astr is None:
                 continue
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
+            tries += 1
+
             new_astr.sort()
             new_comp = new_astr.composition
-
             # DU
             all_ok = True
             for sp in range(self.num_species):
@@ -143,13 +140,12 @@ class Evolve(object):
                 if not min_sp <= new_comp[sym] <= max_sp:
                     all_ok = False
                     break
-
             if all_ok:
                 correct_comp = True
 
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
-        new_model.made_by = methods_dict[method]
+        new_model.made_by = operator
 
         return new_model
 
@@ -230,7 +226,7 @@ class mating(object):
 
         return attach_type
 
-    def mate_by_slicing(self, select, pool):
+    def mate_by_slicing(self, select, pool, same_cluster=None):
         """
         Function to create a child (cluster) structure by -
         slicing each parent after a random rotation and attaching two slices
@@ -243,11 +239,15 @@ class mating(object):
         select (obj): selection.Select object
 
         pool (obj): selection.Pool object
+
+        same_cluster (bool): Whether to mate from same cluster or not.
+                            If None, then ignored.
         """
         # Get num_parents and select them parents
         num_parents = 2
         # NOTE: deepcopy already done in get_a_parent()
-        parents = select.get_parents(pool, num_parents)
+        parents = select.get_parents(pool, num_parents,
+                                     same_cluster=same_cluster)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
 
@@ -394,7 +394,7 @@ class mating(object):
 
         return slice1
 
-    def mate_by_random_swap(self, select, pool):
+    def mate_by_random_swap(self, select, pool, same_cluster=None):
         """
         Function to combine two parents and keep only required number of atoms
         from each of the parent. In other words, randomly select few atoms
@@ -407,10 +407,14 @@ class mating(object):
         select (obj): Select object
 
         pool (obj): Pool object
+
+        same_cluster (bool): Whether to mate from same cluster or not.
+                            If None, then ignored.
         """
         # Get num_parents and select them parents
         num_parents = 2
-        parents = select.get_parents(pool, num_parents)
+        parents = select.get_parents(pool, num_parents,
+                                     same_cluster=same_cluster)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
         # p1_sites = parent1.astr.sites
@@ -1625,7 +1629,8 @@ class gb_ops(object):
         """
         # get two parents
         num_parents = 2
-        parents = select.get_parents(pool, num_parents, same_cluster)
+        parents = select.get_parents(pool, num_parents,
+                                     same_cluster=same_cluster)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
         # choose axis to slice
