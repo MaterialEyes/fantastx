@@ -225,10 +225,11 @@ def update_pool(evald_futures, models_evald, pool, select,
         model = future.result()
         # Add to either good_pool or bad_pool
         # Selection_probs are also updated
-        select = pool.add_to_pool(model, select, sim_ids=sim_ids)
-        # write data to file
-        write_data(model, data_file)
-        models_evald += 1
+        if model is not None: 
+            select = pool.add_to_pool(model, select, sim_ids=sim_ids)
+            # write data to file
+            write_data(model, data_file)
+            models_evald += 1
 
     return evald_futures, models_evald, pool, select
 
