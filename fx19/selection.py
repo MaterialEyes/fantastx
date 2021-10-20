@@ -894,10 +894,14 @@ class Select(object):
 
         return m, c
 
-    def get_parents(self, pool, num_parents, same_ab=False, abs_tol=0.2):
+    def get_parents(self, pool, num_parents, same_cluster=None,
+                                        same_ab=False, abs_tol=0.2):
         """
         Selects requested number of parents based on their probabilities
         Returns a list of parents
+
+        TODO: Add clustering to similar to epsilonSelection
+        TODO: Add same_ab for surface geometry runs
 
         Args:
 
