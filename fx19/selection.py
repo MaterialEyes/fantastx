@@ -255,9 +255,10 @@ class Pool(object):
                         len(select.operator_hashmap))
                     for operator in select.operator_inheritance:
                         if operator != "random":
-                            operator_counts[
-                                select.operator_hashmap[operator]
-                            ] += 1
+                            if operator is not None: # for user-input models
+                                operator_counts[
+                                    select.operator_hashmap[operator]
+                                    ] += 1
                         else:
                             operator_counts += 1 / \
                                 len(select.operator_hashmap)
@@ -632,7 +633,8 @@ class Select(object):
                 pareto_models = [all_models[i] for i in pareto_points_inds]
                 # update operator inheritance based on pareto points
                 self.operator_inheritance = [
-                    model.made_by for model in pareto_models]
+                            model.made_by for model in pareto_models \
+                            if model.made_by is not None]
 
             try:
                 # Make convex hull with pareto points
