@@ -183,7 +183,7 @@ def make_objects(i_dict):
 
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(i_dict, str_constraints)
-    if not evolve_params == {}:
+    if str_constraints['shape'] == 'cluster':
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
@@ -384,13 +384,11 @@ def get_evolve_params(i_dict, str_constraints):
     random models
     """
     evolve_params = {}
-    if 'evolve_probabilities' in i_dict:
-        evolve_params = i_dict['evolve_probabilities']
-        evolve_params['num_species'] = str_constraints['num_species']
-        # species dicts
-        # DU
-        for i in range(1, str_constraints['num_species']+1):
-            species = 'species' + str(i)
-            if species in str_constraints:
-                evolve_params[species] = str_constraints[species]
+    evolve_params['num_species'] = str_constraints['num_species']
+    # species dicts
+    # DU
+    for i in range(1, str_constraints['num_species']+1):
+        species = 'species' + str(i)
+        if species in str_constraints:
+            evolve_params[species] = str_constraints[species]
     return evolve_params
