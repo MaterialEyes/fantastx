@@ -521,6 +521,9 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
+        if self.shape == 'cluster':
+            model.astr.to(filename=new_poscar, fmt='poscar')
+
         if self.shape == 'gb':
             self.write_gb_poscar(model, new_poscar)
 
