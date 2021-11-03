@@ -20,9 +20,9 @@ import ingrained.image_ops as iop
 
 #these imports have to be in sys.path
 #later build into FoxPy package to be installed
-import dft_calc as foxpy_dft
-import experiment as foxpy_expt
-from calculations.objective_functions import minimizeFunction, chiSquareList
+import FOXPy.dft_calc as foxpy_dft
+import FOXPy.experiment as foxpy_expt
+from FOXPy.calculations.objective_functions import minimizeFunction, chiSquareList
 
 from scipy.optimize import Bounds
 import pymatgen.core as mg

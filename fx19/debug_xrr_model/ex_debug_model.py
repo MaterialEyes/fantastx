@@ -16,10 +16,10 @@ from fx19 import structure_record
 from fx19 import experimental_simulation
 
 main_path = os.getcwd()
-sys.path.insert(1, '/Users/klweaver/Code/XRay/FoxPy')
+# sys.path.insert(1, '/Users/ntcheung18/Desktop/research/FoxPy/FoxPy')
 
 # read input file and make input dictionary
-with open('/Users/klweaver/Code/FANTASTX/fantastx/fx19/debug_xrr_model/debug_xrr.yaml') as ifile:
+with open('/Users/ntcheung18/Research/fantastx/fx19/debug_xrr_model/debug_xrr.yaml') as ifile:
 #with open('debug_xrr.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
@@ -27,7 +27,7 @@ with open('/Users/klweaver/Code/FANTASTX/fantastx/fx19/debug_xrr_model/debug_xrr
 #test comment commit
 
 #structure_files = ['POSCAR_rand_1', 'POSCAR_rand_2', 'POSCAR_rand_3']
-structure_files = ['/Users/klweaver/Code/XRay/FoxPy/input/TT-rt13/rt13.cif']
+structure_files = ['/Users/ntcheung18/Desktop/research/FoxPy/FoxPy/input/TT-rt13/rt13.cif']
 pymatgen_structures = [Structure.from_file(s) for s in structure_files]
 
 reg_id = structure_record.register_id()

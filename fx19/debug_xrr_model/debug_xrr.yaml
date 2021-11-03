@@ -1,12 +1,11 @@
 exp_sim_1: XRR
 exp_sim_1_params:
-  xrr_foxpy_path: /Users/klweaver/Code/XRay/FoxPy
   #information about experimental XRR measurements 
   exp_xrr_data: 
     exp_xrr_data1: 
       #data file for XRR experiment with 3 columns: 
       #momentum transfer q in rlu, intensity I(q) in a.u., error bar sigma(q) in a.u.
-      filename: /Users/klweaver/Code/XRay/FoxPy/input/nonres_STO.dat
+      filename: /Users/ntcheung18/Desktop/research/FoxPy/FoxPy/input/nonres_STO.dat
       #energy of X-ray in eV
       energy: 15000
       #temperature in Kelvin
@@ -19,7 +18,7 @@ exp_sim_1_params:
       #maximum value of q in inverse Angstroms
       max_q: 4.0
     exp_xrr_data2: 
-      filename: /Users/klweaver/Code/XRay/FoxPy/input/res_STO.dat
+      filename: /Users/ntcheung18/Desktop/research/FoxPy/FoxPy/input/res_STO.dat
       energy: 16105
       temperature: 1000
       scale_q: 1.008 
@@ -29,7 +28,7 @@ exp_sim_1_params:
   #Information about structural models needed for computation of XRR
   #filename of PyMatGen compatible structure for bulk crystal substrate from DFT
   #currently assumes that z-direction is normal to surface.
-  bulk_structure: /Users/klweaver/Code/XRay/FoxPy/input/bulkSTO.cif
+  bulk_structure: /Users/ntcheung18/Desktop/research/FoxPy/FoxPy/input/bulkSTO.cif
   #number of identical layers normal to z in bulk unit cell 
   num_layers_bulk: 1 
   #location in fractional coords where the bulk structure joins to the surface structure
