@@ -1105,7 +1105,7 @@ class gb_ops(object):
                        if i in iface_inds_in_gb]
         site_sps = [site.specie for site in iface_sites]
         site_sps = [i.name for i in site_sps]
-        iface_sps = set(site_sps)
+        iface_sps = self.sym_species
         comp_dict = {}
         for sp in iface_sps:
             comp_dict[sp] = site_sps.count(sp)
