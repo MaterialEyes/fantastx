@@ -225,7 +225,14 @@ def update_pool(evald_futures, models_evald, pool, select,
         model = future.result()
         # Add to either good_pool or bad_pool
         # Selection_probs are also updated
-        if model is not None: 
+        if model is not None:
+            # check if the relaxed structure is unique
+            model_is_unique = pool.comparator.check_uniqueness(model,
+                                                pool.all_models, exact=False)
+            if not model_is_unique:
+                print ('Model {} is removed as it is not '
+                       'unique'.format(model.label))
+                continue
             select = pool.add_to_pool(model, select, sim_ids=sim_ids)
             # write data to file
             write_data(model, data_file)
