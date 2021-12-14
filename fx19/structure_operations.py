@@ -629,7 +629,7 @@ class basinhopping(object):
             parent = copy.deepcopy(parent_model)
             inheritance = [parent.label]
         else:
-            for model in pool.population.models:
+            for model in pool.good_pool:
                 # for model in pool.good_pool:
                 if model.label == model_id:
                     parent = copy.deepcopy(model)
@@ -1525,7 +1525,7 @@ class gb_ops(object):
         """
         # get two parents
         num_parents = 2
-        parents = select.get_parents(pool, num_parents, same_cluster)
+        parents = select.get_parents(pool, num_parents)  # , same_cluster)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
         # choose axis to slice
