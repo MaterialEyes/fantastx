@@ -14,6 +14,10 @@ import os
 
 
 class register_id(object):
+    """
+    An object to assign a unique label to each model.
+    """
+
     def __init__(self):
         self.label = 0
 
@@ -24,8 +28,8 @@ class register_id(object):
 
 class model(object):
     """
-    Information related to each strucutre object including the object itself are
-    stored as attributes to the model object
+    Information related to each model including the pymatgen Structure object
+    are stored as attributes to the model object.
     """
 
     def __init__(self, astr, reg_id):
@@ -36,6 +40,7 @@ class model(object):
         Args:
 
         astr (obj): pymatgen.core.structure.Structure object
+
         reg_id (obj): register_id object
         """
 
@@ -71,81 +76,15 @@ class model(object):
         # selection probability based on overall_val
         # gets updated after every new added strucutre
         self.selection_prob = None
+        # non-domination rank overall and within the cluster. Used for
+        # clusteredSelection
+        self.rank = None
+        self.cluster_rank = None
+        # cluster to which the model belongs. Used for epsilonSelection
+        # and clusteredSelection
+        self.cluster = None
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = None
-
-    def check_atom_density(self, box_astr, num_reg, axis=2):
-        """
-        For a box filled with atoms, checks if following condition satisfies along
-        the axis,
-            divides the box into equal number of regions (n_R) and checks that
-            (total_atoms/n_R) * 0.5 < atoms in region R < (total_atoms/n_R) * 1.5
-
-        NOTE: should not be used for cluster in a box
-
-        Args:
-        box_astr (obj): structure object of the box (gb or total box)
-        num_reg (int): number of equal regions
-        axis (int): the direction along which regions should be divided
-                0, 1, 2 for x, y, and z axes respectively
-
-        return True if satisfies
-        """
-
-        all_coords = box_astr.cart_coords
-        num_atoms = len(all_coords)
-        sorted_coords = sorted(all_coords, key=lambda x: x[axis])
-        sums = []
-        bnds = [(i+1) * box_astr.lattice.abc[axis] /\
-                num_reg for i in range(num_reg)]
-        for bound in bnds:
-            for i, p in enumerate(sorted_coords):
-                if p[axis] > bound:
-                    sums.append(i+1)
-                    break
-        sums.append(100)
-        counts = [sums[0]]
-        for i in range(len(sums)-1):
-            counts.append(sums[i+1] - sum(counts))
-        bools = []
-        X = num_atoms/num_reg
-        for i in range(len(counts)):
-            bools.append(X * 0.5 < counts[i] < X * 1.5)
-        if all(bools):
-            return True
-        else:
-            return False
-
-    def set_overall_val(self, weights):
-        """
-        (Deprecated)
-        Overall_val is set everytime new model is added to pool in
-        selection.Pool
-
-        Sets overall_val for a model. Basically, this is weights times each val
-        This does not change until weights are changed.
-
-        Args:
-
-        weights (list): list of weights for each objective function.
-        """
-        if all(weights) > 0:
-            w0, w1, w2, w3, w4 = weights
-            val_0 = self.obj0_val
-            val_1, val_2, val_3, val_4 = 0, 0, 0, 0
-            if self.obj1_val is not None:
-                val_1 = self.obj1_val
-            if self.obj2_val is not None:
-                val_2 = self.obj2_val
-            if self.obj3_val is not None:
-                val_3 = self.obj3_val
-            if self.obj4_val is not None:
-                val_4 = self.obj4_val
-
-            # Overall_val is the sum of weights * obj_val
-            overall_val = 1/w0 * val_0 + 1/w1 * val_1 + 1/w2 * val_2 \
-                + 1/w3 * val_3 + 1/w4 * val_4
-            self.overall_val = overall_val
 
 
 class structure_constraints(object):
@@ -159,11 +98,11 @@ class structure_constraints(object):
         Args:
 
         str_record (dict): dictionary of all the parameters from input file
-        under structure_record
+        under structure_record keyword
         """
 
-        self.def_min_dist = 2 # minimum distance between atoms in angstroms
-        self.def_max_dist = 5 # minimum distance which should contain one+ bond
+        self.def_min_dist = 2  # min distance between atoms in angstroms
+        self.def_max_dist = 5  # min distance which should contain one+ bond
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
@@ -179,7 +118,7 @@ class structure_constraints(object):
         else:
             species_dict = str_record['species']
             self.num_species = len(species_dict)
-            
+
         # see that all attributes for all species are present by placing
         # defaults for species1 and that of species1 for the rest
         # DU
@@ -196,7 +135,8 @@ class structure_constraints(object):
             found_species.append(i)
             if 'name' not in values:
                 print(
-                    'Please specify element name (Ex: \'Al\') of specie ' + str(i) + '.')
+                    'Please specify element name (Ex: \'Al\') of specie '
+                    + str(i) + '.')
             element_syms[i] = values['name']
             if 'min_num' not in values:
                 values['min_num'] = self.min_num_atoms
@@ -224,9 +164,9 @@ class structure_constraints(object):
                     if key in str_record['min_dist'].keys():
                         self.min_dist_dict[key] = str_record['min_dist'][key]
                 if 'max_dist' in str_record:
-                    if key in str_record['max_dist'].keys()
+                    if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
-        #########################cluster parameters############################
+        #########################cluster parameters###########################
         # shape and related
         if 'cluster' in str_record:
             self.shape = 'cluster'
@@ -252,6 +192,7 @@ class structure_constraints(object):
                 self.max_dia = 8
 
         ####################cluster parameters ends###########################
+
         #########################gb parameters begins#########################
         if self.shape == 'gb':
             init_gb_astr_path = str_record['gb']['init_gb_astr']
@@ -282,20 +223,24 @@ class structure_constraints(object):
             For ingrained, this grain data needs to be provided.
             Grain data is not required for Fantastx.
 
-            self.grain1_data = None # {'orientation': (1,1,1), 'tilt': 15, 'name': Al}
+            self.grain1_data = None # {'orientation': (1,1,1),
+                                       'tilt': 15, 'name': Al}
             #self.grain1_orientation =
             #self.grain1_tilt =
-            self.grain2_data = None # {'orientation': (1,1,0), 'tilt': -10, 'name': Ge}
+            self.grain2_data = None # {'orientation': (1,1,0),
+                                       'tilt': -10, 'name': Ge}
             #self.grain2_orientation =
             #self.grain2.tilt =
             """
         ######################### gb parameters ends #########################
+
         ##################### surface parameters begins ######################
         if self.shape == 'surface':
             surface_params = str_record['surface']
             init_slabs_dir = surface_params['init_slabs_dir']
-            poscars = [init_slabs_dir + '/' + i for i in \
-                      os.listdir(init_slabs_dir) if i.startswith('POSCAR_slab')]
+            poscars = [init_slabs_dir + '/' + i for i in
+                       os.listdir(init_slabs_dir)
+                       if i.startswith('POSCAR_slab')]
             init_slabs_dict = {}
             for p in range(len(poscars)):
                 init_slabs_dict[p+1] = poscars[p]
@@ -307,7 +252,7 @@ class structure_constraints(object):
 
             if 'substrate_thickness' in surface_params:
                 self.substrate_thickness = \
-                                    surface_params['substrate_thickness']
+                    surface_params['substrate_thickness']
 
             if 'separation' in surface_params:
                 self.separation = surface_params['separation']
@@ -331,7 +276,6 @@ class structure_constraints(object):
             if 'hop_mate_frac' in surface_params:
                 self.hop_mate_frac = surface_params['hop_mate_frac']
 
-
     def get_constraints(self):
         """
         Returns a dictionary of all the constraints listed above
@@ -339,22 +283,6 @@ class structure_constraints(object):
         """
 
         return self.__dict__
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 ##

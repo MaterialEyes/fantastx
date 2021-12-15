@@ -1,29 +1,43 @@
-from __future__ import division, unicode_literals, print_function
+"""
+This module contains funcitons to update the pool, evaluate pareto front in
+case of multi-objective optimization and assigns/updates selection probability
+of models
+"""
 
-"""
-This module contains funcitons to update the pareto front in case of multi
-objective problem or the single objective funcition, selects required number of
-parent structures
-(This module comes after evaluation and before genetic operations)
-"""
+from __future__ import division, unicode_literals, print_function
 import numpy as np
-import random
+import random, copy
 from math import sqrt, exp
 # import time
 
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import normalize
 from scipy.optimize import minimize
 from scipy.spatial import ConvexHull  # , convex_hull_plot_2d
+
+try:
+    from dscribe.kernels import REMatchKernel
+    from dscribe.descriptors import SOAP
+except ImportError:
+    print ('Install Dscribe for structure comparison using SOAP kernels..')
+
+from ase.ga.ofp_comparator import OFPComparator
+from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.core.structure import Structure, Lattice
+
+from fx19 import distance_check as dc
 
 
 class Pool(object):
     """
-    A pool of structures who are evaluated. Parents will be selected from here.
+    A pool of structures that are evaluated. Parents will be selected from this
+    pool.
 
     Maintain two lists:
     good_pool - has limited capacity
               - used for selection
-    bad_pool - unlimited capacity (all remaining models)
+
+    all_models - incldues a list of all the models evaluated thus far
 
     NOTE: The best and worst models are chosen based on the model attribute
     "overall_value"
@@ -31,7 +45,12 @@ class Pool(object):
 
     def __init__(self, pool_params):
         """
-        pool capacity is set from i_dict
+        The capacity of the pool is taken from pool_params (i_dict)
+
+        Args:
+
+        pool_params (dict): Dictionary of parameters required to create Pool
+                            object. Ex: {'capacity': 200}
         """
         energy_pkg = pool_params['energy_pkg']
         if 'capacity' not in pool_params:
@@ -46,23 +65,97 @@ class Pool(object):
         self.all_models = []
         self.good_pool = []
 
+        if 'fingerprint_params' not in pool_params:
+            # no fingerprint comparisons are going to be made
+            self.comparator = None
+        else:
+            fp_params = pool_params['fingerprint_params']
+            fp_label = fp_params['label']
+            tolerance = {fp_label: fp_params['tolerance']}
+            self.comparator = Comparator(label=fp_label, tolerances=tolerance)
+            if fp_label == "valle-oganov":
+                if 'comp_values' in fp_params:
+                    self.comparator.set_valle_oganov_comparator(
+                        fp_params['comp_values'])
+                else:
+                    self.comparator.set_valle_oganov_comparator()
+            elif fp_label == "rematch-soap":
+                if 'soap_values' in fp_params:
+                    self.comparator.set_soap_descriptor(
+                        _species=fp_params['species'],
+                        soap_values=fp_params['soap_values']
+                    )
+                else:
+                    self.comparator.set_soap_descriptor(
+                        _species=fp_params['species'])
+
+                if 'kg_values' in fp_params:
+                    self.comparator.set_rematch_kernel_generator(
+                        fp_params['kg_values'])
+                else:
+                    self.comparator.set_rematch_kernel_generator()
+            if 'zbounds' in fp_params:
+                self.comparator.zbounds = fp_params['zbounds']
+            # whether to remove vacuum before fingerprinting --> default False
+            if 'rem_vac' in fp_params:
+                self.comparator.rem_vac = fp_params['rem_vac']
+
     def add_to_pool(self, model, select, sim_ids=None):
         """
-        add the model to the good_pool or bad_pool
-        if capacity is not full -> add to good_pool
-        else -> compare with worst model in good_pool and add accordingly
+        This function adds the given model to the good_pool if
+        pool capacity is not full. When full, replaces the worst model in
+        good_pool if the new model is better.
 
-        model: model object to be added
+        Part I
+        ------------
+        Get to_good_pool for the specific scenario.
+
+            If multi-obj && no. of models < num_models_before_pareto -->
+                update selection probs according to sum of normalized
+                obj values
+
+            If single-obj --> update_probs_single_obj
+
+            If multi-obj && >num_models_before_pareto -->
+                do select.add_new_model()
+                # checks if model changes selection probs (if pareto optimal)
+
+        PART II
+        ------------
+        if to_good_pool is True && no. of models > capacity -->
+                demote worst model
+                (NOTE: For single-obj, overall_val and obj0_val are same)
+                scale overall_vals for models in good_pool
+                optimize exponent "k" every 100th model
+                get exponential probs (from scaled overall vals)
+                update selection probs
+
+        if to_good_pool is False:
+                Do not add to good_pool && do nothing
+
+        if to_good_pool is None:
+                (NOTE: For single-obj search, to_good_pool would not be None)
+                Model is pareto optimal
+                Update all selection probs
+
+        Args:
+
+        model (obj): structure_record.model() object to be added
 
         select (obj): Select object
 
-        sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+        sim_ids (list of integers): simulation ids. Eg: [1] for one Xsim
         """
+        # If global fingerprint comparison is going to be made, calculate
+        # fingerprint for model
+        if self.comparator is not None:
+            self.comparator.create_fingerprint(model)
         # Add model to all_models
         self.all_models.append(model)
 
         if len(self.all_models) < 10:
-            print('New Model {} added to good pool'.format(model.label))
+            print('New Model {} made by {} added to good pool'.format(
+                                                model.label, model.made_by))
             self.good_pool = self.all_models
 
             return select
@@ -75,15 +168,17 @@ class Pool(object):
                     self.all_models,
                     self.capacity,
                     sim_ids=sim_ids)
-                print('New model {} added: probs updated based on sum of'
-                      ' normalized obj. values!'.format(model.label))
+                print('New model {} made by {} added: probs updated'
+                      ' based on sum of normalized obj. values!'.format(
+                                                model.label, model.made_by))
 
                 return select
 
         if select.type == 'single':
             # Get updated cutoff value to skip probs for a bad model
-            cutoff_value = select.update_probs_single_obj(self.all_models,
-                                                          self.capacity, update_cutoff_only=True)
+            cutoff_value = select.update_probs_single_obj(
+                self.all_models, self.capacity,
+                update_cutoff_only=True)
             if cutoff_value >= model.obj0_val:
                 to_good_pool = True
             else:
@@ -92,7 +187,7 @@ class Pool(object):
             # check if model changes existing selection probs
             to_good_pool, model = select.add_new_model(model, sim_ids=sim_ids)
 
-        if to_good_pool == True:
+        if to_good_pool is True:
             # Add model to good_pool
             self.good_pool.append(model)
             good_pool_values = np.array(
@@ -106,10 +201,12 @@ class Pool(object):
                 remove_ind = np.argmax(good_pool_values)
                 demoted_label = self.good_pool[remove_ind].label
                 del self.good_pool[remove_ind]
-                print('New Model {} added to good_pool and Model {} demoted'
-                      ' from good_pool'.format(model.label, demoted_label))
+                print('New Model {} made by {} added to good pool '
+                      'and Model {} demoted from good_pool'.format(
+                                model.label, model.made_by, demoted_label))
             else:
-                print('New Model {} added to good_pool'.format(model.label))
+                print('New Model {} made by {} added to good pool'.format(
+                                            model.label, model.made_by))
 
             # scale the good_pool_values using MinMaxScaler
             good_pool_values = good_pool_values.reshape(-1, 1)
@@ -120,10 +217,12 @@ class Pool(object):
             if model.label % select.adjust_k_every == 0:
                 initial_k = select.optimum_k
                 # optimize k
-                res = minimize(Select._optimize_exponential_constant, initial_k,
+                res = minimize(Select._optimize_exponential_constant,
+                               initial_k,
                                args=(select.num_required_above_50,
                                      scaled_values),
-                               method='Nelder-Mead', options={'maxiter': 100})
+                               method='Nelder-Mead',
+                               options={'maxiter': 100})
                 # Store new optimum k
                 select.optimum_k = res.x[0]
 
@@ -137,9 +236,9 @@ class Pool(object):
 
             return select
 
-        if to_good_pool == False:
-            print('New Model {} not added to good_pool'.format(model.label))
-
+        if to_good_pool is False:
+            print('New Model {} made by {} not added to good pool'.format(
+                                                model.label, model.made_by))
             return select
 
         if to_good_pool is None:
@@ -149,27 +248,66 @@ class Pool(object):
                                                                sim_ids=sim_ids)
             if len(self.good_pool) == 0 or select.type == 'single':
                 # if update fails due to too few points for convex hull
-                print('New Model {} added to good pool'.format(model.label))
+                print('New Model {} made by {} added to good pool'.format(
+                                                model.label, model.made_by))
                 self.good_pool = self.all_models
             else:
-                print('New Model {} is pareto efficient!'.format(model.label))
+                print('New Model {} made by {} is pareto efficient!'.format(
+                                                model.label, model.made_by))
+                if select.operator_assignment == "auto-adaptive":
+                    # update operator probabilities in select
+                    # Formula:
+                    # P_i = (C_i + epsilon)/Sum_j=1->N_operators(C_j+epsilon)
+                    # Here epsilon = 1
+                    operator_counts = np.zeros(
+                        len(select.operator_hashmap))
+                    for operator in select.operator_inheritance:
+                        if operator != "random":
+                            if operator is not None: # for user-input models
+                                operator_counts[
+                                    select.operator_hashmap[operator]
+                                    ] += 1
+                        else:
+                            operator_counts += 1 / \
+                                len(select.operator_hashmap)
+                    divisor = len(select.pareto_labels[-1]) + \
+                        len(select.operator_hashmap)
+                    select.operator_frequencies = [
+                        (count + 1)/divisor for count in operator_counts]
+                    print(
+                        f"Operator frequencies: {select.operator_frequencies}")
 
             return select
 
 
 class Select(object):
     """
-    Values of model from energy calculation and experimental_simulation are
-    saved in the models attributes after evaluation. Use the evaluated
-    attributes to assign selection probabilities to each model.
-    The selection probabilities gets updated for all models after each model is
-    evaulated.
+    Uses the evaluated attributes of a model to assign selection probabilities.
+    Distance from the pareto front is used to evaluate selection probability of
+    a model. When a model is pareto optimal, the selection probabilities gets
+    updated for all models in good_pool.
 
     If single objective - all the weights would be zero and the obj0_val will
     be overall_val.
     """
 
     def __init__(self, select_obj_params):
+        """
+        The dictionary of parameters to make a Select object should be
+        provided.
+
+        Eg: select_obj_params = {'objective_fn_type': 'multi'
+                                 'num_required_above_50': 30
+                                 'num_models_before_pareto': 80
+                                 'adjust_k_every': 100}
+
+        Some functionality is not included if not listed in the params
+        dictionary. Namely, auto-adaptive operator selection (where the
+        relative frequency of each operator in the evolutionary process
+        will be updated based on the operators which were used to create
+        the pareto-optimal solutions) can be used if listed in the
+        dictionary, but will not be used otherwise.
+        """
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
         # set defaults
@@ -217,26 +355,47 @@ class Select(object):
         # store all sets of pareto points labels
         self.pareto_labels = []
 
+        # Store operator information for mating operations
+        if 'operators' not in select_obj_params:
+            self.operators = ['perturb_sites', 'fraction_slice']
+        else:
+            self.operators = select_obj_params['operators']
+        if 'operator_assignment' in select_obj_params:
+            self.operator_assignment = select_obj_params['operator_assignment']
+        else:
+            self.operator_assignment = "fixed"
+
+        self.operator_hashmap = {
+            key: index for index, key in enumerate(self.operators)}
+        if 'operator_frequencies' in select_obj_params:
+            self.operator_frequencies = select_obj_params[
+                'operator_frequencies'
+            ]
+        else:
+            self.operator_frequencies = [
+                1/len(self.operators)]*len(self.operators)
+
     def add_new_model(self, model, sim_ids=None):
         """
+        For a multi-obj search, calculated the cutoff value and returns the
+        to_good_pool based on which the new model is added to Pool.
+
         1. Get weighted normalized x, y for the new_model
 
-        2. if point is on pareto front -> return False
+        2. if point is on pareto front -> to_good_pool is None
 
         3. if point not on pareto front
+                - get distance_from_hull
+                - if distance_from_hull > cutoff_value
+                        > to_good_pool is False
+                - if distance from hull <= cutoff value
+                        > to_good_pool is True (i.e., add model to good_pool)
 
-            > get distance_from_hull
+        Args:
 
-            > if distance_from_hull > cutoff_value
-                return True
-            > if distance from hull <= cutoff value
-                add model to good_pool
-                remove worst model from good_pool
+        model (obj): structure_record.model() object
 
-            > if model label not a multiple of 100,
-                use existing opt_k to assign selection prob and return True
-            > else get a new opt_k & update selection probs of all good_pool
-
+        sim_ids (list of integers): simulation ids. Eg: [1] for one Xsim
         """
         # check if pareto_points or other class attributes exist
         if self.pareto_points is None or self.hull_points is None:
@@ -245,10 +404,11 @@ class Select(object):
         model_obj0 = model.obj0_val
         if sim_ids and 1 in sim_ids:
             model_obj1 = model.obj1_val
-        else:
-            print('Single objective function optimization.'
-                  'TODO: Follow different routine..')
-            return 0, model
+        # For single-obj search, this function is not called at all
+        # else:
+        #    print('Single objective function optimization.'
+        #          'TODO: Follow different routine..')
+        #    return 0, model
 
         # normalize
         model_obj0 = (model_obj0 - self.minmax_obj0[0]) / \
@@ -263,7 +423,15 @@ class Select(object):
         if self.is_point_on_pareto((model_obj0, model_obj1)):
             return None, model
 
-        dist_from_hull = self.get_dist_from_hull((model_obj0, model_obj1))
+        # Assuming 2D pareto front from here
+        # Get maximum x & maximum y hull points
+        [Px, Py] = self.hull_points[np.argmax(self.hull_points, axis=0)]
+
+        # slope of line between Px, Py
+        m_pxpy = (Px[1] - Py[1]) / (Px[0] - Py[0])
+
+        dist_from_hull = self.get_dist_from_hull(
+            (model_obj0, model_obj1), m_pxpy)
 
         # set model's overall value
         model.overall_val = dist_from_hull
@@ -282,9 +450,12 @@ class Select(object):
         probabliites based on an exponential function.
 
         Args:
+
         all_models: (list) of all models evaluated so far
 
         good_pool_capacity: (int) maximum number of models in good pool
+
+        update_cutoff_only: (bool) Returns only cutoff value when True
         """
         # Get all models obj0_val
         model_labels, all_v0 = [], []
@@ -351,10 +522,13 @@ class Select(object):
     def update_all_selection_probs(self, all_models,
                                    good_pool_capacity, sim_ids=None):
         """
-        Calculates the objective function of each model, which is the distance
-        from the pareto front. Updates selection probabilities based on an
-        exponential distribution by optimizing a constant such that to maintain
-        required number of models with probability above 50%.
+        For a single-obj search, calls update_probs_single_obj() method.
+
+        For a multi-obj search, calculates the overall value of each model,
+        which is the distance from the pareto front. Updates selection
+        probabilities based on an exponential distribution by optimizing a
+        constant such that to maintain required number of models with
+        probability above 50%.
 
         Args:
 
@@ -372,14 +546,13 @@ class Select(object):
 
         2. normalize obj0_vals and obj1_vals separately
 
-        3. use linear probs directly if less than 1000 models. This is because
-        linear probs samples the PE landscape evenly than dist from pareto
+        3. assigns probabilities directly based on sum of its obj vals if total
+        models less than 1000 models. This samples the PE landscape evenly than
+        dist from pareto for smaller population at initial stages.
 
         4. If number of models is less than 1000, skip steps 5 - 13
 
         5. make a 2D pareto plot
-           costs = [i, j for i, j in zip(weighted_normalized_obj0s,
-                                         weighted_normalized_obj1s)]
 
         6. get pareto optimal points
 
@@ -397,10 +570,10 @@ class Select(object):
         12. Normalize the values (distances from hull) of all good_pool models
 
         13. Assign probabilities based on exp(kX). Default k = -1. However,
-        optimize k to get required number of models with probability greater
-        than 0.5.
+        optimize "k" once in "adjust_k_every" steps to get required number of
+        models with probability greater than 0.5.
 
-        14. Assign probabilites to models in good pool
+        14. Assign probabilities to models in good pool
 
         """
         # NOTE: Currently only supports pareto distance in 2D (with 2 objective
@@ -456,12 +629,20 @@ class Select(object):
             pareto_labels = [model_labels[i] for i in pareto_points_inds]
             self.pareto_labels.append(pareto_labels)
 
-            # Add origin in the beginning to get convex hull visible from origin
+            # Add origin in the beginning to get convex hull
+            # visible from origin
             pareto_points = [[0 for i in range(len(pareto_points[0]))]] + \
                 pareto_points
             # Sort by the first objective function
             pareto_points.sort()
             pareto_points = np.array(pareto_points)
+
+            if self.operator_assignment == "auto-adaptive":
+                pareto_models = [all_models[i] for i in pareto_points_inds]
+                # update operator inheritance based on pareto points
+                self.operator_inheritance = [
+                            model.made_by for model in pareto_models \
+                            if model.made_by is not None]
 
             try:
                 # Make convex hull with pareto points
@@ -492,7 +673,7 @@ class Select(object):
 
             distances_from_hull = []
             for data_of_model in weighted_norm_vals:
-                min_dist = Select._get_dist_from_hull(
+                min_dist = Select.get_dist_from_hull(
                     self, data_of_model, m_pxpy)
                 distances_from_hull.append(min_dist)
 
@@ -526,21 +707,25 @@ class Select(object):
             scaled_good_pool_values = \
                 scaler.fit_transform(good_pool_values)[:, 0]
 
-            # optimize contant (k) in the exponential function e^(-kx) such that
-            # required number of models have probability greater than 0.5
+            # optimize contant (k) in the exponential function e^(-kx)
+            # such that required number of models have probability
+            # greater than 0.5
             initial_k = [-1]
             if len(good_pool) > self.adjust_k_every and \
                     len(good_pool) > self.num_required_above_50:
-                res = minimize(Select._optimize_exponential_constant, initial_k,
+                res = minimize(Select._optimize_exponential_constant,
+                               initial_k,
                                args=(self.num_required_above_50,
                                      scaled_good_pool_values),
-                               method='Nelder-Mead', options={'maxiter': 100})
+                               method='Nelder-Mead',
+                               options={'maxiter': 100})
                 opt_k = res.x[0]
                 self.optimum_k = opt_k
                 # Get probabilities by min max exponential function
                 # using the opt_k
                 exponential_probs = [(exp(opt_k * i) - exp(opt_k)) /
-                                     (1 - exp(opt_k)) for i in scaled_good_pool_values]
+                                     (1 - exp(opt_k)) for i in
+                                     scaled_good_pool_values]
             else:
                 opt_k = initial_k[0]
                 # Get probabilities by simple exponential function
@@ -551,7 +736,8 @@ class Select(object):
 
         else:  # if len(all_models) <= 1000
             all_models_values = np.array([sum(weighted_norm_vals[i])
-                                          for i in range(len(weighted_norm_vals))])
+                                          for i in
+                                          range(len(weighted_norm_vals))])
 
             # get cutoff for good_pool
             if len(all_models) <= good_pool_capacity:
@@ -606,7 +792,8 @@ class Select(object):
 
         new_point: (list/tuple) of a 2D point weighted normalized
                                             [obj0_val, obj1_val]
-        m_pxpy: (float) the slope of the line connecting the extrema of the pareto front
+        m_pxpy: (float) the slope of the line connecting the extrema of the
+                                                              pareto front
         """
 
         # get equation of line perpendicular to PxPy & passes through model
@@ -626,7 +813,9 @@ class Select(object):
     @staticmethod
     def _is_pareto_efficient(costs):
         """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis/general/pareto_efficiency.py
+        Source:
+        https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
 
         Find the pareto-efficient points
 
@@ -653,7 +842,8 @@ class Select(object):
 
         Args:
 
-        k: (a list or an array) of the variable for minimize function (Eg: [-1])
+        k: (a list or an array) of the variable for minimize function
+           (Eg: [-1])
 
         scaled_good_pool_values: (1D array or list) The objective function
                                  values of models in good pool scaled between 0
@@ -714,15 +904,19 @@ class Select(object):
 
         return m, c
 
-    def get_parents(self, pool, num_parents, same_ab=False, abs_tol=0.2):
+    def get_parents(self, pool, num_parents, same_cluster=None,
+                                        same_ab=False, abs_tol=0.2):
         """
-        selects requested number of parents based on their probabilities
+        Selects requested number of parents based on their probabilities
         Returns a list of parents
+
+        TODO: Add clustering to similar to epsilonSelection
+        TODO: Add same_ab for surface geometry runs
 
         Args:
 
-        pool - pool object
-        num_parents - integer
+        pool - Pool() object
+        num_parents - integer number of parents
         same_ab (bool) - If num_parents > 1, species whether all parents should
                          have same a, b lattice vectors
         abs_tol (float) - The maximum value for the sum of absolute difference
@@ -757,3 +951,373 @@ class Select(object):
                     if self.all_parent_labels.count(parent.label) < 200:
                         done = True
                         return parent
+
+
+class Comparator(object):
+    '''
+    Class which handles all structural fingerprinting. Contains functions
+    to create fingerprints, compare fingerprint, and compare models
+    based on their fingerprints (whether local or global).
+    '''
+
+    def __init__(self, label='bag-of-bonds', tolerances=None):
+        self.label = label
+
+        # Assign default tolerance values if none are provided
+        if tolerances is None:
+            tolerances = {}
+            tolerances["valle-oganov"] = 1e-3
+            tolerances["bag-of-bonds"] = [.02, 0.7]
+            tolerances["rematch-soap"] = 1e-3
+
+        self.tolerances = tolerances
+        self.comp = None
+        self.kernel_gen = None
+        self.zbounds = None
+        # whether to remove vacuum in all directions before fingerprint
+        # to be used in cluster & surface geometries
+        self.rem_vac = False # defaults to False
+
+    def set_soap_descriptor(self, _species, soap_values=None):
+        '''
+        Creates the class SOAP descriptor object.
+
+        Arguments:
+
+        _species: (string array) containing the element names of
+        all atomic species handled by the descriptor.
+
+        soap_values: (dictionary) containing user-defined
+        values for some or all SOAP descriptor parameters.
+        '''
+        if soap_values is None:
+            self.desc = SOAP(species=_species, rcut=5.0, nmax=9, lmax=6,
+                             sigma=0.5, periodic=True, crossover=True,
+                             sparse=False)
+        else:
+            _rcut = 5.0
+            _nmax = 9
+            _lmax = 6
+            _sigma = 0.5
+            if "rcut" in soap_values:
+                _rcut = soap_values["rcut"]
+            if "nmax" in soap_values:
+                _nmax = soap_values["nmax"]
+            if "lmax" in soap_values:
+                _lmax = soap_values["lmax"]
+            if "sigma" in soap_values:
+                _sigma = soap_values["sigma"]
+            self.desc = SOAP(species=_species,
+                             rcut=_rcut, nmax=_nmax,
+                             lmax=_lmax, sigma=_sigma,
+                             periodic=True, crossover=True, sparse=False)
+
+    def set_valle_oganov_comparator(self, comp_values=None):
+        '''
+        Creates the class valle-oganov comparator object.
+
+        Arguments:
+
+        comp_values: (dictionary) containing user-defined
+        values for some or all valle-oganov comparator parameters.
+        '''
+        if comp_values is None:
+            self.comp = OFPComparator(n_top=None, dE=None,
+                                      cos_dist_max=1e-3, rcut=10.,
+                                      binwidth=0.05, pbc=[True, True, True],
+                                      sigma=0.05, nsigma=4, recalculate=False)
+        else:
+            _n_top = None
+            _dE = None
+            _cos_dist_max = 1e-3
+            _rcut = 10.
+            _binwidth = 0.05
+            _pbc = [True, True, True]
+            _sigma = 0.05
+            _nsigma = 4
+            _recalculate = False
+
+            if 'n_top' in comp_values:
+                _n_top = comp_values['n_top']
+            if 'dE' in comp_values:
+                _dE = comp_values['dE']
+            if 'cos_dist_max' in comp_values:
+                _cos_dist_max = comp_values['cos_dist_max']
+            if 'rcut' in comp_values:
+                _rcut = comp_values['rcut']
+            if 'binwidth' in comp_values:
+                _binwidth = comp_values['binwidth']
+            if 'pbc' in comp_values:
+                _pbc = comp_values['pbc']
+            if 'sigma' in comp_values:
+                _sigma = comp_values['sigma']
+            if 'nsigma' in comp_values:
+                _nsigma = comp_values['nsigma']
+            if 'recalculate' in comp_values:
+                _recalculate = comp_values['recalculate']
+            self.comp = OFPComparator(n_top=_n_top, dE=_dE,
+                                      cos_dist_max=_cos_dist_max, rcut=_rcut,
+                                      binwidth=_binwidth, pbc=_pbc,
+                                      sigma=_sigma, nsigma=_nsigma,
+                                      recalculate=_recalculate)
+
+    def set_rematch_kernel_generator(self, kg_values=None):
+        '''
+        Creates the class SOAP REMatch kernel generator object, to map
+        local SOAP descriptors to a global descriptor.
+
+        Arguments:
+
+        kg_values: (dictionary) containing user-defined values for
+        some or all REMatch kernel generator parameters.
+        '''
+        if kg_values is None:
+            self.kernel_gen = REMatchKernel(
+                metric="linear", alpha=1, threshold=1e-6)
+        else:
+            _metric = "linear"
+            _alpha = 1
+            _threshold = 1e-6
+            if 'metric' in kg_values:
+                _metric = kg_values['metric']
+            if 'alpha' in kg_values:
+                _alpha = kg_values['alpha']
+            if 'threshold' in kg_values:
+                _threshold = kg_values['threshold']
+            self.kernel_gen = REMatchKernel(
+                metric=_metric, alpha=_alpha, threshold=_threshold)
+
+    def compare_fingerprints(self, test_model, ref_model):
+        '''
+        Compare the fingerprints between two structures. Each model
+        contains a fingerprint dictionary, assigned using the
+        create_fingerprint function, which has all the relevant
+        information for the appropriate fingerprint. In the case of the
+        Valle-Oganov fingerprint, this information is contained within
+        an ASE Atoms structure. In the case of the bag-of-bonds
+        fingerprint, this information is contained within a pair_cor
+        dictionary. In the case of the REMatch SOAP kernel, this
+        information is contained within a set of normalized soap
+        descriptors called normed_features.
+
+        Returns a tuple of length 2, quantifying the fingerprint
+        similarity. Only the bag-of-bonds comparison completely
+        fills the tuple, all other comparisons only result in one
+        similarity or distance metric.
+
+        Note: the order of the test_model and ref_models are irrelevant,
+        the function will return the same value if models A and B are
+        swapped.
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison
+
+        ref_model (obj): structure_record.model() B for the comparison.
+        '''
+        if self.label == "valle-oganov":
+            return (self.comp._compare_structure(test_model.fingerprint["ase"],
+                                                 ref_model.fingerprint["ase"]),
+                    )
+
+        elif self.label == "rematch-soap":
+            return (self.kernel_gen.create([test_model.fingerprint[
+                "normed_features"],
+                ref_model.fingerprint["normed_features"]]),)
+
+        elif self.label == "bag-of-bonds":
+            pair_cor1 = test_model.pair_cor
+            pair_cor2 = ref_model.pair_cor
+            total_cum_diff = 0.
+            max_diff = 0
+            for n in pair_cor1.keys():
+                cum_diff = 0.
+                norm_factor = pair_cor1[n][0]
+                dists1 = pair_cor1[n][1]
+                dists2 = pair_cor2[n][1]
+                assert len(dists1) == len(dists2)
+                if len(dists1) == 0:
+                    continue
+                diff = np.abs(dists1 - dists2)
+                sum = np.abs(dists1 + dists2)
+                cum_diff = np.sum(diff)
+                cum_sum = np.sum(sum)
+                max_diff_key = np.max(diff)
+                if max_diff_key > max_diff:
+                    max_diff = max_diff_key
+                total_cum_diff += norm_factor * 2 * cum_diff / cum_sum
+            return (total_cum_diff, max_diff)
+
+    def compare_models(self, test_model, ref_model):
+        '''
+        Runs comparison of models, utilizing the appropriate tolerance
+        parameters depending on the global fingerprint used.
+
+        Returns 0 if the models are exactly same, 1 if the models are
+        the same within tolerance, and -1 if they are not within
+        tolerance of each other.
+
+        Note: test_model and ref_model are interchangeable, the same
+        comparison result will be yielded if models A and B are swapped.
+
+        Args:
+
+        test_model (obj): structure_record.model() A for the comparison.
+
+        ref_model (obj): structure_record.model() B for the comparison.
+        '''
+        try:
+            comparison = self.compare_fingerprints(test_model, ref_model)
+        except (AssertionError, KeyError):
+            # models did not contain the same number of atoms (bag-of-bonds)
+            return -1
+        if self.label == "valle-oganov":
+            if np.isclose(comparison, 0.0, atol=1e-5):
+                return 0
+            elif comparison < self.tolerances["valle-oganov"]:
+                return 1
+            else:
+                return -1
+
+        elif self.label == "bag-of-bonds":
+            if np.isclose(comparison[0], 0.0, atol=1e-5) and \
+                    np.isclose(comparison[1], 0.0, atol=1e-5):
+                return 0
+            elif comparison[0] < self.tolerances["bag-of-bonds"][0] and \
+                    comparison[1] < self.tolerances["bag-of-bonds"][1]:
+                return 1
+            else:
+                return -1
+        elif self.label == "rematch-soap":
+            # rematch kernel is a matrix. Here we only use one of (identical)
+            # off-diagonal matrix elements to calculate the structure distance
+            compare_fm = comparison[0][1]  # The cross-similarity
+            distance = sqrt(2 - 2*compare_fm)
+            if np.isclose(distance, 0.0, atol=1e-5):
+                return 0
+            elif distance < self.tolerances["rematch-soap"]:
+                return 1
+            else:
+                return -1
+
+    def create_fingerprint(self, model):
+        '''
+        Create the fingerprint for the model object.
+
+        Args:
+
+        model (obj): structure_record.model() which will be assigned a
+        fingerprint.
+        '''
+        # Get fingerprint for the structure
+        fp_astr = model.astr
+        if self.rem_vac is True:
+            fp_astr = self.remove_vacuum_in_cluster(model.astr)
+
+        if self.label == "valle-oganov":
+            ase_atoms = AseAtomsAdaptor.get_atoms(fp_astr)
+            fp, typedic = self.comp._take_fingerprints(ase_atoms)
+            ase_atoms.info['fingerprints'] = self.comp._json_encode(
+                fp, typedic)
+            model.ase = ase_atoms
+
+        elif self.label == "rematch-soap":
+            ase_atoms = AseAtomsAdaptor.get_atoms(fp_astr)
+            features = self.desc.create(ase_atoms)
+            model.normed_features = normalize(features)
+
+        elif self.label == "bag-of-bonds":
+            model_astr = copy.deepcopy(fp_astr)
+            if self.zbounds is not None:
+                site_removal_indices = []
+                for site_index, site in enumerate(model_astr.sites):
+                    if site.coords[2] < self.zbounds[0] or \
+                            site.coords[2] > self.zbounds[1]:
+                        site_removal_indices.append(site_index)
+                model_astr.remove_sites(site_removal_indices)
+
+            lattice = model_astr.lattice
+            species_set = model_astr.types_of_specie
+            coord_sets = {}
+            for specie in species_set:
+                coords = [
+                    site.coords for site in model_astr.sites
+                    if site.specie == specie]
+                coord_sets[specie] = coords
+            pair_cor = {}
+            for n, specie1 in enumerate(species_set):
+                for specie2 in species_set[n:]:
+                    # Compare each specie1 to each specie2
+                    dists = []
+                    for n, i in enumerate(coord_sets[specie1]):
+                        if specie1 == specie2:
+                            for j in coord_sets[specie2][n+1:]:
+                                dists.append(dc.dist_pbc(i, j, lattice))
+                        else:
+                            for j in coord_sets[specie2]:
+                                dists.append(dc.dist_pbc(i, j, lattice))
+                    dists.sort()
+                    norm_factor = (
+                        len(coord_sets[specie1]) + len(coord_sets[specie2])) \
+                        / (2*len(model_astr))
+
+                    pair_cor[str(specie1) + "-" + str(specie2)
+                             ] = (norm_factor, np.array(dists))
+            model.pair_cor = pair_cor
+
+    def check_uniqueness(self, model, all_models, exact=True):
+        '''
+        Check whether a model is unique.
+
+        Returns True if the model is unique, returns False if the model
+        is the same (or "similar" if exact is False) as another model.
+
+        Args:
+
+        model (obj): the structure_record.model() for which uniqueness
+        is being tested.
+
+        exact (boolean): if True, models are considered unique if they
+        are not exactly the same as another model. If False, models are
+        considered unique if they are not the same as another model
+        within tolerance limits.
+        '''
+        # create a new fingerprint got the model
+        # either before (new_model) or after relaxation (relaxed_astr)
+        self.create_fingerprint(model)
+        # compare
+        flags = [self.compare_models(model, m) for m in all_models]
+        if exact:
+            same = [f == 0 for f in flags]
+        else:
+            same = [f >= 0 for f in flags]
+        if any(same):
+            return False
+        else:
+            return True
+
+    def remove_vacuum_in_cluster(self, astr):
+        """
+        Checks if there is vacuum padding in any of the three directions and
+        then removes it leaving a 2Å thickness in each direction.
+
+        Args:
+
+        astr (obj): Pymatgen structure object
+        """
+        xcarts, ycarts, zcarts = astr.cart_coords.T
+        xthick  = xcarts.max() - xcarts.min()
+        ythick = ycarts.max() - ycarts.min()
+        zthick  = zcarts.max() - zcarts.min()
+
+        newa, newb, newc = xthick+2, ythick+2, zthick+2
+        new_latt = Lattice([[newa, 0, 0], [0, newb, 0], [0, 0, newc]])
+
+        new_xcarts = xcarts - xcarts.min() + 1
+        new_ycarts = ycarts - ycarts.min() + 1
+        new_zcarts = zcarts - zcarts.min() + 1
+        new_carts = np.array([new_xcarts, new_ycarts, new_zcarts]).T
+
+        fp_astr = Structure(new_latt, astr.species, new_carts,
+                            coords_are_cartesian=True)
+        return fp_astr

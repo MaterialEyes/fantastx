@@ -1,23 +1,27 @@
 from __future__ import division, unicode_literals, print_function
-from fx19.structure_operations import gb_ops
 from fx19 import structure_record
 from fx19 import initial_population
 from fx19 import energy
 from fx19 import experimental_simulation
-from fx19 import selection
+from fx19 import selection, epsilonSelection, clusteredSelection
 from fx19 import structure_operations
+from fx19.clustering import hierarchical_clusterer, compositional_clusterer
 
 import os
 
+
 def make_objects(i_dict):
     """
-    Takes all the user provided input parameters as a dictionary and makes
-    objects for the fantastx run. Assumes defaults for some mandatory
-    parameters if needed.
+    Function to make objects of different classes using the input parameters
+    provided in the input file. Assumes defaults for optional parameters that
+    are not provided.
+
+    Returns a dictionary with all created objects
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
     """
     all_objects = {}
     # register_id object to id the models
@@ -68,7 +72,7 @@ def make_objects(i_dict):
     if 'exp_sim_1' in i_dict:
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
-            if not 'exp_sim_1_params' in i_dict:
+            if 'exp_sim_1_params' not in i_dict:
                 print('exp_sim_1_params not provided. They are mandatory.')
             if method_1 == 'PDF':
                 Xsim1_params = get_pdf_params(i_dict, 'exp_sim_1_params')
@@ -79,20 +83,57 @@ def make_objects(i_dict):
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
+    # Get the MOEA and search mode based on provided inputs
+    selection_mod = selection # uses distance from pareto MOEA
+    mod_str = 'selection.py'
+    ob_fn = 'Distance from pareto'
+    cl_bool = False
+    if 'epsilons' in i_dict:
+        selection_mod = epsilonSelection # uses epsilon MOEA & NO clustering
+        mod_str = 'epsilonSelection.py'
+        ob_fn = 'Epsilon-MOEA'
+        if 'cluster_params' in i_dict:
+            selection_mod = clusteredSelection # uses epsilon MOEA & clustering
+            mod_str = 'clusteredSelection.py'
+            cl_bool = True
+    print ('Objective function: {}\nClustering: {}'.format(ob_fn, cl_bool))
+    print ('Using Pool & Select classes from {} module'.format(mod_str))
+
     # Pool object (contains good_pool and bad_pool)
     pool_params = {}
     pool_params['capacity'] = i_dict['population_limits']['pool']
     pool_params['energy_pkg'] = energy_pkg
-    pool = selection.Pool(pool_params)
+    if 'epsilons' in i_dict:
+        pool_params['epsilons'] = i_dict['epsilons']
+    if 'fingerprint_params' in i_dict:
+        fingerprint_params = i_dict["fingerprint_params"]
+        # If the fingerprint is a soap descriptor, then the
+        # species names need to be passed in.
+        if fingerprint_params["label"] == "rematch-soap":
+            species = []
+            for _, value in str_constraints["species_dict"].items():
+                species.append(value["name"])
+            fingerprint_params["species"] = species
+        pool_params['fingerprint_params'] = i_dict['fingerprint_params']
+    # Also create cluster object if cluster_params in i_dict
+    if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
+        if i_dict['cluster_params']['type'] == "hierarchical":
+            cluster_obj = hierarchical_clusterer(
+                i_dict['cluster_params'], Xsim_1)
+        elif i_dict['cluster_params']['type'] == 'compositional':
+            cluster_obj = compositional_clusterer()
+        pool_params['cluster_obj'] = cluster_obj
+        all_objects['cluster_obj'] = cluster_obj
+    pool = selection_mod.Pool(pool_params)
     all_objects['pool'] = pool
 
     # selection type of objective function
-    if not 'select_params' in i_dict:
+    if 'select_params' not in i_dict:
         print('Error: Please provide select_params keyword and objective'
               ' keyword specifying single or multiobjective optimization.')
     else:
         select_params = i_dict['select_params']
-    if not 'objective_fn_type' in select_params.keys():
+    if 'objective_fn_type' not in select_params.keys():
         print('Error: Please provide select_params keyword and objective'
               ' keyword specifying single or multiobjective optimization.')
 
@@ -100,13 +141,13 @@ def make_objects(i_dict):
         print('Error: Select objective should be a string of either'
               ' single or multi.')
     if select_params['objective_fn_type'] == 'multi':
-        select = selection.Select(select_params)
+        select = selection_mod.Select(select_params)
         # weights, num_required_above_50 & num_models_before_pareto are in
         # select_params if provided
     else:
         select_params['objective_fn_type'] = 'single'
         select_params['weights'] = [1, 1, 1, 1, 1]
-        select = selection.Select(select_params)
+        select = selection_mod.Select(select_params)
     all_objects['select'] = select
 
     # Mating object from structure_operations
@@ -142,7 +183,7 @@ def make_objects(i_dict):
 
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(i_dict, str_constraints)
-    if not evolve_params == {}:
+    if str_constraints['shape'] == 'cluster':
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
@@ -150,11 +191,13 @@ def make_objects(i_dict):
     surface_ops_obj = None
     if str_constraints['shape'] == 'surface':
         init_slabs_path = str_record['surface']['init_slabs_dir']
-        init_slabs_dict = {i: init_slabs_path + '/' + slab_file \
-                    for i, slab_file in enumerate(os.listdir(init_slabs_path))}
+        init_slabs_dict = {i: init_slabs_path + '/' + slab_file
+                           for i, slab_file in
+                           enumerate(os.listdir(init_slabs_path))}
         str_constraints['init_slabs_dict'] = init_slabs_dict
 
-        surface_ops_obj = structure_operations.surface_ops(hop, str_constraints)
+        surface_ops_obj = structure_operations.surface_ops(
+            hop, str_constraints)
         all_objects['surface_ops_obj'] = surface_ops_obj
 
         energy_code.substrate_thickness = surface_ops_obj.substrate_thickness
@@ -162,8 +205,7 @@ def make_objects(i_dict):
         energy_code.sd_no_z = surface_ops_obj.sd_no_z
         all_objects['energy_code'] = energy_code
 
-    ################### Develop any other below objects
-
+    # Develop any other below objects
 
     return all_objects
 
@@ -174,8 +216,9 @@ def get_energy_params(i_dict):
     used to make energy object for each calculation.
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
     """
     energy_params = {}
     # add main_path, i.e., where the search started to energy_params
@@ -204,7 +247,8 @@ def get_energy_params(i_dict):
             mu[index] = species_dict[species]['mu']
         else:
             print('Error encountered with species ' + str(index) + ': '
-                  'Chemical potentials must be provided in the dictionary for each species!')
+                  'Chemical potentials must be provided in the dictionary'
+                  + ' for each species!')
             mu[index] = 0
 
     energy_params['mu'] = mu
@@ -240,10 +284,12 @@ def get_pdf_params(i_dict, exp_sim_params_id):
     experimental_simulation module
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
+
     exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-                        simulation method.
+    simulation method.
 
     #TODO: add 'exp_sim_2_params' if 2 sim methods are used
     """
@@ -256,14 +302,17 @@ def get_pdf_params(i_dict, exp_sim_params_id):
 
 def get_ingrained_params(i_dict, exp_sim_params_id):
     """
-    Similar to pdf params. Except, defaults are not provided for all params.
-    If some important params are not provided, prints error message and exits.
+    Function to conveniently combine different parameters provided by user and
+    other defualts (if not user-provided) to be used by mating class. Throws
+    error when mandatory parameters are not provided by the user.
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
+
     exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-                        simulation method.
+    simulation method.
 
     #TODO: add 'exp_sim_2_params' if 2 sim methods are used
     """
@@ -276,7 +325,7 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
         gb_ingrained_params['progress_file'] = None
     if 'ing_opt_params' not in gb_ingrained_params:
         gb_ingrained_params['ing_opt_params'] = None
-    if not 'dm3_path' in gb_ingrained_params:
+    if 'dm3_path' not in gb_ingrained_params:
         gb_ingrained_params['dm3_path'] = None
 
     return gb_ingrained_params
@@ -284,15 +333,16 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
 
 def get_mating_params(i_dict, str_constraints):
     """
-    Collects all user provided parameters for mating, uses defaults if necessary
-
-    Includes other parameters as required, like num_species from str_constraints
+    Function to conveniently combine different parameters provided by user and
+    other defualts (if not user-provided) to be used by mating class.
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
+
     str_constraints - (dict) dictionary of all the constraints for making
-                      random models
+    random models
     """
     # NOTE: There aren't any mandatory params for mating.
     # If there are not any in input_file.yaml, assume all defaults and proceed
@@ -323,41 +373,22 @@ def get_mating_params(i_dict, str_constraints):
 
 def get_evolve_params(i_dict, str_constraints):
     """
-    Returns parameters for the 'evolve' object
+    Returns parameters to be used for the 'evolve' class
 
     Args:
+
     i_dict - (dict) dictionary of all the user-provided input parameters read
-             from yaml file
+    from yaml file
+
     str_constraints - (dict) dictionary of all the constraints for making
-                      random models
+    random models
     """
     evolve_params = {}
-    if 'evolve_probabilities' in i_dict:
-        evolve_params = i_dict['evolve_probabilities']
-        evolve_params['num_species'] = str_constraints['num_species']
-        # species dicts
-        # DU
-        for i in range(1, str_constraints['num_species']+1):
-            species = 'species' + str(i)
-            if species in str_constraints:
-                evolve_params[species] = str_constraints[species]
+    evolve_params['num_species'] = str_constraints['num_species']
+    # species dicts
+    # DU
+    for i in range(1, str_constraints['num_species']+1):
+        species = 'species' + str(i)
+        if species in str_constraints:
+            evolve_params[species] = str_constraints[species]
     return evolve_params
-
-# assume experimental pdf is given
-
-
-def read_input_exp_files(filename):
-    """
-    Depending on type of experimental data, call corresponding functions
-
-    filename: path to exp data file
-    filename should be of form '{experiment_type}_{composition}_exp.{extension}'
-    experiment_type: {'PDF', 'XRD', 'TEM' ..}
-    composition: {'Al2O3' or 'O3Al2' ..}
-    Ex: 'PDF_IrO2_exp.txt'
-
-    Make folder(s) and save data as required by experimental_simulation(s)
-    return list of path_to_exp_data_folder(s)
-    """
-
-    pass
