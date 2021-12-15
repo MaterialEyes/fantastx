@@ -131,6 +131,8 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
         model_is_unique = False
         while not model_is_unique:
             new_model = evolve.get_model(select, pool, reg_id)
+            if new_model is None:
+                continue
             # check redundancy of the new model with all previous models
             model_is_unique = pool.comparator.check_uniqueness(new_model,
                                                 pool.all_models, exact=False)
