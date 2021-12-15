@@ -143,6 +143,11 @@ class Evolve(object):
             if all_ok:
                 correct_comp = True
 
+        if not correct_comp:
+            print ('Failed to produce model in 10 attempts '
+                   'with {} operator'.format(operator))
+            return None
+
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
         new_model.made_by = operator
