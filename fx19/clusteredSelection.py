@@ -262,7 +262,7 @@ class Comparator(object):
         '''
         try:
             comparison = self.compare_fingerprints(test_model, ref_model)
-        except AssertionError:
+        except (AssertionError, KeyError):
             # models did not contain the same number of atoms (bag-of-bonds)
             return -1
         if self.label == "valle-oganov":
@@ -375,7 +375,7 @@ class ParetoDominance(object):
         a set of models.
 
         Returns the list of non-dominated models, and the list of the models
-        which are dominated by at least one other model. 
+        which are dominated by at least one other model.
 
         Args:
 
@@ -408,7 +408,7 @@ class ParetoDominance(object):
     def rank_models(self, models, starting_rank, flag):
         '''
         Function which recursively ranks models according to
-        non-domination. 
+        non-domination.
 
         Returns non-dominated (rank 0) members of the set of models.
         Flag will determine which selection rank (and selection
@@ -569,7 +569,7 @@ class ParetoDominance(object):
 
 class StructuralEpsilonDominance(object):
     '''
-    Class which performs non-dominance calculations. Compared to 
+    Class which performs non-dominance calculations. Compared to
     ParetoDominance, here non-dominance is determined based on two
     additional factors. First, non-dominance is calculated based on
     a grid which discretizes the objective function space. If two
@@ -639,7 +639,7 @@ class StructuralEpsilonDominance(object):
     def rank_models(self, models, model_level_structure, flag):
         '''
         Function which recursively ranks models according to
-        non-domination. 
+        non-domination.
 
         Returns non-dominated (rank 0) members of the set of models.
         Flag will determine which selection rank (and selection
@@ -680,12 +680,12 @@ class StructuralEpsilonDominance(object):
         Finds lowest tier in which the model is not dominated by any models.
         If the model dominates all models in the tier, then insert the model
         into the level structure in its own tier, bumping the dominated
-        tier and all other tiers to a higher rank. 
+        tier and all other tiers to a higher rank.
         If the model dominates some of the models in the tier, then replace
         those models with the model, and continue the same process with the
         dominated models (beginning with the next tier).
         If the model is non-dominated with all models in the tier, then
-        append the model to the tier with no other adjustments. 
+        append the model to the tier with no other adjustments.
 
         Arguments:
 
@@ -907,7 +907,7 @@ class Pool(object):
     A pool of structures which are used for genetic crossing. While the
     pool does contain all models which are created during the evolutionary
     algorithm process, all active models are contained with a "Population"
-    subgroup. 
+    subgroup.
 
     Intertwined with the Select class. The Pool handles all model addition
     to the population, while Select handles all parent selection from the
@@ -1026,7 +1026,7 @@ class Pool(object):
         then the model is also ranked within the population using a
         simple measure of the distance to the lowest possible objective
         function values. This is also used if single objective optimization
-        is employed. 
+        is employed.
 
         If multi objective function search, and population has reached
         steady-state capacity, add model to the population using the full
@@ -1136,10 +1136,10 @@ class Select(object):
 
     In the case of multi-objective optimization, this selection
     probability is determined based on the non-domination rank of
-    the model within its cluster. 
+    the model within its cluster.
 
     In the case of single objective optimization, uses the evaluated
-    attributes of a model to assign the selection probability. 
+    attributes of a model to assign the selection probability.
     '''
 
     def __init__(self, select_obj_params):
@@ -1151,7 +1151,7 @@ class Select(object):
         assigned if they are not found in the dictionary.
 
         Some functionality is not included if not listed in the params
-        dictionary. Namely, auto-adaptive operator selection (where the 
+        dictionary. Namely, auto-adaptive operator selection (where the
         relative frequency of each operator in the evolutionary process
         will be updated based on the operators which were used to create
         the non-dominated [or otherwise elite] solutions) can be used
@@ -1379,7 +1379,7 @@ class Select(object):
         '''
         Provide requested number of parent models for mating operations.
         Always chooses the first parent from the non-dominated solutions,
-        then chooses the next parent from all models probabilistically. 
+        then chooses the next parent from all models probabilistically.
         The selection method for those models is a "roulette" method,
         where the model is selected at random, then a second random number
         is drawn and checked against the models selection probability. If
@@ -1399,7 +1399,7 @@ class Select(object):
         same cluster as the initial parent, or a different cluster than the
         initial parent.
 
-        same_ab (bool): If num_parents > 1, specifies whether all parents 
+        same_ab (bool): If num_parents > 1, specifies whether all parents
         should have same a, b lattice vectors
 
         abs_tol (float): If num_parents > 1, specifies the the maximum value
@@ -1536,7 +1536,7 @@ class Population(object):
 
     The non-domination rankings are contained within a "level structure",
     which is a list of lists. The list at index 0 contains all rank 0 models,
-    the list at index 1 contains all rank 1 models, etc. 
+    the list at index 1 contains all rank 1 models, etc.
     """
 
     def __init__(self, capacity, dominance=ParetoDominance(),

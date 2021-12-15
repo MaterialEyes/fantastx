@@ -80,9 +80,11 @@ os.mkdir(calcs)
 # write data to a file
 data_file = main_path + '/data_file'
 with open(data_file, 'w') as f:
-    first_line = 'id\tinheritance\t\ttotal energy\tObj_0\t\tObj_1\n\n'
+    first_line = 'Label   Inheritance     Total Energy    Obj_0' + \
+                        '           Obj_1           Operator\n\n'
     if not Xsim_1:
-        first_line = 'id\t\tinheritance\t\ttotal energy\tObj_0\n\n'
+        first_line = 'Label   Inheritance     Total Energy    Obj_0' + \
+                        '           Operator\n\n'
     f.write(first_line)
 
 # set up everything for calculations
@@ -157,8 +159,13 @@ def full_eval(model):
 
     # separate gb_iface for the energy evaluated futures
     separate_gb(energy_code, gb_ops_obj, model)
+
     # Do Xsim if required
     if Xsim_1:
+        if not model.converged:
+            print ('Energy calculation of model {} is not'
+                   ' converged'.format(model.label))
+            return None
         # get the relaxed structure
         relaxed_str = model.astr
         if relaxed_str is None:
@@ -192,7 +199,7 @@ if input_model_obj is not None:
                                        reg_id, model_type='inputs',
                                        model=input_model)
         # relax the model in dask-workers
-        out = client.submit(relax, new_model, reg_id, energy_code)
+        out = client.submit(full_eval, new_model)
         evald_futures.append(out)
     print('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models

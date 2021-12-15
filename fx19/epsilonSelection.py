@@ -253,7 +253,7 @@ class Comparator(object):
         '''
         try:
             comparison = self.compare_fingerprints(test_model, ref_model)
-        except AssertionError:
+        except (AssertionError, KeyError):
             # models did not contain the same number of atoms (bag-of-bonds)
             return -1
         if self.label == "valle-oganov":
@@ -344,6 +344,37 @@ class Comparator(object):
                     pair_cor[str(specie1) + "-" + str(specie2)
                              ] = (norm_factor, np.array(dists))
             model.pair_cor = pair_cor
+
+    def check_uniqueness(self, model, all_models, exact=True):
+        '''
+        Check whether a model is unique.
+
+        Returns True if the model is unique, returns False if the model
+        is the same (or "similar" if exact is False) as another model.
+
+        Args:
+
+        model (obj): the structure_record.model() for which uniqueness
+        is being tested.
+
+        exact (boolean): if True, models are considered unique if they
+        are not exactly the same as another model. If False, models are
+        considered unique if they are not the same as another model
+        within tolerance limits.
+        '''
+        # create a new fingerprint got the model
+        # either before (new_model) or after relaxation (relaxed_astr)
+        self.create_fingerprint(model)
+        # compare
+        flags = [self.compare_models(model, m) for m in all_models]
+        if exact:
+            same = [f == 0 for f in flags]
+        else:
+            same = [f >= 0 for f in flags]
+        if any(same):
+            return False
+        else:
+            return True
 
 
 class ParetoDominance(object):
@@ -521,7 +552,7 @@ class ParetoDominance(object):
 
 class EpsilonDominance(object):
     '''
-    Class which performs non-dominance calculations. Compared to 
+    Class which performs non-dominance calculations. Compared to
     ParetoDominance, here non-dominance is determined based on an
     additional factor. Rather than a normal non-dominance check,
     non-dominance here is calculated based on an "epsilon" grid
@@ -652,7 +683,7 @@ class EpsilonDominance(object):
 
 class StructuralEpsilonDominance(object):
     '''
-    Class which performs non-dominance calculations. Compared to 
+    Class which performs non-dominance calculations. Compared to
     ParetoDominance, here non-dominance is determined based on two
     additional factors. First, non-dominance is calculated based on
     a grid which discretizes the objective function space. If two
@@ -857,7 +888,7 @@ class Pool(object):
         initialize the Comparator object for the population.
 
         Here the "Population" and "Archive" objects are also initialized.
-        The "Population" uses ParetoDominance and a zero-tolerance comparator, 
+        The "Population" uses ParetoDominance and a zero-tolerance comparator,
         and the "Archive" uses EpsilonDominance and the i_dict tolerances.
         """
         energy_pkg = pool_params['energy_pkg']
@@ -948,7 +979,7 @@ class Pool(object):
         then the model is also ranked within the population using a
         simple measure of the distance to the lowest possible objective
         function values. This is also used if single objective optimization
-        is employed. 
+        is employed.
 
         If multi objective function search, and population has reached
         steady-state capacity, add model to the population using the full
@@ -992,8 +1023,8 @@ class Pool(object):
                     or select.type == "single":
                 self.population.basic_addition_to_population(
                     model, select, sim_ids=sim_ids)
-                print(f'New model {model.label} added to population based'
-                      ' on their objective values only!')
+                #print(f'New model {model.label} added to population based'
+                #      ' on their objective values only!')
 
             # Othewise, perform usual epsilon-MOEA
             else:
@@ -1101,7 +1132,7 @@ class Select(object):
         assigned if they are not found in the dictionary.
 
         Some functionality is not included if not listed in the params
-        dictionary. Namely, auto-adaptive operator selection (where the 
+        dictionary. Namely, auto-adaptive operator selection (where the
         relative frequency of each operator in the evolutionary process
         will be updated based on the operators which were used to create
         the non-dominated [or otherwise elite] solutions) can be used
@@ -1332,9 +1363,9 @@ class Select(object):
     def get_parents(self, pool, num_parents, same_cluster=None, same_ab=False,
                     abs_tol=0.2):
         '''
-        Provide requested number of parent models for mating operations. 
-        If archive has not been created, then provide both parents from 
-        the population. Otherwise, alternate providing one parent from 
+        Provide requested number of parent models for mating operations.
+        If archive has not been created, then provide both parents from
+        the population. Otherwise, alternate providing one parent from
         the population, and one parent from the archive.
 
         Args:
@@ -1348,7 +1379,7 @@ class Select(object):
         the 2nd parent from the same cluster as the initial parent, or a
         different cluster than the initial parent.
 
-        same_ab (bool): If num_parents > 1, specifies whether all parents 
+        same_ab (bool): If num_parents > 1, specifies whether all parents
         should have same a, b lattice vectors
 
         abs_tol (float): If num_parents > 1, specifies the the maximum value
@@ -1835,7 +1866,7 @@ class Archive(object):
 
     def seed_archive(self, population):
         '''
-        Seed the archive with the initial set of non-dominated models, 
+        Seed the archive with the initial set of non-dominated models,
         according to the archive dominance criteria.
 
         Args:

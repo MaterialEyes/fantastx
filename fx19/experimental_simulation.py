@@ -1,7 +1,7 @@
 
 from __future__ import division, unicode_literals, print_function
 
-import scipy
+from scipy import optimize as scipy_optimize
 from pymatgen.core.structure import Structure
 from pymatgen.io.cif import CifWriter
 try:
@@ -13,17 +13,21 @@ except ImportError:
 
 # For preprocessing experimental image
 # from skimage.transform import rescale
-from skimage import restoration
-from skimage.exposure import equalize_adapthist
+try:
+    from skimage import restoration
+    from skimage.exposure import equalize_adapthist
 
-from ingrained.structure import Bicrystal
-from ingrained.optimize import CongruityBuilder
-import ingrained.image_ops as iop
+    from ingrained.structure import Bicrystal
+    from ingrained.optimize import CongruityBuilder
+    import ingrained.image_ops as iop
+    import cv2
+except ImportError:
+    print ('Install scikit-image, Ingrained, opencv for TEM simulation.'
+           ' Otherwise ignore..')
 
 from math import floor
 import numpy as np
 import os
-import cv2
 
 
 class pdf_of_model(object):
@@ -62,7 +66,7 @@ class pdf_of_model(object):
         lb_ub_dict['qdamp'] = [0, 0.5]
         self.var_bounds = lb_ub_dict
 
-        # minimization method from scipy.optimize.minimize i.e., one of strings
+        # minimization method from scipy_optimize.minimize i.e., one of strings
         # ['CG', 'BFGS', 'L-BFGS-B', 'SLSQP']
         self.minimize_method = 'CG'
         # Range parameters of the PDF function
@@ -118,7 +122,9 @@ class pdf_of_model(object):
 
         # set lower and upper bounds for fitting variables
         if 'var_bounds' in pdf_params:
-            self.var_bounds = pdf_params['var_bounds']
+            vbs = pdf_params['var_bounds']
+            for a_key in vbs.keys():
+                self.var_bounds[a_key] = vbs[a_key]
 
     def write_temp_cif(self, stretch, model):
         """
@@ -227,14 +233,15 @@ class pdf_of_model(object):
         init_Uisos = []
         for i in range(len(Uisos)):
             init_Uisos.append(self.Uiso_val)
-        init_rem = [self.scale, self.delta1, self.delta2, self.qdamp]
+        #init_rem = [self.scale, self.delta1, self.delta2, self.qdamp]
+        init_rem = [self.delta2, self.scale, self.qdamp]
         init_params = init_Uisos + init_rem
 
         # optimize params using scipy
         init_params = np.array(init_params)
         # For finding stretch residual
         if type == 'opt_stretch':
-            result = scipy.optimize.minimize(Fit.scalarResidual,
+            result = scipy_optimize.minimize(Fit.scalarResidual,
                                              init_params,
                                              method=self.minimize_method,
                                              tol=1e-3,
@@ -243,7 +250,7 @@ class pdf_of_model(object):
             residual = Fit.scalarResidual(fitted_params)
             return (residual / 600) ** .5
         else:
-            result = scipy.optimize.minimize(Fit.scalarResidual, init_params,
+            result = scipy_optimize.minimize(Fit.scalarResidual, init_params,
                                              method=self.minimize_method)
             # get residue from the fitted params
             fitted_params = result.x
@@ -312,7 +319,7 @@ class pdf_of_model(object):
         self.pdf_sim_dir = pdf_sim
 
         # minimize the stretch_residual and fit best stretch
-        opt_stretch = scipy.optimize.minimize_scalar(
+        opt_stretch = scipy_optimize.minimize_scalar(
             self.get_stretch_residual,
             bounds=(0.97, 1.05),
             args=(model, 'opt_stretch'),
