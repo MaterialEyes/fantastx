@@ -15,10 +15,15 @@ from sklearn.preprocessing import normalize
 from scipy.optimize import minimize
 from scipy.spatial import ConvexHull  # , convex_hull_plot_2d
 
-from dscribe.kernels import REMatchKernel
-from dscribe.descriptors import SOAP
+try:
+    from dscribe.kernels import REMatchKernel
+    from dscribe.descriptors import SOAP
+except ImportError:
+    print ('Install Dscribe for structure comparison using SOAP kernels..')
+
 from ase.ga.ofp_comparator import OFPComparator
 from pymatgen.io.ase import AseAtomsAdaptor
+from pymatgen.core.structure import Structure, Lattice
 
 from fx19 import distance_check as dc
 
@@ -91,6 +96,9 @@ class Pool(object):
                     self.comparator.set_rematch_kernel_generator()
             if 'zbounds' in fp_params:
                 self.comparator.zbounds = fp_params['zbounds']
+            # whether to remove vacuum before fingerprinting --> default False
+            if 'rem_vac' in fp_params:
+                self.comparator.rem_vac = fp_params['rem_vac']
 
     def add_to_pool(self, model, select, sim_ids=None):
         """
@@ -966,6 +974,9 @@ class Comparator(object):
         self.comp = None
         self.kernel_gen = None
         self.zbounds = None
+        # whether to remove vacuum in all directions before fingerprint
+        # to be used in cluster & surface geometries
+        self.rem_vac = False # defaults to False
 
     def set_soap_descriptor(self, _species, soap_values=None):
         '''
@@ -1198,20 +1209,25 @@ class Comparator(object):
         model (obj): structure_record.model() which will be assigned a
         fingerprint.
         '''
+        # Get fingerprint for the structure
+        fp_astr = model.astr
+        if self.rem_vac is True:
+            fp_astr = self.remove_vacuum_in_cluster(model.astr)
+
         if self.label == "valle-oganov":
-            ase_atoms = AseAtomsAdaptor.get_atoms(model.astr)
+            ase_atoms = AseAtomsAdaptor.get_atoms(fp_astr)
             fp, typedic = self.comp._take_fingerprints(ase_atoms)
             ase_atoms.info['fingerprints'] = self.comp._json_encode(
                 fp, typedic)
             model.ase = ase_atoms
 
         elif self.label == "rematch-soap":
-            ase_atoms = AseAtomsAdaptor.get_atoms(model.astr)
+            ase_atoms = AseAtomsAdaptor.get_atoms(fp_astr)
             features = self.desc.create(ase_atoms)
             model.normed_features = normalize(features)
 
         elif self.label == "bag-of-bonds":
-            model_astr = copy.deepcopy(model.astr)
+            model_astr = copy.deepcopy(fp_astr)
             if self.zbounds is not None:
                 site_removal_indices = []
                 for site_index, site in enumerate(model_astr.sites):
@@ -1243,7 +1259,7 @@ class Comparator(object):
                     dists.sort()
                     norm_factor = (
                         len(coord_sets[specie1]) + len(coord_sets[specie2])) \
-                        / (2*len(model.astr))
+                        / (2*len(model_astr))
 
                     pair_cor[str(specie1) + "-" + str(specie2)
                              ] = (norm_factor, np.array(dists))
@@ -1279,3 +1295,29 @@ class Comparator(object):
             return False
         else:
             return True
+
+    def remove_vacuum_in_cluster(self, astr):
+        """
+        Checks if there is vacuum padding in any of the three directions and
+        then removes it leaving a 2Å thickness in each direction.
+
+        Args:
+
+        astr (obj): Pymatgen structure object
+        """
+        xcarts, ycarts, zcarts = astr.cart_coords.T
+        xthick  = xcarts.max() - xcarts.min()
+        ythick = ycarts.max() - ycarts.min()
+        zthick  = zcarts.max() - zcarts.min()
+
+        newa, newb, newc = xthick+2, ythick+2, zthick+2
+        new_latt = Lattice([[newa, 0, 0], [0, newb, 0], [0, 0, newc]])
+
+        new_xcarts = xcarts - xcarts.min() + 1
+        new_ycarts = ycarts - ycarts.min() + 1
+        new_zcarts = zcarts - zcarts.min() + 1
+        new_carts = np.array([new_xcarts, new_ycarts, new_zcarts]).T
+
+        fp_astr = Structure(new_latt, astr.species, new_carts,
+                            coords_are_cartesian=True)
+        return fp_astr
