@@ -917,6 +917,7 @@ class Pool(object):
             self.epsilons = pool_params['epsilons']
 
         self.all_models = []
+        self.finished_models = []
 
         if 'cluster_obj' not in pool_params:
             self.cluster_obj = None
@@ -1099,6 +1100,25 @@ class Pool(object):
         '''
         return select.get_parents(self, num_parents)
 
+    def update_parent_selection(self, inheritance):
+        """
+        Function to update parent models in good_pool with their
+        'times_chosen_as_parent' attribute after a child structure is created
+        using a model as a parent.
+
+        Returns nothing
+
+        Args:
+
+        inheritance (list): list of one or two integers that are parent labels
+        """
+        for m in self.population.models:
+            if m.label in inheritance:
+                m.times_chosen_as_parent += 1
+        for m in self.archive.models:
+            if m.label in inheritance:
+                m.times_chosen_as_parent += 1
+
 
 class Select(object):
     '''
@@ -1141,6 +1161,7 @@ class Select(object):
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
 
+        self.max_times_as_parent = 20 # max times to be chosen as a parent
         # Define weights for the objective functions
         if 'weights' not in select_obj_params:
             self.weights = [1, 1, 1, 1, 1]
@@ -1411,6 +1432,18 @@ class Select(object):
                 # alternate adding population and archive members
                 if len(parents) == 0:
                     new_parent = pool.archive.produce_model()
+                    if new_parent.times_chosen_as_parent > \
+                                        self.max_times_as_parent:
+                        print ('Model {} reached max times to be chosen as '
+                               'parent. Removed from archive.'.format(
+                                new_parent.label))
+                        pool.finished_models.append(new_parent)
+                        pool.archive.remove_model(new_parent)
+                        pool.population.remove_model(new_parent)
+                        pool.archive.seed_archive(pool.population)
+                    else:
+                        parents.append(new_parent)
+                        self.all_parent_labels.append(new_parent.label)
                 else:
                     # produce model differently if cluster requirements
                     # are in place
@@ -1419,10 +1452,6 @@ class Select(object):
                     else:
                         new_parent = pool.population.produce_model(
                             cluster=parents[0].cluster, same=same_cluster)
-                if len(parents) == 0:
-                    parents.append(new_parent)
-                    self.all_parent_labels.append(new_parent.label)
-                else:
                     for existing_parent in parents:
                         if existing_parent.label == new_parent.label:
                             continue
@@ -1571,6 +1600,20 @@ class Population(object):
         '''
         self.models.append(model)
         self.size += 1
+
+    def remove_model(self, model):
+        """
+        Removes a model from the population
+
+        Args:
+
+        model (obj): model to be removed from population
+        """
+        try:
+            self.models.remove(model)
+            self.size -= 1
+        except:
+            print ('Model {} not in population.'.format(model.label))
 
     def check_uniqueness(self, model, exact=True):
         '''
@@ -1931,3 +1974,17 @@ class Archive(object):
         archive.
         '''
         return np.random.choice(self.models)
+
+    def remove_model(self, model):
+        """
+        Removes a model from the archive
+
+        Args:
+
+        model (obj): model to be removed from archive
+        """
+        try:
+            self.models.remove(model)
+            self.size -= 1
+        except:
+            print ('Model {} not in archive'.format(model.label))
