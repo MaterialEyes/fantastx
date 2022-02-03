@@ -279,6 +279,22 @@ class Pool(object):
 
             return select
 
+    def update_parent_selection(self, inheritance):
+        """
+        Function to update parent models in good_pool with their
+        'times_chosen_as_parent' attribute after a child structure is created
+        using a model as a parent.
+
+        Returns nothing
+
+        Args:
+
+        inheritance (list): list of one or two integers that are parent labels
+        """
+        for m in self.good_pool:
+            if m.label in inheritance:
+                m.times_chosen_as_parent += 1
+
 
 class Select(object):
     """
@@ -311,6 +327,7 @@ class Select(object):
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
         # set defaults
+        self.max_times_as_parent = 20 # max times to be chosen as a parent
         self.num_required_above_50 = 100  # default
         self.num_models_before_pareto = 200  # default
         def_weights = [1, 1, 1, 1, 1]  # [w0, w1, w2, w3, w4]
@@ -946,6 +963,10 @@ class Select(object):
         while not done:
             # randomly choose a parent
             parent = random.choice(pool.good_pool)
+            if parent.times_chosen_as_parent > self.max_times_as_parent:
+                # remove parent from good_pool and continue
+                pool.good_pool.remove(parent)
+                continue
             if parent.selection_prob:
                 if random.random() < parent.selection_prob:
                     if self.all_parent_labels.count(parent.label) < 200:
