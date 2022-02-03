@@ -84,7 +84,7 @@ class model(object):
         # and clusteredSelection
         self.cluster = None
         # How many times this structure is selected from get_parent()
-        self.times_chosen_as_parent = None
+        self.times_chosen_as_parent = 0
 
 
 class structure_constraints(object):
