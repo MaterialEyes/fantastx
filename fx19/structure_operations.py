@@ -1554,6 +1554,10 @@ class gb_ops(object):
         cut_locs.append(0)
         cut_locs.reverse()
 
+        # Note: If there are no sorted_sites in any of the blocks,
+        # cut_atom_inds would be less than cut_locs. This results in an error
+        # in next step. However, it is good to not have such structures (with
+        # empty regions) as a block
         blocks = []
         for i in range(len(cut_atom_inds)-1):
             bl = sorted_sites[cut_atom_inds[i]: cut_atom_inds[i+1]]
@@ -1780,15 +1784,18 @@ class gb_ops(object):
             select.operators, p=select.operator_frequencies)
 
         correct_comp = False
-        tries = 0
+        tries_for_correct_comp = 0
         if operator == "perturb_sites" or operator == "perturb_comp":
             parent_model = select.get_a_parent(pool)
             label = parent_model.label
-        while correct_comp is False and tries <= 10:
+        while correct_comp is False and tries_for_correct_comp <= 10:
             try:
                 if operator == "perturb_sites":
                     perturbed_iface, inheritance = hop.perturb_sites(
                         select, pool, model_id=label)
+                    # Note: pertured_iface will be None when there are not
+                    # enough perturbations performed in parent. Then, an error
+                    # occurs in next step
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     #maker = 'perturb_sites'
@@ -1823,8 +1830,8 @@ class gb_ops(object):
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
             new_astr.sort()
-            # update tries for every new_gb created (when reaches this point)
-            tries += 1
+            # update tries_for_correct_comp for every new_gb created
+            tries_for_correct_comp += 1
             correct_comp = self.gb_iface_comp_check(new_astr)
 
         # Adjust composition after 10 failed attempts
@@ -1834,6 +1841,7 @@ class gb_ops(object):
 
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
+        pool.update_parent_selection(inheritance)
         new_model.made_by = operator
 
         print(
