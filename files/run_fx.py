@@ -104,6 +104,7 @@ if workers['cluster'] == 'SLURM':
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'],
                                header_skip=workers['header_skip'])
+    print ("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
@@ -113,6 +114,7 @@ elif workers['cluster'] == 'PBS':
                              walltime=workers['walltime'],
                              job_extra=workers['job_extra'],
                              header_skip=workers['header_skip'])
+    print ("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
 elif workers['cluster'] == 'local':
     client = Client('tcp://127.0.0.1:8786')
