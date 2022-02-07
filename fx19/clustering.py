@@ -3,6 +3,7 @@ import numpy as np
 import scipy.cluster.hierarchy as ch
 import matplotlib.colors as col
 from collections import Counter
+from fx19.fingerprinting import Comparator
 
 
 class hierarchical_clusterer(object):
@@ -14,7 +15,7 @@ class hierarchical_clusterer(object):
     clusters for use in ML or GA applications.
     '''
 
-    def __init__(self, params, xsim):
+    def __init__(self, params, xsim=None, comparator_obj = None):
         '''
         Args:
 
@@ -33,7 +34,9 @@ class hierarchical_clusterer(object):
         self.max_incons_cutoff = params["max_incons_cutoff"]
         self.max_dist_cutoff = params["max_dist_cutoff"]
         self.min_cluster_occupancy = params["min_cluster_occupancy"]
+        self.distance_calculation = params["distance_calculation"]
         self.xsim = xsim
+        self.comparator_obj = comparator_obj
         self.num_items = 0
         self.num_clusters = 0
 
@@ -128,8 +131,11 @@ class hierarchical_clusterer(object):
             for j, other_model in enumerate(comparison_models):
                 other_label = test_label + j + 1
                 try:
-                    comparison = self.xsim.evaluate_obj_two_models(
-                        test_model, other_model)
+                    if self.distance_calculation == "xsim":
+                        comparison = self.xsim.evaluate_obj_two_models(
+                            test_model, other_model)
+                    elif self.distance_calculation == "fingerprint":
+                        comparison = self.comparator_obj.compare_fingerprints(test_model, other_model)[0]
                     self.distance_matrix[test_label][other_label] = comparison
                     self.distance_matrix[other_label][test_label] = comparison
                     if comparison > max_ssim:
@@ -168,8 +174,11 @@ class hierarchical_clusterer(object):
         new_row = np.zeros(self.num_items)
         for comp_label, comp_model in enumerate(self.sorted_models):
             try:
-                comparison = self.xsim.evaluate_obj_two_models(
-                    comp_model, added_model)
+                if self.distance_calculation == "xsim":
+                    comparison = self.xsim.evaluate_obj_two_models(
+                        comp_model, added_model)
+                elif self.distance_calculation == "fingerprint":
+                    comparison = self.comparator_obj.compare_fingerprints(comp_model, added_model)[0]
                 new_col[comp_label] = comparison
                 new_row[comp_label] = comparison
             except:

@@ -29,7 +29,7 @@ dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('new_input.yaml') as ifile:
+with open('epsilon_selection.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
@@ -244,18 +244,25 @@ while len(evald_futures) > 0:
                                                             data_file, sim_ids)
 
 # print statements which output visualization information
-good_pool = pool.good_pool
-good_pool_labels = [model.label for model in good_pool]
-print(f"Current good_pool population models: {good_pool_labels}.")
-# non_dominated_pop_models = select.return_nd_pop_models(pool)
-#nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
-# pop_labels = [model.label for model in pool.population.models]
-# archive_labels = [model.label for model in pool.archive.models]
-# print(f"Current pool population models: {pop_labels}")
-# print(f"Current pool population non-dominated models: {nd_pop_labels}")
-# print(f"Current pool archive models: {archive_labels}")
-# print(f"Current operator probabilities: {select.operator_frequencies}")
+if "selection_algorithm" in i_dict["select_params"]:
+    if i_dict["select_params"]["selection_algorithm"] == "distance_from_pareto":
+        good_pool = pool.good_pool
+        good_pool_labels = [model.label for model in good_pool]
+        print(f"Current good_pool population models: {good_pool_labels}.")
+    elif i_dict["select_params"]["selection_algorithm"] == "epsilon_moea":
+        pop_labels = [model.label for model in pool.population.models]
+        archive_labels = [model.label for model in pool.archive.models]
+        print(f"Current pool population models: {pop_labels}")
+        print(f"Current pool archive models: {archive_labels}")
+    elif i_dict["select_params"]["selection_algorithm"] == "clustered_selection":
+        nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
+        print(f"Current pool population non-dominated models: {nd_pop_labels}")
+else:
+    good_pool = pool.good_pool
+    good_pool_labels = [model.label for model in good_pool]
+    print(f"Current good_pool population models: {good_pool_labels}.")
 
+print(f"Current operator probabilities: {select.operator_frequencies}")
 print('Done!')
 print('Total time: ', time.time() - start_time)
 

@@ -85,6 +85,9 @@ class model(object):
         self.cluster = None
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = 0
+        # fingerprinting information
+        self.fingerprint = {}
+        self.features = None
 
 
 class structure_constraints(object):

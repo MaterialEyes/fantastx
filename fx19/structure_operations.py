@@ -25,6 +25,7 @@ from math import asin, cos, sqrt, tan, pi
 from fx19 import structure_record
 from fx19 import distance_check as dc
 import traceback
+import time
 
 
 class Evolve(object):
@@ -94,7 +95,7 @@ class Evolve(object):
 
                 elif operator == "perturb_comp":
                     new_astr, inheritance = hop.perturb_comp(
-                                                select, pool, model_id=label)
+                                                select, pool, model=parent_model)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_same_cluster":
@@ -798,7 +799,7 @@ class basinhopping(object):
         else:
             return None, None
 
-    def perturb_comp(self, select, pool, dc_astr=None, model_id=None):
+    def perturb_comp(self, select, pool, z_bounds = None, dc_astr=None, model=None):
         """
         Function to generate a child model by changing the composition of a
         parent model.
@@ -814,20 +815,12 @@ class basinhopping(object):
 
         model_id (int): If given, basinhopping is done on this specific model
         """
-        if 'good_pool' in pool.__dict__.keys():
-            all_models = pool.good_pool
-        if 'population' in pool.__dict__.keys():
-            all_models = pool.population.models
-        if model_id is None:
+        if model is None:
             parent_model = select.get_a_parent(pool)
             parent = copy.deepcopy(parent_model)
             # make a copy
         else:
-            for model in all_models:
-                # for model in pool.good_pool:
-                if model.label == model_id:
-                    parent = copy.deepcopy(model)
-                    break
+            parent = copy.deepcopy(model)
         parent_astr = parent.astr
         parent_comp = parent_astr.composition.as_dict()
         inheritance = [parent.label]
@@ -856,7 +849,14 @@ class basinhopping(object):
                 num_added = 0
                 while num_added < unit_comp[sps]:
                     fracs = [unif(0, 1), unif(0, 1), unif(0, 1)]
-                    carts = parent_astr.lattice.get_cartesian_coords(fracs)
+                    if z_bounds is None:
+                        carts = parent_astr.lattice.get_cartesian_coords(fracs)
+                        print(type(carts))
+                    else:
+                        x_cart = parent_astr.lattice.a*fracs[0]
+                        y_cart = parent_astr.lattice.b*fracs[1]
+                        z_cart = fracs[2]*z_bounds[1] + (1-fracs[2])*z_bounds[0]
+                        carts = (x_cart, y_cart, z_cart)
                     # Check dists with rest of the atoms in parent_astr
                     if dc.satisfies_all_dists(carts, parent.astr,
                                     self.element_syms, self.min_dist_dict,
@@ -1785,6 +1785,7 @@ class gb_ops(object):
 
         correct_comp = False
         tries_for_correct_comp = 0
+        hollow_bounds = [self.hollow_botz, self.hollow_topz]
         if operator == "perturb_sites" or operator == "perturb_comp":
             parent_model = select.get_a_parent(pool)
             label = parent_model.label
@@ -1801,8 +1802,8 @@ class gb_ops(object):
                     #maker = 'perturb_sites'
                 elif operator == "perturb_comp":
                     perturbed_iface, inheritance = hop.perturb_comp(
-                            select, pool, dc_astr=self.astr_for_dist_check,
-                            model_id=label)
+                            select, pool, z_bounds = hollow_bounds, dc_astr=self.astr_for_dist_check,
+                            model=parent_model)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
                     #maker = 'perturb_comp'

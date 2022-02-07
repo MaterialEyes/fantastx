@@ -6,6 +6,7 @@ from fx19 import experimental_simulation
 from fx19 import selection, epsilonSelection, clusteredSelection
 from fx19 import structure_operations
 from fx19.clustering import hierarchical_clusterer, compositional_clusterer
+from fx19.fingerprinting import Comparator
 
 import os
 
@@ -88,44 +89,6 @@ def make_objects(i_dict):
     mod_str = 'selection.py'
     ob_fn = 'Distance from pareto'
     cl_bool = False
-    if 'epsilons' in i_dict:
-        selection_mod = epsilonSelection # uses epsilon MOEA & NO clustering
-        mod_str = 'epsilonSelection.py'
-        ob_fn = 'Epsilon-MOEA'
-        if 'cluster_params' in i_dict:
-            selection_mod = clusteredSelection # uses epsilon MOEA & clustering
-            mod_str = 'clusteredSelection.py'
-            cl_bool = True
-    print ('Objective function: {}\nClustering: {}'.format(ob_fn, cl_bool))
-    print ('Using Pool & Select classes from {} module'.format(mod_str))
-
-    # Pool object (contains good_pool and bad_pool)
-    pool_params = {}
-    pool_params['capacity'] = i_dict['population_limits']['pool']
-    pool_params['energy_pkg'] = energy_pkg
-    if 'epsilons' in i_dict:
-        pool_params['epsilons'] = i_dict['epsilons']
-    if 'fingerprint_params' in i_dict:
-        fingerprint_params = i_dict["fingerprint_params"]
-        # If the fingerprint is a soap descriptor, then the
-        # species names need to be passed in.
-        if fingerprint_params["label"] == "rematch-soap":
-            species = []
-            for _, value in str_constraints["species_dict"].items():
-                species.append(value["name"])
-            fingerprint_params["species"] = species
-        pool_params['fingerprint_params'] = i_dict['fingerprint_params']
-    # Also create cluster object if cluster_params in i_dict
-    if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
-        if i_dict['cluster_params']['type'] == "hierarchical":
-            cluster_obj = hierarchical_clusterer(
-                i_dict['cluster_params'], Xsim_1)
-        elif i_dict['cluster_params']['type'] == 'compositional':
-            cluster_obj = compositional_clusterer()
-        pool_params['cluster_obj'] = cluster_obj
-        all_objects['cluster_obj'] = cluster_obj
-    pool = selection_mod.Pool(pool_params)
-    all_objects['pool'] = pool
 
     # selection type of objective function
     if 'select_params' not in i_dict:
@@ -133,6 +96,35 @@ def make_objects(i_dict):
               ' keyword specifying single or multiobjective optimization.')
     else:
         select_params = i_dict['select_params']
+        if "selection_algorithm" in select_params:
+            algorithm = select_params["selection_algorithm"]
+            if algorithm not in \
+                ["distance_from_pareto",
+                 "epsilon_moea",
+                 "clustered_selection"]:
+                print('Error: Please provide valid selection algorithm.')
+            else:
+                if algorithm == "epsilon_moea":
+                    if 'epsilons' in i_dict:
+                        selection_mod = epsilonSelection
+                        mod_str = 'epsilonSelection.py'
+                        ob_fn = 'Epsilon-MOEA'
+                    else:
+                        print('Error. Chose epsilon_moea, but did not '
+                              'provide epsilon values.')
+                if algorithm == "clustered_selection":
+                    if 'epsilons' in i_dict and 'cluster_params' in i_dict:
+                        selection_mod = clusteredSelection
+                        mod_str = 'clusteredSelection.py'
+                        cl_bool = True
+                    else:
+                        print('Error. Chose clustered_selection, but either '
+                              'did not provide epsilons, or did not provide '
+                              'clustering parameters.')
+                              
+    print ('Objective function: {}\nClustering: {}'.format(ob_fn, cl_bool))
+    print ('Using Pool & Select classes from {} module'.format(mod_str))
+
     if 'objective_fn_type' not in select_params.keys():
         print('Error: Please provide select_params keyword and objective'
               ' keyword specifying single or multiobjective optimization.')
@@ -149,6 +141,124 @@ def make_objects(i_dict):
         select_params['weights'] = [1, 1, 1, 1, 1]
         select = selection_mod.Select(select_params)
     all_objects['select'] = select
+
+    # Pool object (contains good_pool and bad_pool)
+    pool_params = {}
+    pool_params['capacity'] = i_dict['population_limits']['pool']
+    pool_params['energy_pkg'] = energy_pkg
+    if 'epsilons' in i_dict:
+        pool_params['epsilons'] = i_dict['epsilons']
+    if 'fingerprint_params' in i_dict:
+        fp_params = i_dict['fingerprint_params']
+        fp_label = fp_params['label']
+        tolerance = {fp_label: fp_params['tolerance']}
+        comparator_obj = Comparator(label=fp_label, tolerances=tolerance)
+        if fp_label == "valle-oganov":
+            if 'comp_values' in fp_params:
+                comparator_obj.set_valle_oganov_comparator(
+                    fp_params['comp_values'])
+            else:
+                comparator_obj.set_valle_oganov_comparator()
+        if fp_label == "ewald-sum-matrix" or \
+            fp_label == "sine-matrix" or \
+            fp_label == "mbtr":
+            if fp_label == "mbtr":
+                species = []
+                for _, value in str_constraints["species_dict"].items():
+                    species.append(value["name"])
+                if 'mbtr_values' in fp_params:
+                    comparator_obj.set_mbtr_descriptor(_species = species,
+                        mbtr_values = fp_params["mbtr_values"])
+                else:
+                    comparator_obj.set_mbtr_descriptor(_species = species)
+            if fp_label == "sine-matrix":
+                if 'sine-matrix_values' in fp_params:
+                    comparator_obj.set_sine_matrix_descriptor(sm_values = \
+                        fp_params["sine-matrix_values"])
+                else:
+                    comparator_obj.set_sine_matrix_descriptor()
+            if fp_label == "ewald-sum-matrix":
+                if 'ewald-sum-matrix_values' in fp_params:
+                    comparator_obj.set_ewald_sum_matrix_descriptor(esm_values = \
+                        fp_params["ewald-sum-matrix_values"])
+                else:
+                    comparator_obj.set_ewald_sum_matrix_descriptor()
+            if 'distance_metric' in fp_params:
+                comparator_obj.set_distance_calculator(fp_params['distance_metric'])
+            else:
+                comparator_obj.set_distance_calculator()
+        elif fp_label == "rematch-soap" or fp_label == "average-soap":
+            species = []
+            for _, value in str_constraints["species_dict"].items():
+                species.append(value["name"])
+            if 'soap_values' in fp_params:
+                comparator_obj.set_soap_descriptor(
+                    _species=species,
+                    soap_values=fp_params['soap_values']
+                )
+            else:
+                comparator_obj.set_soap_descriptor(
+                    _species=fp_params['species'])
+
+            if 'kernel_generator_values' in fp_params:
+                comparator_obj.set_kernel_generator(
+                    fp_params['kernel_generator_values'])
+            else:
+                comparator_obj.set_kernel_generator()
+        if 'zbounds' in fp_params:
+            comparator_obj.zbounds = fp_params['zbounds']
+        fingerprint_params = i_dict["fingerprint_params"]
+        # If the fingerprint is a soap descriptor, then the
+        # species names need to be passed in.
+        if fingerprint_params["label"] == "rematch-soap":
+            species = []
+            for _, value in str_constraints["species_dict"].items():
+                species.append(value["name"])
+            fingerprint_params["species"] = species
+        pool_params['comparator_obj'] = comparator_obj
+        all_objects['comparator_obj'] = comparator_obj
+
+    # Also create cluster object if cluster_params in i_dict
+    if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
+        if i_dict['cluster_params']['type'] == "hierarchical":
+            if 'distance_calculation' in i_dict['cluster_params']:
+                if i_dict['cluster_params']['distance_calculation'] == \
+                    'xsim' or 'fingerprint_params' not in i_dict:
+                    cluster_obj = hierarchical_clusterer(
+                        i_dict['cluster_params'], xsim = Xsim_1)
+                    if 'fingerprint_params' not in i_dict:
+                        print("Tried to use fingerprinting for "
+                        "distance_calculator. However, fingerprint_params "
+                        "not found, using xsim as distance_calculator "
+                        "for clustering instead.")
+                else:
+                    cluster_obj = hierarchical_clusterer(
+                        i_dict['cluster_params'], comparator_obj = \
+                            all_objects['comparator_obj'])
+            else:
+                print("Error. distance_calculation keyword not "
+                      "found in cluster_params.")
+                if 'fingerprint_params' not in i_dict:
+                    i_dict["cluster_params"]['distance_calculation'] =\
+                        'xsim'
+                    cluster_obj = hierarchical_clusterer(
+                        i_dict['cluster_params'], xsim = Xsim_1)
+                    print("fingerprint_params not found, using "
+                    "xsim as distance_calculator for clustering.")
+                else:
+                    i_dict["cluster_params"]['distance_calculation'] =\
+                        'fingerprint'
+                    cluster_obj = hierarchical_clusterer(
+                        i_dict['cluster_params'], comparator_obj = \
+                            all_objects['comparator_obj'])
+                    print("fingerprint_params found, using "
+                    "fingerprinting as distance_calculator for clustering.")
+        elif i_dict['cluster_params']['type'] == 'compositional':
+            cluster_obj = compositional_clusterer()
+        pool_params['cluster_obj'] = cluster_obj
+        all_objects['cluster_obj'] = cluster_obj
+    pool = selection_mod.Pool(pool_params)
+    all_objects['pool'] = pool
 
     # Mating object from structure_operations
     mating_params = get_mating_params(i_dict, str_constraints)
