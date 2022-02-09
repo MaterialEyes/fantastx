@@ -117,7 +117,7 @@ class Evolve(object):
                                                                 select, pool)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
             except:
-                print("Exception!")
+                print(f"Exception! Unable to get correct comp. Operator is: {operator}.")
                 traceback.print_exc()
                 if operator == "perturb_sites" or operator == "perturb_comp":
                     parent_model = select.get_a_parent(pool)
@@ -1820,7 +1820,7 @@ class gb_ops(object):
                         select, pool)
                     #maker = 'fraction_slice'
             except:
-                print("Exception!")
+                print(f"Exception! Unable to get correct composition. Operator is: {operator}")
                 traceback.print_exc()
                 if operator == "perturb_sites" or operator == "perturb_comp":
                     parent_model = select.get_a_parent(pool)

@@ -94,10 +94,12 @@ evald_futures, simd_futures = [], []
 
 workers = i_dict['workers']
 max_workers = workers['max_workers']
-
+job_script = '/home/dunruh/sample_job_script.txt'
+jobfile = open(job_script, "w+")
 if workers['cluster'] == 'SLURM':
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
+                               processes=workers['processes'],
                                project=workers['project_name'],
                                queue=workers['submit_queue'],
                                interface=workers['node_type'],
@@ -106,6 +108,8 @@ if workers['cluster'] == 'SLURM':
                                header_skip=workers['header_skip'])
     print ("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
+    jobfile.write(cluster_job.job_script())
+    jobfile.close()
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
@@ -145,7 +149,9 @@ def full_eval(model):
     # submit model to energy relaxation
     try:
         energy_code.relax(model, reg_id)
-    except FileExistsError:
+    except: # FileExistsError:
+        print("Exception encountered in full_eval.")
+        traceback.print_exc()
         print('Duplicate label in parallel processes. Skipping..')
         return None
 
@@ -157,6 +163,7 @@ def full_eval(model):
                 try:
                     energy_code.re_relax(model)
                 except:
+                    print("Exception encountered in energy_code.re_relax")
                     continue
 
     # separate gb_iface for the energy evaluated futures

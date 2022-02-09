@@ -121,6 +121,8 @@ def make_objects(i_dict):
                         print('Error. Chose clustered_selection, but either '
                               'did not provide epsilons, or did not provide '
                               'clustering parameters.')
+        else:
+            print("Selection algorithm not provided. Using distance_from_pareto.")
                               
     print ('Objective function: {}\nClustering: {}'.format(ob_fn, cl_bool))
     print ('Using Pool & Select classes from {} module'.format(mod_str))
@@ -217,7 +219,8 @@ def make_objects(i_dict):
             fingerprint_params["species"] = species
         pool_params['comparator_obj'] = comparator_obj
         all_objects['comparator_obj'] = comparator_obj
-
+    else:
+        print("Could not find fingerprint params")
     # Also create cluster object if cluster_params in i_dict
     if 'cluster_params' in i_dict and 'exp_sim_1' in i_dict:
         if i_dict['cluster_params']['type'] == "hierarchical":
@@ -257,6 +260,9 @@ def make_objects(i_dict):
             cluster_obj = compositional_clusterer()
         pool_params['cluster_obj'] = cluster_obj
         all_objects['cluster_obj'] = cluster_obj
+        print("Created pool cluster_obj of type {}".format(cluster_obj.type))
+    else:
+        print("Could not find cluster_params and exp_sim_1")
     pool = selection_mod.Pool(pool_params)
     all_objects['pool'] = pool
 

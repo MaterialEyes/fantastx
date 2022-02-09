@@ -34,16 +34,19 @@ def write_data(model, data_file):
 
     data_file (str) - path to the data_file
     """
-    with open(data_file, 'a') as f:
-        if model.obj1_val:
-            line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
-                            model.label, str(model.inheritance), model.tot_en,
-                            model.obj0_val, model.obj1_val, model.made_by)
-        else:
-            line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4}\n'.format(
-                            model.label, str(model.inheritance), model.tot_en,
-                            model.obj0_val, model.made_by)
-        f.write(line)
+    try: 
+        with open(data_file, 'a') as f:
+            if model.obj1_val:
+                line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
+                                model.label, str(model.inheritance), model.tot_en,
+                                model.obj0_val, model.obj1_val, model.made_by)
+            else:
+                line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4}\n'.format(
+                                model.label, str(model.inheritance), model.tot_en,
+                                model.obj0_val, model.made_by)
+            f.write(line)
+    except:
+        print(f"Couldn't find data_file {data_file}")
 
 # Temporary selection probs based on overall_value
 def temp_selection_probs(pool):
@@ -75,7 +78,7 @@ def relax(model, reg_id, energy_code):
     """
     try:
         energy_code.relax(model, reg_id)
-    except FileExistsError:
+    except:
         print('Duplicate label in parallel processes. Skipping..')
         return None
     resubmitted = 2

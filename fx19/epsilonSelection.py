@@ -575,12 +575,16 @@ class Pool(object):
 
         if 'cluster_obj' not in pool_params:
             self.cluster_obj = None
+            print("self.cluster_obj is None")
         else:
+            print("Created cluster object from params.")
             self.cluster_obj = pool_params["cluster_obj"]
 
         if 'comparator_obj' not in pool_params:
+            print("self.comparator_obj is None")
             self.comparator = None
         else:
+            print("Created comparator object from params.")
             self.comparator = pool_params["comparator_obj"]
 
         if self.comparator is None:
@@ -1222,6 +1226,8 @@ class Population(object):
 
         if self.cluster_obj is not None:
             print("Assigned cluster object to the population.")
+        else:
+            print("Cluster_obj is none.")
 
     def extend(self, model):
         '''
