@@ -8,6 +8,7 @@ from fx19 import distance_check as dc
 import numpy as np
 import math
 from sklearn.metrics import pairwise_distances, pairwise
+from pymatgen.core.structure import Structure, Lattice
 
 def cutoff(dist, dist_cut):
     if dist < dist_cut:
@@ -49,12 +50,16 @@ class Comparator(object):
             tolerances["valle-oganov"] = 1e-3
             tolerances["bag-of-bonds"] = [.02, 0.7]
             tolerances["rematch-soap"] = 1e-3
+            tolerances["mbtr"] = 1e-3
 
         self.tolerances = tolerances
         self.comp = None
         self.kernel_gen = None
         self.zbounds = None
         self.distance_calculator = None
+        # whether to remove vacuum in all directions before fingerprint
+        # to be used in cluster & surface geometries
+        self.rem_vac = False # defaults to False
 
     def set_soap_descriptor(self, _species, soap_values=None):
         '''
@@ -373,18 +378,19 @@ class Comparator(object):
             return (distance,)
             
         elif self.label == "ewald-sum-matrix":
-            distance_calculator = test_model.distance_calculator
+            distance_calculator = self.distance_calculator
             distance = distance_calculator.create(test_model.fingerprint["ewald-sum-matrix"], ref_model.fingerprint["ewald-sum-matrix"])
             return (distance,)
             
         elif self.label == "sine-matrix":
-            distance_calculator = test_model.distance_calculator
+            distance_calculator = self.distance_calculator
             distance = distance_calculator.create(test_model.fingerprint["sine-matrix"], ref_model.fingerprint["sine-matrix"])
             return (distance,)
 
         elif self.label == "mbtr":
-            distance_calculator = test_model.distance_calculator
+            distance_calculator = self.distance_calculator
             distance = distance_calculator.create(test_model.fingerprint["mbtr"], ref_model.fingerprint["mbtr"])
+            print(f"Fingerprint distance: {distance}")
             return (distance,)
 
         elif self.label == "bag-of-bonds":
@@ -410,7 +416,7 @@ class Comparator(object):
                 total_cum_diff += norm_factor * 2 * cum_diff / cum_sum
             return (total_cum_diff, max_diff)
 
-    def compare_models(self, test_model, ref_model):
+    def assess_models_similarity(self, test_model, ref_model):
         '''
         Runs comparison of models, utilizing the appropriate tolerance
         parameters depending on the global fingerprint used.
@@ -457,16 +463,27 @@ class Comparator(object):
                 return 1
             else:
                 return -1
+        elif self.label == "mbtr":
+            if np.isclose(comparison[0], 0.0, atol=1e-5):
+                return 0
+            elif comparison[0] < self.tolerances["mbtr"]:
+                return 1
+            else:
+                return -1
 
     def create_fingerprint(self, model):
         '''
-        Create the fingerprint for the model object.
+        Create the fingerprint for the model object. Automatically
+        trims the model down to the active region if desired,
+        to save computational expense and make similarity checks
+        more effective.
 
         Args:
 
         model (obj): structure_record.model() which will be assigned a
         fingerprint.
         '''
+        # 
         model_astr = copy.deepcopy(model.astr)
         if self.zbounds is not None:
             site_removal_indices = []
@@ -475,6 +492,9 @@ class Comparator(object):
                         site.coords[2] > self.zbounds[1]:
                     site_removal_indices.append(site_index)
             model_astr.remove_sites(site_removal_indices)
+
+        if self.rem_vac:
+            model_astr = self.remove_vacuum_in_cluster(model_astr)
 
         if self.label == "valle-oganov":
             ase_atoms = AseAtomsAdaptor.get_atoms(model_astr)
@@ -579,7 +599,7 @@ class Comparator(object):
                              ] = (norm_factor, np.array(dists))
             model.fingerprint['bag-of-bonds'] = pair_cor
 
-    def check_uniqueness(self, model, all_models, exact=True):
+    def check_model_uniqueness(self, model, all_models, exact=True):
         '''
         Check whether a model is unique.
 
@@ -600,7 +620,7 @@ class Comparator(object):
         # either before (new_model) or after relaxation (relaxed_astr)
         self.create_fingerprint(model)
         # compare
-        flags = [self.compare_models(model, m) for m in all_models]
+        flags = [self.assess_models_similarity(model, m) for m in all_models]
         if exact:
             same = [f == 0 for f in flags]
         else:
@@ -609,3 +629,29 @@ class Comparator(object):
             return False
         else:
             return True
+
+    def remove_vacuum_in_cluster(self, astr):
+        """
+        Checks if there is vacuum padding in any of the three directions and
+        then removes it leaving a 2Å thickness in each direction.
+
+        Args:
+
+        astr (obj): Pymatgen structure object
+        """
+        xcarts, ycarts, zcarts = astr.cart_coords.T
+        xthick  = xcarts.max() - xcarts.min()
+        ythick = ycarts.max() - ycarts.min()
+        zthick  = zcarts.max() - zcarts.min()
+
+        newa, newb, newc = xthick+2, ythick+2, zthick+2
+        new_latt = Lattice([[newa, 0, 0], [0, newb, 0], [0, 0, newc]])
+
+        new_xcarts = xcarts - xcarts.min() + 1
+        new_ycarts = ycarts - ycarts.min() + 1
+        new_zcarts = zcarts - zcarts.min() + 1
+        new_carts = np.array([new_xcarts, new_ycarts, new_zcarts]).T
+
+        fp_astr = Structure(new_latt, astr.species, new_carts,
+                            coords_are_cartesian=True)
+        return fp_astr

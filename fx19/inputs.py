@@ -155,6 +155,7 @@ def make_objects(i_dict):
         fp_label = fp_params['label']
         tolerance = {fp_label: fp_params['tolerance']}
         comparator_obj = Comparator(label=fp_label, tolerances=tolerance)
+        print("Created comparator_obj.")
         if fp_label == "valle-oganov":
             if 'comp_values' in fp_params:
                 comparator_obj.set_valle_oganov_comparator(
@@ -209,6 +210,8 @@ def make_objects(i_dict):
                 comparator_obj.set_kernel_generator()
         if 'zbounds' in fp_params:
             comparator_obj.zbounds = fp_params['zbounds']
+        if 'rem_vac' in fp_params:
+            comparator_obj.rem_vac = fp_params['rem_vac']
         fingerprint_params = i_dict["fingerprint_params"]
         # If the fingerprint is a soap descriptor, then the
         # species names need to be passed in.

@@ -460,7 +460,7 @@ class StructuralEpsilonDominance(object):
             # If models fall within similarity tolerance, then keep model
             # which is closest to the corner of the epsilon box
             # Otherwise, keep both models
-            similarity = self.comparator.compare_models(test_model, ref_model)
+            similarity = self.comparator.assess_models_similarity(test_model, ref_model)
             if similarity > 0:
                 print(
                     f"Models {test_model.label} and {ref_model.label} are \
@@ -556,6 +556,7 @@ class Pool(object):
         else:
             if 'capacity' in pool_params:
                 self.capacity = pool_params['capacity']
+        print(f"Pool capacity: {self.capacity}")
 
         # Define weights for the objective functions
         if 'weights' not in pool_params:
@@ -639,9 +640,10 @@ class Pool(object):
         # If population contains at least one model, check to make sure that
         # the model is unique.
         unique = True
-        if self.population.size >= 1:
-            unique = self.population.check_uniqueness(model)
+        if self.population.size >= 1 and self.comparator is not None:
+            unique = self.comparator.check_model_uniqueness(model, self.population.models)
         if unique:
+            print(f"Current population size: {self.population.size}")
             # If population size is less than 10, add any models created
             if self.population.size < 10:
                 print(f'New Model {model.label} added to population')
@@ -1254,38 +1256,6 @@ class Population(object):
         except:
             print ('Model {} not in population.'.format(model.label))
 
-    def check_uniqueness(self, model, exact=True):
-        '''
-        Check whether a model is unique.
-
-        Returns True if the model is unique, returns False if the model
-        is the same (or "similar" if exact is False) as another model.
-
-        Args:
-
-        model (obj): the structure_record.model() for which uniqueness
-        is being tested.
-
-        exact (boolean): if True, models are considered unique if they
-        are not exactly the same as another model. If False, models are
-        considered unique if they are not the same as another model
-        within tolerance limits.
-        '''
-        if self.comparator is None:
-            # No comparator, so automatic return True
-            return True
-        else:
-            flags = [self.comparator.compare_models(
-                model, m) for m in self.models]
-            if exact:
-                same = [f == 0 for f in flags]
-            else:
-                same = [f >= 0 for f in flags]
-            if any(same):
-                return False
-            else:
-                return True
-
     def init_clustering(self):
         '''
         Initialize the cluster object by seeding it with the population
@@ -1299,9 +1269,11 @@ class Population(object):
             self.cluster_models, self.multi_model_clusters, _ = \
                 self.cluster_obj.initialize_clusters(
                     self.models)
+            self.cluster_obj.visualize_clusters()
             print("Cluster object seeded with models.\n")
             print(f"Clustered models: {self.cluster_models}\n")
             print(f"Multi-model clusters: {self.multi_model_clusters}\n")
+            print(f"Visualized clusters.")
 
     def basic_addition_to_population(self, model, select, sim_ids=None):
         '''
