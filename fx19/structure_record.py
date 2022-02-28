@@ -177,6 +177,8 @@ class structure_constraints(object):
             self.shape = 'gb'
         elif 'surface' in str_record:
             self.shape = 'surface'
+        elif 'molecule' in str_record:
+            self.shape = 'molecule'
         # TODO: add other shapes here
 
         if self.shape == 'cluster':
@@ -278,6 +280,31 @@ class structure_constraints(object):
 
             if 'hop_mate_frac' in surface_params:
                 self.hop_mate_frac = surface_params['hop_mate_frac']
+
+        ###################### surface parameters ends #######################
+
+        #################### molecule parameters begins ######################
+        if self.shape == 'molecule':
+            if 'box_abc' in str_record['molecule']:
+                self.box_abc = str_record['molecule']['box_abc']
+            else:
+                print('The lattice lengths of the box are not specified.'
+                      ' Using default orthogonal box of a=b=c=20Å')
+                self.box_abc = [20, 20, 20]
+
+            if 'max_dia' in str_record['molecule']:
+                self.max_dia = str_record['molecule']['max_dia']
+            else:
+                print('The maximum diameter of the molecule is not specified. '
+                      'Using default diameter of 8Å')
+                self.max_dia = 8
+
+            if 'fixed_species' in str_record['molecule']:
+                self.fixed_species = str_record['molecule']['fixed_species']
+            else:
+                print('No species were specified as being held fixed. '
+                      'Using default setting of [].')
+                self.fixed_species = []
 
     def get_constraints(self):
         """

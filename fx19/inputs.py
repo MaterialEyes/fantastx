@@ -46,7 +46,7 @@ def make_objects(i_dict):
     all_objects['input_model_obj'] = input_model_obj
 
     # For cluster, initial population module is used for random models
-    if str_constraints['shape'] == 'cluster':
+    if str_constraints['shape'] == 'cluster' or str_constraints['shape'] == 'molecule':
         # make_random_model object from initial_population
         random_model_obj = initial_population.make_random_model(
             str_constraints)
@@ -69,7 +69,7 @@ def make_objects(i_dict):
     all_objects['energy_code'] = energy_code
 
     # make experimental_simulation object(s)
-    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'FEFF']
+    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'FEFF', 'XANES']
     if 'exp_sim_1' in i_dict:
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
@@ -82,6 +82,9 @@ def make_objects(i_dict):
                 Xsim1_params = get_ingrained_params(i_dict, 'exp_sim_1_params')
                 Xsim1_params['init_gb_path'] = str_record['gb']['init_gb_astr']
                 Xsim_1 = experimental_simulation.gb_ingrained(Xsim1_params)
+            if method_1 == "XANES":
+                Xsim1_params = get_xanes_params(i_dict, 'exp_sim_1_params')
+                Xsim_1 = experimental_simulation.xanes_of_model(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
     # Get the MOEA and search mode based on provided inputs
@@ -287,6 +290,10 @@ def make_objects(i_dict):
     if str_constraints['shape'] == 'cluster':
         basinhopping_params['max_dia'] = str_constraints['max_dia']
         basinhopping_params['box_abc'] = str_constraints['box_abc']
+    if str_constraints['shape'] == "molecule":
+        basinhopping_params['max_dia'] = str_constraints['max_dia']
+        basinhopping_params['box_abc'] = str_constraints['box_abc']
+        basinhopping_params['fixed_species'] = str_constraints['fixed_species']
     hop = structure_operations.basinhopping(basinhopping_params)
     # all_objects['hop'] = hop
 
@@ -302,7 +309,7 @@ def make_objects(i_dict):
 
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(i_dict, str_constraints)
-    if str_constraints['shape'] == 'cluster':
+    if str_constraints['shape'] == 'cluster' or str_constraints['shape'] == 'molecule':
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
@@ -418,6 +425,28 @@ def get_pdf_params(i_dict, exp_sim_params_id):
 
     return pdf_params
 
+def get_xanes_params(i_dict, exp_sim_params_id):
+    """
+    Reads the i_dict and returns xanes_params for experimental simulation method
+    that is used in search (if provided)
+    Does not mention defaults if not provided in input file. That happens in
+    experimental_simulation module
+
+    Args:
+
+    i_dict - (dict) dictionary of all the user-provided input parameters read
+    from yaml file
+
+    exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
+    simulation method.
+
+    #TODO: add 'exp_sim_2_params' if 2 sim methods are used
+    """
+    xanes_params = i_dict[exp_sim_params_id]
+    xanes_params['main_path'] = i_dict['main_path']
+
+    return xanes_params
+
 
 def get_ingrained_params(i_dict, exp_sim_params_id):
     """
@@ -476,9 +505,12 @@ def get_mating_params(i_dict, str_constraints):
     mating_params['num_species'] = str_constraints['num_species']
     mating_params['shape'] = str_constraints['shape']
     mating_params['element_syms'] = str_constraints['element_syms']
-    if mating_params['shape'] == 'cluster':
+    if mating_params['shape'] == 'cluster'\
+        or mating_params['shape'] == 'molecule':
         mating_params['box_abc'] = str_constraints['box_abc']
         mating_params['max_dia'] = str_constraints['max_dia']
+    if mating_params['shape'] == 'molecule':
+        mating_params['fixed_species'] = str_constraints['fixed_species']
 
     # species dicts
     # DU

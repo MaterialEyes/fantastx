@@ -216,17 +216,20 @@ working_jobs = get_working_jobs(evald_futures)
 start_time = time.time()
 # Make random models & evolved models
 pool_status_update = 10 # number of models before current pool status is printed
+models_evald = len(input_models)
 while models_evald < total_models_needed:
     working_jobs = get_working_jobs(evald_futures)
     # In some cases (lammps based), working_jobs always < max_workers
     # Ensure some structures are always in the queue for each worker so that
     # workers wont be idle if some step on master becomes bottle neck
-    while working_jobs < 2*max_workers and models_evald < total_models_needed:
+    while working_jobs < max_workers and models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
+            print("Submitting random job")
             new_model, select = make_model(random_model_obj, evolve, select,
                                            pool, reg_id, model_type='random')
         else:
+            print("Submitting evolved job")
             new_model, select = make_model(random_model_obj, evolve, select,
                                            pool, reg_id, model_type='evolved')
 

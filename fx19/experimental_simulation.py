@@ -30,6 +30,477 @@ except ImportError:
 from math import floor
 import numpy as np
 import os
+from subprocess import call
+from scipy.interpolate import CubicSpline, UnivariateSpline
+from ase.data import atomic_numbers
+
+class xanes_of_model(object):
+    """
+    This class contains functions to calculate the XANES, compare it against
+    the previously computed [Fe(CN)6]-4 spectra, and compare the difference
+    spectra against the experimental difference spectra.
+
+    Args:
+
+    xanes_params (dict): A dictionary of parameters used.
+    """
+
+    def __init__(self, xanes_params):
+        """
+        """
+        print("Initializing XANES module.")
+        # main path as in energy.py
+        self.name = 'XANES'
+        self.main_path = xanes_params['main_path']
+
+        if 'fdmnes_folder' in xanes_params:
+            self.fdmnes_folder = xanes_params['fdmnes_folder']
+        else:
+            self.fdmnes_folder = "/mnt/c/Users/dunru/Research/XANES/parallel_fdmnes"
+
+        if 'experiment_fe_2_filepath' in xanes_params:
+            self.fe_2_filepath = xanes_params["experiment_fe_2_filepath"] + "/experiment_fe2+.dat"
+        else:
+            self.fe_2_filepath = self.main_path + "/experiment_fe2+.dat"
+
+        if 'computational_fe_2_filepath' in xanes_params:
+            self.comp_fe_2_filepath = xanes_params["computational_fe_2_filepath"] + "/computational_fe2+.dat"
+        else:
+            self.comp_fe_2_filepath = self.main_path + "/computational_fe2+.dat"
+
+        if 'experiment_fe_3_filepath' in xanes_params:
+            self.fe_3_filepath = xanes_params["experiment_fe_3_filepath"] + "/experiment_fe3+.dat"
+        else:
+            self.fe_3_filepath = self.main_path + "/experiment_fe3+.dat"
+
+        self.spline_mesh = np.arange(7110, 7165, 0.25)
+
+        # Gather experimental data
+        self.arrays_fe_2, self.maxes_fe_2 = self.read_in_experimental_spectra(self.fe_2_filepath)
+        self.arrays_fe_3, self.maxes_fe_3 = self.read_in_experimental_spectra(self.fe_3_filepath)
+        fe_2_spline = self.fit_spline(self.arrays_fe_2[0], self.arrays_fe_2[1], self.spline_mesh, "cubic")
+        fe_3_spline = self.fit_spline(self.arrays_fe_3[0], self.arrays_fe_3[1], self.spline_mesh, "cubic")
+        self.experiment_dif_spectra = fe_3_spline - fe_2_spline
+
+        print("Gathered experimental data.")
+
+        # Gather fe_2 spectra
+        self.comp_arrays_fe_2, _ = self.read_in_calculated_spectra(self.comp_fe_2_filepath, self.maxes_fe_2)
+        self.comp_fe_2_spline = self.fit_spline(self.comp_arrays_fe_2[0], self.comp_arrays_fe_2[1], self.spline_mesh, "cubic")
+
+        print("Gathered pre-computed computational data.")
+
+    def fwhm2sigma(self, fwhm):
+        return fwhm / np.sqrt(8 * np.log(2))
+
+
+    def lorentzian_broadening(self, E, g_ch, g_m, E_cent, E_larg, E_f):
+        eps = (E - E_f)/E_cent
+        return g_ch + g_m*(0.5 + 1/np.pi*np.arctan(np.pi/3*g_m/E_larg*(eps-1/eps**2)))
+
+
+    def create_lorentzian_kernel(self, g_ch, g_m, E_cent, E_larg, E_f):
+        x_for_kernel = np.arange(-10, 10)
+        gammas = self.lorentzian_broadening(
+            x_for_kernel, g_ch, g_m, E_cent, E_larg, E_f)
+        kernel = 1/np.pi*(0.5*gammas)/((x_for_kernel)**2 + (0.5*gammas)**2)
+        kernel_above_thresh = kernel > 0.0001
+        finite_kernel = kernel[kernel_above_thresh]
+        finite_kernel = finite_kernel / finite_kernel.sum()
+        kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
+
+        return finite_kernel, kernel_n_below_0
+
+
+    def create_gaussian_kernel(self, fwhm):
+        '''
+        Create a gaussian kernel for convolution
+        '''
+        # create gaussian kernel
+        sigma = self.fwhm2sigma(fwhm)
+        x_for_kernel = np.arange(-10, 10)
+        kernel = np.exp(-(x_for_kernel) ** 2 / (2 * sigma ** 2))
+        kernel_above_thresh = kernel > 0.0001
+        finite_kernel = kernel[kernel_above_thresh]
+        finite_kernel = finite_kernel / finite_kernel.sum()
+        kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
+
+        return finite_kernel, kernel_n_below_0
+
+
+    def convolve_with_gaussian(self, fwhm, y_array):
+        '''
+        Convolve spectra with a gaussian
+
+        Returns convolved spectra
+        '''
+        n_points = len(y_array)
+        finite_kernel, kernel_n_below_0 = self.create_gaussian_kernel(fwhm)
+        convolved_y = np.convolve(y_array, finite_kernel)
+        smoothed_y = convolved_y[kernel_n_below_0:(
+            n_points + kernel_n_below_0)]
+
+        return smoothed_y
+
+
+    def convolve_with_lorentzian(self, y_array, g_ch, g_m, E_cent, E_larg, E_f):
+        '''
+        Convolve spectra with a lorentzian
+
+        Returns convolved spectra
+        '''
+        n_points = len(y_array)
+        finite_kernel, kernel_n_below_0 = self.create_lorentzian_kernel(
+            g_ch, g_m, E_cent, E_larg, E_f)
+        convolved_y = np.convolve(y_array, finite_kernel)
+        smoothed_y = convolved_y[kernel_n_below_0:(
+            n_points + kernel_n_below_0)]
+
+        return smoothed_y
+
+
+    def fit_spline(self, x_array, y_array, x_mesh, type):
+        '''
+        Fit a cubic spline to the spectra, and use it
+        to interpolate points onto a pre-defined mesh.
+
+        Returns the spline points on x_mesh
+        '''
+        if type == "cubic":
+            cs = CubicSpline(x_array, y_array)
+            # us = UnivariateSpline(x_array, y_array, s=0.01)
+            new_data = cs(x_mesh)
+        else:
+            us = UnivariateSpline(x_array, y_array, s=0.0001)
+            new_data = us(x_mesh)
+        return new_data
+
+    def read_in_experimental_spectra(self, file_path):
+        lines = open(file_path, "r").read().splitlines()
+        x_list = []
+        y_list = []
+        for line in lines:
+            newline = line.split()
+            if len(newline) != 0 and newline[0] != "#":
+                x = float(newline[0])*1000
+                y = float(newline[1])
+                x_list.append(x)
+                y_list.append(y)
+        x_array = np.array(x_list)
+        y_array = np.array(y_list)
+
+        smoothed_y = self.convolve_with_gaussian(0.5, y_array)
+
+        y_max = np.amax(smoothed_y)
+        x_max = x_array[np.argmax(smoothed_y)]
+
+        return (x_array, smoothed_y), (x_max, y_max)
+
+    def read_in_calculated_spectra(self, file_path, experimental_maxes):
+        lines = open(file_path, "r").read().splitlines()
+        x_list = []
+        y_list = []
+        energy_val = 0
+        for line_index, line in enumerate(lines):
+            newline = line.split()
+            if line_index == 0:
+                energy_val = float(newline[0])
+            if line_index > 1:
+                x = float(newline[0]) + energy_val
+                y = float(newline[1])*100
+                x_list.append(x)
+                y_list.append(y)
+        x_array = np.array(x_list)
+        y_array = np.array(y_list)
+
+        smoothed_y = self.convolve_with_lorentzian(
+            y_array, 1.33, 10.0, 30, 30, -8)
+
+        y_max = np.amax(smoothed_y)
+        x_max = x_array[np.argmax(smoothed_y)]
+        if np.argmax(smoothed_y) < 70:
+            print("Had to trim arrays.")
+            test_y_array = smoothed_y[70:]
+            x_max = x_array[np.argmax(test_y_array) + 70]
+            y_max = np.amax(test_y_array)
+
+            smoothed_y = smoothed_y[30:]
+            x_array = x_array[30:]
+
+        scale_factor = experimental_maxes[1] / y_max
+        shift_factor = experimental_maxes[0] - x_max
+
+        scaled_y = smoothed_y * scale_factor
+        shifted_x = x_array + shift_factor
+
+        return (shifted_x, scaled_y), (scale_factor, shift_factor)
+
+    def prepare_fdmnes(self, relax_path, fdmnes_path):
+        # Define the directory containing the VASP poscar, and define the filename
+        # which will match the FDMNES outputs
+        vaspfile = relax_path + "/POSCAR_relaxed"
+
+        fdmnes_input_folder = relax_path + "/FDMNES_in/"
+        fdmnes_output_folder = relax_path + "/FDMNES_out/"
+        try:
+            os.mkdir(fdmnes_input_folder)
+            print("Created FDMNES input directory.")
+        except FileExistsError:
+            print("Error. Input directory already exists.")
+        try:
+            os.mkdir(fdmnes_output_folder)
+            print("Created FDMNES input directory.")
+        except FileExistsError:
+            print("Error. Output directory already exists.")
+
+        fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
+        fdmnes_abbr_input_filename = fdmnes_input_filename # fdmnes_folder + "run" + sys.argv[1] + ".inp"
+        fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
+        fdmfile_filename = fdmnes_path + "/fdmfile.txt"
+
+        # Write the fdmfile.txt file
+        fdmfile = open(fdmfile_filename, "w+")
+        fdmfile.write("1\n")
+        fdmfile.write(fdmnes_abbr_input_filename + "\n")
+        fdmfile.close()
+
+        print("Wrote fdmfile")
+
+        # Define parameters for the calculation
+        cluster_radius = 6.5
+        structure_type = "molecule"
+        structure_id = "0"
+        if structure_type == "molecule":
+            structure_id = "1"
+        edge = "K"
+        molecule_radius = "3.5"
+        core_hole_site = "Fe"  # string or site index
+
+        fdmnes_cards = {
+            "Atom": 0, # if we want to define the valence orbitals ourselves (corresponds to electronic_densities below)
+            "Atom_conf": 1, #alternate way of defining the valence orbitals
+            "Green": 0, # if we want to use the multiple scattering mode
+            "Range": 1, # if we want to define the energy range (corresponds to e_grid below)
+            "Multipolar": 1,
+            "SCF": 1,
+            "Self_abs": 0,
+            "Double_cor": 0,
+            "Convolution" : 0,
+            "TDDFT": 1,
+            "Hubbard": 1,
+            "Perdew": 0,
+            "Chfree": 1
+        }
+
+        fdmnes_card_values = {
+            #"electronic_densities": {"13": "2 3 0 2 3 1 1", "8": "2 2 0 2 2 1 4"},
+            "electronic_densities": {"26": "3 3 2 5.5 4 0 1.5 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."},
+            "e_grid": "-5 0.2 7 0.8 50.0"
+            "multipole_expansion": "Quadrupole",
+            "Lmax_tddft": "2",
+            "hubbard_U": "5.3 0.0 0.0"
+        }
+
+        fdmnes_inputs = {
+            "Filout": fdmnes_output_filename,
+            "Radius": cluster_radius,
+            "Edge": "K"
+        }
+
+
+        # Read in POSCAR
+        filename = vaspfile
+        structure = Structure.from_file(filename)
+
+        # Absorber and core_hole_coords are determined based on structure
+        core_hole_index = 0
+        core_hole_coords = [0,0,0]
+        for n, site in enumerate(structure.sites):
+            specie = site.specie.symbol
+            if specie == core_hole_site:
+                core_hole_index = n
+                core_hole_coords = np.copy(site.coords)
+                absorber_index = n + 1
+        fdmnes_inputs["Absorber"] = str(absorber_index)
+
+        inputfile = open(fdmnes_input_filename, "w+")
+        separator = " "
+        for key, value in fdmnes_inputs.items():
+            inputfile.write(key + "\n")
+            inputfile.write(str(value) + "\n" + "\n")
+
+        for key, value in fdmnes_cards.items():
+            if value == 1 and key != "Convolution":
+                if key != "Multipolar":
+                    inputfile.write(key + "\n")
+                if key == "Atom":
+                    if "electronic_densities" in fdmnes_card_values.keys():
+                        for sub_key, sub_value in fdmnes_card_values["electronic_densities"].items():
+                            inputfile.write(sub_key + " " + sub_value + "\n")
+                    else:
+                        print("Need to add electronic_densities to fdmnes_card_values!")
+                if key == "Atom_conf":
+                    if "electronic_densities" in fdmnes_card_values.keys():
+                        all_atom_counts = {}
+                        all_atom_indices = {}
+                        atom_index = 1
+                        for site in structure.sites:
+                            specie = site.specie.symbol
+                            an = str(atomic_numbers[specie])
+                            if an in all_atom_counts:
+                                all_atom_counts[an] += 1
+                            else:
+                                all_atom_counts[an] = 1
+                            if an in all_atom_indices:
+                                all_atom_indices[an].append(str(atom_index))
+                            else:
+                                all_atom_indices[an] = [str(atom_index)]
+                            atom_index += 1
+
+                        for sub_key, sub_value in fdmnes_card_values["electronic_densities"].items():
+                            # Need to get number of atoms and their indices
+                            atom_count = str(all_atom_counts[sub_key])
+                            atom_indices = " ".join(all_atom_indices[sub_key])
+                            inputfile.write(atom_count + " " + atom_indices + " " + sub_value + "\n")
+                    else:
+                        print("Need to add electronic_densities to fdmnes_card_values!")
+                if key == "Range":
+                    if "e_grid" in fdmnes_card_values.keys():
+                        inputfile.write(fdmnes_card_values["e_grid"] + "\n")
+                    else:
+                        print("Need to add e_grid to fdmnes_card_values!")
+                if key == "TDDFT":
+                    if "Lmax_tddft" in fdmnes_card_values.keys():
+                        inputfile.write("Lmax_tddft\n")
+                        inputfile.write(fdmnes_card_values["Lmax_tddft"] + "\n")
+                if key == "Multipolar":
+                    inputfile.write(fdmnes_card_values["multipole_expansion"] + "\n")
+                if key == "Hubbard":
+                    inputfile.write(fdmnes_card_values["hubbard_U"] + "\n")
+
+                inputfile.write("\n")
+
+        # create atoms card
+        if structure_id == "1":
+            inputfile.write("Molecule\n")
+        else:
+            inputfile.write("Crystal\n")
+
+        # grab cartesian coordinates of lattice
+        abc = structure.lattice.abc
+        angles = structure.lattice.angles
+        l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
+        angle_vals = str(angles[0]) + " " + str(angles[1]) + " " + str(angles[2])
+        inputfile.write("    " + l_vals + " " + angle_vals + "\n")
+
+        for site in structure.sites:
+            print(site.coords)
+
+        for site in structure.sites:
+            specie = site.specie.symbol
+            an = atomic_numbers[specie]
+            coords = site.coords
+            mc = []
+            for i in range(3):
+                coords[i] -= core_hole_coords[i]
+                #coords[i] -= abc[i]/2
+                if coords[i] > abc[i]/2:
+                    mc.append((coords[i] - abc[i])/abc[i])
+                else:
+                    mc.append(coords[i]/abc[i])
+            inputfile.write(str(an) + "  " + str(mc[0]) + " " + str(mc[1]) + " " + str(mc[2]) + "\n")
+
+        inputfile.write("\n")
+
+        if fdmnes_cards["Convolution"] == 1:
+            inputfile.write("Convolution"+ "\n" + "\n")
+            inputfile.write("Gamma_max\n")
+            inputfile.write("7.5\n\n")
+
+        inputfile.write("END\n")
+        inputfile.close()
+
+    def evaluate_obj(self, model):
+        """
+        This function simulated the TEM image of a grain boundary model. Then,
+        compares it with the experimental TEM image (target). The objective
+        function is (1 - SSIM score) which is assigned as a model attribute
+        (obj1_val).
+
+        This function is a part of the API for all classes in
+        experimental_simulation module.
+
+        Returns model object
+
+        Args:
+
+        model (obj): structure_record.model() object for which TEM simulation
+                     is obtained and a mismatch score is assigned
+        """
+        relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
+
+        print(f"Relax path: {relax_path}")
+
+        # Prepare FDMNES input file and run simulation
+        fdmnes_bash_script = "." + self.main_path + "/automate_fdmnes.sh"
+        print("Preparing fdmnes.")
+        self.prepare_fdmnes(relax_path, self.fdmnes_folder)
+        print("Prepared fdmnes.")
+        current_dir=os.getcwd()
+        os.chdir(self.fdmnes_folder)
+        fdmnes = call(["./mpirun_fdmnes", "-np", "4", ">", "job.log"])
+        os.chdir(current_dir)
+
+        print("Ran fdmnes.")
+
+        # Reference XANES simulation against experiment
+        xanes_result_path = relax_path + "/FDMNES_out/run_fdmnes_result_tddft.txt"
+        self.comp_arrays_fe_3, (scale_factor, shift_factor) = self.read_in_calculated_spectra(xanes_result_path, self.maxes_fe_3)
+        self.comp_fe_3_spline = \
+            self.fit_spline(self.comp_arrays_fe_3[0], self.comp_arrays_fe_3[1], self.spline_mesh, "cubic")
+
+        print("Read in calculated spectra.")
+
+        # # Shift curves in order to minimize root mean square of difference spectras
+        compare_indices = (self.spline_mesh <= 7135) & (self.spline_mesh >= 7110)
+        lowest_rms = np.inf
+        lowest_shift = shift_factor
+        best_scale = scale_factor
+        lowest_spline = None
+        scale_factor_og = scale_factor
+        for i in range(-50, 50):
+            for j in range(-5, 5):
+                y_array = self.comp_arrays_fe_3[1]*(1 + 0.01*j/scale_factor_og)
+                x_array = self.comp_arrays_fe_3[0] - i*0.01
+                new_spline = self.fit_spline(
+                    x_array, y_array, self.spline_mesh, "cubic")
+                compare_spline = self.comp_fe_2_spline[compare_indices]
+                fdmnes_dif_spectra = new_spline[compare_indices] - \
+                    compare_spline
+                rms = np.sqrt(np.sum(np.square(fdmnes_dif_spectra -
+                                            self.experiment_dif_spectra[compare_indices]))/len(fdmnes_dif_spectra))
+
+                if rms < lowest_rms:
+                    lowest_rms = rms
+                    lowest_spline = new_spline
+
+        # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
+        # print(lowest_spline_array)
+        print(lowest_spline)
+        np.save(relax_path + "/model_sim_spectra.npy", lowest_spline)
+
+        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+        # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
+        if model.Xsim1 == 'XANES':
+            model.obj1_val = float((lowest_rms)*100)  # Minimizing the obj vals
+        elif model.Xsim2 == 'XANES':
+            model.obj2_val = float((lowest_rms)*100)
+        elif model.Xsim3 == 'XANES':
+            model.obj3_val = float((lowest_rms)*100)
+        elif model.Xsim4 == 'XANES':
+            model.obj4_val = float((lowest_rms)*100)
+
+        return model, lowest_rms
 
 
 class pdf_of_model(object):

@@ -33,7 +33,7 @@ class Evolve(object):
     A wrapper around mating and basinhopping classes. This is used to decide
     whether to do mating (GA) or mutation (basinhopping) to generate a new
     structure and calls either of these classes to generate a single model.
-    This class is only used in nanocluster geometry search.
+    This class is used in nanocluster and molecule geometry search.
     """
 
     def __init__(self, mate, hop, evolve_params):
@@ -194,7 +194,7 @@ class mating(object):
                 print('mirror_slice_before_join parameter should be a boolean.'
                       ' Setting to defaults True')
 
-        if mating_params['shape'] == 'cluster':
+        if mating_params['shape'] == 'cluster' or mating_params['shape'] == 'molecule':
             self.max_dia = mating_params['max_dia']
             self.box_abc = np.array(mating_params['box_abc'])
 
@@ -603,12 +603,17 @@ class basinhopping(object):
                 self.max_perturbation = basinhopping_params['max_perturbation']
 
         # maximum diameter and box lattice parameters of the cluster (geometry)
-        if self.shape == 'cluster':
+        if self.shape == 'cluster' or self.shape == 'molecule':
             # default is 8 Å
             self.max_dia = basinhopping_params['max_dia']
             # default a=b=c=20 Å
             self.box_abc = np.array(
                 basinhopping_params['box_abc'])
+        if self.shape == 'molecule':
+            self.fixed_species = basinhopping_params['fixed_species']
+            print(f"Atomic species held fixed: {self.fixed_species}")
+        else:
+            self.fixed_species = []
 
         # delta_comps list to modify the composition
         # Ex: ['AlO', 'Al2O', 'Al3O', 'Al4O', 'O2', 'Al2', 'Al3']
@@ -670,9 +675,27 @@ class basinhopping(object):
 
         # Get frac_coords to perturb
         total_num_atoms = len(cart_coords)
-        # use indices_fraction; default to 1
+        # use indices_fraction; default to 1. Adjust if any species need to be held fixed.
         num_atoms_to_perturb = int(total_num_atoms * indices_fraction)
+        if len(self.fixed_species) > 0:
+            cap_reduction = 0
+            for specie in self.fixed_species:
+                cap_reduction += parent.astr.composition.as_dict()[specie]
+            if num_atoms_to_perturb > total_num_atoms - cap_reduction:
+                num_atoms_to_perturb = total_num_atoms - cap_reduction
+
         D_inds = random.sample(range(0, total_num_atoms), num_atoms_to_perturb)
+        if len(self.fixed_species) > 0:
+            # Grab species which correspond to D_inds
+            bh_species = [parent.astr.sites[i].specie.name for i in D_inds]
+            occupancy = [i in self.fixed_species for i in bh_species]
+            problematic_basinhopping = np.any(occupancy)
+            while problematic_basinhopping is True:
+                D_inds = random.sample(range(0, total_num_atoms), num_atoms_to_perturb)
+                bh_species = [parent.astr.sites[i].specie.name for i in D_inds]
+                occupancy = [i in self.fixed_species for i in bh_species]
+                problematic_basinhopping = np.any(occupancy)
+        
         D_coords = [cart_coords[i] for i in D_inds]
 
         num_perturbed = 0
@@ -686,7 +709,7 @@ class basinhopping(object):
                 jump = self.max_perturbation
                 perturb = self.get_point_on_sphere(jump)
                 new_cart = one_coords + perturb
-                if self.shape == 'cluster':
+                if self.shape == 'cluster' or self.shape == "molecule":
                     # check if new cart is inside the cluster radius
                     origin = self.box_abc/2
                     if dc.dist(origin, new_cart) > self.max_dia/2:
@@ -715,7 +738,7 @@ class basinhopping(object):
         if num_perturbed >= jumps_needed:
             if self.shape == 'gb':
                 return parent.gb_iface, inheritance
-            elif self.shape == 'cluster':
+            elif self.shape == 'cluster' or self.shape == 'molecule':
                 return parent.astr, inheritance
         else:
             return None, None
