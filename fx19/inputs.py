@@ -67,6 +67,7 @@ def make_objects(i_dict):
         print('Please set energy_code in inputs as one of vasp'
               'or lammps or gulp')
     all_objects['energy_code'] = energy_code
+    print(f"Energy code: {energy_pkg}")
 
     # make experimental_simulation object(s)
     exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'FEFF', 'XANES']

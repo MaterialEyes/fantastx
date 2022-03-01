@@ -102,7 +102,7 @@ class lammps_code(object):
 
         relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
         os.mkdir(relax_path)
-        self.relax_path = relax_path
+        model.relax_path = relax_path
         astr = model.astr
         files_path = self.energy_files_path
         atom_style = self.atom_style
@@ -146,16 +146,18 @@ class lammps_code(object):
 
         reg_id (obj): structure_record.register_id() object for bookkeeping
         """
+        print(f"Prepping the job folder of model {model.label}.")
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
         # start the lammps calculation
-        relax_path = self.relax_path
+        relax_path = model.relax_path
+        print(f"Model {model.label} relax path is: {relax_path}")
         # relax_path = model.relax_path
-        os.chdir(relax_path)
+        # os.chdir(relax_path)
         lammps_exec = self.energy_exec_cmd.split()
-        with open('log_lammps.{}'.format(model.label), 'w') as log_file:
+        with open(relax_path + '/log_lammps.{}'.format(model.label), 'w') as log_file:
             lammps_job = sp.Popen(
-                lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT)
+                lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
             for each_line in lammps_job.stdout:
                 line = each_line.decode('utf-8')
                 log_file.write(line)

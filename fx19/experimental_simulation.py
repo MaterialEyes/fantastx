@@ -30,7 +30,7 @@ except ImportError:
 from math import floor
 import numpy as np
 import os
-from subprocess import call
+import subprocess as sp
 from scipy.interpolate import CubicSpline, UnivariateSpline
 from ase.data import atomic_numbers
 
@@ -72,6 +72,11 @@ class xanes_of_model(object):
             self.fe_3_filepath = xanes_params["experiment_fe_3_filepath"] + "/experiment_fe3+.dat"
         else:
             self.fe_3_filepath = self.main_path + "/experiment_fe3+.dat"
+
+        if 'fdmnes_exec_cmd' in xanes_params:
+            self.fdmnes_exec_cmd = xanes_params['fdmnes_exec_cmd']
+        else:
+            self.fdmnes_exec_cmd = "./mpirun_fdmnes -np 4"
 
         self.spline_mesh = np.arange(7110, 7165, 0.25)
 
@@ -256,15 +261,19 @@ class xanes_of_model(object):
         fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
         fdmnes_abbr_input_filename = fdmnes_input_filename # fdmnes_folder + "run" + sys.argv[1] + ".inp"
         fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
-        fdmfile_filename = fdmnes_path + "/fdmfile.txt"
+        fdmfile_filename = relax_path + "/fdmfile.txt"
+        fdmnes_mpirun_filename = relax_path + "/mpirun_fdmnes"
 
-        # Write the fdmfile.txt file
+
+        #############################################
+        #  Write the fdmfile.txt file #
         fdmfile = open(fdmfile_filename, "w+")
         fdmfile.write("1\n")
         fdmfile.write(fdmnes_abbr_input_filename + "\n")
         fdmfile.close()
 
-        print("Wrote fdmfile")
+        #############################################
+        # Write the fdmnes input file #
 
         # Define parameters for the calculation
         cluster_radius = 6.5
@@ -295,7 +304,7 @@ class xanes_of_model(object):
         fdmnes_card_values = {
             #"electronic_densities": {"13": "2 3 0 2 3 1 1", "8": "2 2 0 2 2 1 4"},
             "electronic_densities": {"26": "3 3 2 5.5 4 0 1.5 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."},
-            "e_grid": "-5 0.2 7 0.8 50.0"
+            "e_grid": "-5 0.2 7 0.8 50.0",
             "multipole_expansion": "Quadrupole",
             "Lmax_tddft": "2",
             "hubbard_U": "5.3 0.0 0.0"
@@ -393,8 +402,8 @@ class xanes_of_model(object):
         angle_vals = str(angles[0]) + " " + str(angles[1]) + " " + str(angles[2])
         inputfile.write("    " + l_vals + " " + angle_vals + "\n")
 
-        for site in structure.sites:
-            print(site.coords)
+        # for site in structure.sites:
+        #     print(site.coords)
 
         for site in structure.sites:
             specie = site.specie.symbol
@@ -420,6 +429,17 @@ class xanes_of_model(object):
         inputfile.write("END\n")
         inputfile.close()
 
+        ######################################
+        # Write the mpirun_fdmnes file
+        mpifile = open(fdmnes_mpirun_filename, "w+")
+        mpifile.write("#!/bin/bash\n")
+        mpifile.write(f"fdmnesDir={fdmnes_path}\n")
+        mpifile.write("IFS=$'\\n'\n")
+        mpifile.write(". \"${fdmnesDir}/mpirt/bin/intel64/mpivars.sh\"\n")
+        mpifile.write("\"${fdmnesDir}/mpirt/bin/intel64/mpirun\" $* \"${fdmnesDir}/fdmnes_mpi_linux64\"\n")
+        mpifile.write("IFS=$' \\t\\n'\n")
+        mpifile.close()
+
     def evaluate_obj(self, model):
         """
         This function simulated the TEM image of a grain boundary model. Then,
@@ -437,21 +457,20 @@ class xanes_of_model(object):
         model (obj): structure_record.model() object for which TEM simulation
                      is obtained and a mismatch score is assigned
         """
-        relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
-
-        print(f"Relax path: {relax_path}")
+        relax_path = model.relax_path
 
         # Prepare FDMNES input file and run simulation
-        fdmnes_bash_script = "." + self.main_path + "/automate_fdmnes.sh"
-        print("Preparing fdmnes.")
         self.prepare_fdmnes(relax_path, self.fdmnes_folder)
-        print("Prepared fdmnes.")
-        current_dir=os.getcwd()
-        os.chdir(self.fdmnes_folder)
-        fdmnes = call(["./mpirun_fdmnes", "-np", "4", ">", "job.log"])
-        os.chdir(current_dir)
 
-        print("Ran fdmnes.")
+        fdmnes_exec = self.fdmnes_exec_cmd.split()
+        with open(relax_path + '/log_fdmnes.{}'.format(model.label), 'w') as log_file:
+            fdmnes_job = sp.Popen(
+                fdmnes_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
+            for each_line in fdmnes_job.stdout:
+                line = each_line.decode('utf-8')
+                log_file.write(line)
+        # wait for the calculation to finish
+        fdmnes_job.wait()
 
         # Reference XANES simulation against experiment
         xanes_result_path = relax_path + "/FDMNES_out/run_fdmnes_result_tddft.txt"
@@ -486,7 +505,8 @@ class xanes_of_model(object):
 
         # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
         # print(lowest_spline_array)
-        print(lowest_spline)
+        # print(lowest_spline)
+        print(f"RMS score: {float((lowest_rms)*100)}")
         np.save(relax_path + "/model_sim_spectra.npy", lowest_spline)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...

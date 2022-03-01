@@ -146,9 +146,10 @@ def full_eval(model):
     parameters in all workers and master
     """
     # submit model to energy relaxation
+    print(f"Trying full eval of model: {model.label}")
     try:
         energy_code.relax(model, reg_id)
-    except FileExistsError:
+    except:
         print('Duplicate label in parallel processes. Skipping..')
         return None
 
@@ -161,6 +162,8 @@ def full_eval(model):
                     energy_code.re_relax(model)
                 except:
                     continue
+
+    print(f"Model converged: {model.converged}")
 
     # separate gb_iface for the energy evaluated futures
     separate_gb(energy_code, gb_ops_obj, model)
@@ -199,20 +202,29 @@ if input_model_obj is not None:
                 input_models.append(new_model)
 
     # evaluate the input models
-    for input_model in input_models:
-        new_model, select = make_model(random_model_obj, evolve, select, pool,
-                                       reg_id, model_type='inputs',
-                                       model=input_model)
-        # relax the model in dask-workers
-        out = client.submit(full_eval, new_model)
-        evald_futures.append(out)
+    submitted_input_models = 0
+    working_jobs = get_working_jobs(evald_futures)
+    while submitted_input_models < len(input_models):
+        working_jobs = get_working_jobs(evald_futures)
+        while working_jobs < max_workers:
+            input_model = input_models[submitted_input_models]
+            new_model, select = make_model(random_model_obj, evolve, select, pool,
+                                        reg_id, model_type='inputs',
+                                        model=input_model)
+            print(f"Made new input model. Model label is: {new_model.label}")
+            # relax the model in dask-workers
+            out = client.submit(full_eval, new_model)
+            evald_futures.append(out)
+            submitted_input_models += 1
+            print(f"Successfully submitted input model {submitted_input_models}")
+            working_jobs = get_working_jobs(evald_futures)
     print('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
 num_initial_pop = i_dict['population_limits']['initial_population']
 total_models_needed = i_dict['population_limits']['total_population']
 working_jobs = get_working_jobs(evald_futures)
-
+print(working_jobs)
 start_time = time.time()
 # Make random models & evolved models
 pool_status_update = 10 # number of models before current pool status is printed

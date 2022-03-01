@@ -54,6 +54,7 @@ class model(object):
         # where the structure came from (list of ints)
         self.inheritance = None
         self.made_by = None
+        self.relax_path = None
         # set exp sim functions as variables
         self.Xsim1 = None
         self.Xsim2 = None
