@@ -102,6 +102,7 @@ class lammps_code(object):
 
         relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
         os.mkdir(relax_path)
+        self.relax_path = relax_path
         model.relax_path = relax_path
         astr = model.astr
         files_path = self.energy_files_path
@@ -499,6 +500,7 @@ class vasp_code(object):
         relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
         os.mkdir(relax_path)
         self.relax_path = relax_path
+        model.relax_path = relax_path
         astr = model.astr
         files_path = self.energy_files_path
 
@@ -523,7 +525,7 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        if self.shape == 'cluster':
+        if self.shape == 'cluster' or self.shape == "molecule":
             model.astr.to(filename=new_poscar, fmt='poscar')
 
         if self.shape == 'gb':
@@ -558,10 +560,7 @@ class vasp_code(object):
         """
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
-        # start the lammps calculation
-        relax_path = self.relax_path
-        # Go to job directory
-        os.chdir(relax_path)
+        # start the vasp calculation
         self.run_vasp(model)
 
     def re_relax(self, model):
@@ -594,18 +593,16 @@ class vasp_code(object):
         model (obj): structure_record.model() object for which energy
         evaluation will be done
         """
-        # returns nothing
-
         vasp_exec = self.energy_exec_cmd.split()
         log_file = open('job.log', 'w')
         err_file = open('job.err', 'w')
-        sp.call(vasp_exec, stdout=log_file, stderr=err_file)
+        sp.call(vasp_exec, stdout=log_file, stderr=err_file, cwd = model.relax_path)
         # sp.call will wait for the calculation to finish
 
         # TODO: get energy
         # check if calculation is converged
         converged = False
-        outcar = self.relax_path + '/OUTCAR'
+        outcar = model.relax_path + '/OUTCAR'
         with open(outcar) as out:
             lines = out.readlines()
             for line in lines:
@@ -621,7 +618,7 @@ class vasp_code(object):
             model.converged = converged
 
             # get total energy from output files
-            oszicar = self.relax_path + '/OSZICAR'
+            oszicar = model.relax_path + '/OSZICAR'
             with open(oszicar) as oz:
                 lines = oz.readlines()
             if lines[-1].split()[3] == 'E0=':
@@ -630,8 +627,8 @@ class vasp_code(object):
 
             # get relaxed structure
             try:
-                contcar = self.relax_path + '/CONTCAR'
-                shutil.copy(contcar, self.relax_path + '/POSCAR_relaxed')
+                contcar = model.relax_path + '/CONTCAR'
+                shutil.copy(contcar, model.relax_path + '/POSCAR_relaxed')
                 relaxed_astr = Structure.from_file(contcar)
                 relaxed_astr.sort()
                 self.move_atoms_inside(relaxed_astr)
