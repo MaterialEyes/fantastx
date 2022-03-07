@@ -96,6 +96,8 @@ max_workers = workers['max_workers']
 #job_script = '/home/dunruh/sample_job_script.txt'
 #jobfile = open(job_script, "w+")
 if workers['cluster'] == 'SLURM':
+    job_script = '/home/dunruh/fantastx_vasp_xanes/sample_job_script.txt'
+    jobfile = open(job_script, "w+")
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                processes=workers['processes'],
@@ -104,12 +106,15 @@ if workers['cluster'] == 'SLURM':
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'],
+                               env_extra=workers['env_extra'],
                                header_skip=workers['header_skip'])
     print ("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
     jobfile.write(cluster_job.job_script())
     jobfile.close()
 elif workers['cluster'] == 'PBS':
+    job_script = '/home/dunruh/sample_job_script.txt'
+    jobfile = open(job_script, "w+")
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
                              project=workers['project_name'],
@@ -217,18 +222,28 @@ if input_model_obj is not None:
             evald_futures.append(out)
             submitted_input_models += 1
             print(f"Successfully submitted input model {submitted_input_models}")
+            evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                                models_evald,
+                                                                pool, select,
+                                                                data_file,
+                                                                sim_ids)
             working_jobs = get_working_jobs(evald_futures)
     print('Input models are finished. Making random models..')
     # Post-processing & Xsim are done along with random models for input models
 
 num_initial_pop = i_dict['population_limits']['initial_population']
 total_models_needed = i_dict['population_limits']['total_population']
+evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                            models_evald,
+                                                            pool, select,
+                                                            data_file,
+                                                            sim_ids)
 working_jobs = get_working_jobs(evald_futures)
 print(working_jobs)
 start_time = time.time()
 # Make random models & evolved models
 pool_status_update = 10 # number of models before current pool status is printed
-models_evald = len(input_models)
+# models_evald = len(input_models)
 while models_evald < total_models_needed:
     working_jobs = get_working_jobs(evald_futures)
     # In some cases (lammps based), working_jobs always < max_workers

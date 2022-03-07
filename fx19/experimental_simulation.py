@@ -33,6 +33,7 @@ import os
 import subprocess as sp
 from scipy.interpolate import CubicSpline, UnivariateSpline
 from ase.data import atomic_numbers
+from fx19.fingerprinting import DistanceCalculator
 
 class xanes_of_model(object):
     """
@@ -77,6 +78,12 @@ class xanes_of_model(object):
             self.fdmnes_exec_cmd = xanes_params['fdmnes_exec_cmd']
         else:
             self.fdmnes_exec_cmd = "./mpirun_fdmnes -np 4"
+
+        if 'spectra_distance_metric' in xanes_params:
+            self.distance_calculator = DistanceCalculator(xanes_params['spectra_distance_metric'])
+        else:
+            # options are any of those in fingerprinting.DistanceCalculator
+            self.distance_calculator = DistanceCalculator('rmse')
 
         self.spline_mesh = np.arange(7110, 7165, 0.25)
 
@@ -430,7 +437,7 @@ class xanes_of_model(object):
         inputfile.close()
 
         ######################################
-        # Write the mpirun_fdmnes file
+        # Write the mpirun_fdmnes file. Only needed if on local computer.
         mpifile = open(fdmnes_mpirun_filename, "w+")
         mpifile.write("#!/bin/bash\n")
         mpifile.write(f"fdmnesDir={fdmnes_path}\n")
@@ -439,6 +446,11 @@ class xanes_of_model(object):
         mpifile.write("\"${fdmnesDir}/mpirt/bin/intel64/mpirun\" $* \"${fdmnesDir}/fdmnes_mpi_linux64\"\n")
         mpifile.write("IFS=$' \\t\\n'\n")
         mpifile.close()
+
+        # Make the mpifile executable
+        make_exc_string = "chmod +rx " + fdmnes_mpirun_filename
+        make_exc_command = make_exc_string.split()
+        sp.call(make_exc_command)
 
     def evaluate_obj(self, model):
         """
@@ -482,7 +494,7 @@ class xanes_of_model(object):
 
         # # Shift curves in order to minimize root mean square of difference spectras
         compare_indices = (self.spline_mesh <= 7135) & (self.spline_mesh >= 7110)
-        lowest_rms = np.inf
+        lowest_spectra_distance = np.inf
         lowest_shift = shift_factor
         best_scale = scale_factor
         lowest_spline = None
@@ -496,31 +508,30 @@ class xanes_of_model(object):
                 compare_spline = self.comp_fe_2_spline[compare_indices]
                 fdmnes_dif_spectra = new_spline[compare_indices] - \
                     compare_spline
-                rms = np.sqrt(np.sum(np.square(fdmnes_dif_spectra -
-                                            self.experiment_dif_spectra[compare_indices]))/len(fdmnes_dif_spectra))
+                spectra_distance = self.distance_calculator(fdmnes_dif_spectra, self.experiment_dif_spectra[compare_indices])
 
-                if rms < lowest_rms:
-                    lowest_rms = rms
+                if spectra_distance < lowest_spectra_distance:
+                    lowest_spectra_distance = spectra_distance
                     lowest_spline = new_spline
 
         # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
         # print(lowest_spline_array)
         # print(lowest_spline)
-        print(f"RMS score: {float((lowest_rms)*100)}")
+        print(f"RMS score: {float((lowest_spectra_distance)*100)}")
         np.save(relax_path + "/model_sim_spectra.npy", lowest_spline)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
         if model.Xsim1 == 'XANES':
-            model.obj1_val = float((lowest_rms)*100)  # Minimizing the obj vals
+            model.obj1_val = float((lowest_spectra_distance)*100)  # Minimizing the obj vals
         elif model.Xsim2 == 'XANES':
-            model.obj2_val = float((lowest_rms)*100)
+            model.obj2_val = float((lowest_spectra_distance)*100)
         elif model.Xsim3 == 'XANES':
-            model.obj3_val = float((lowest_rms)*100)
+            model.obj3_val = float((lowest_spectra_distance)*100)
         elif model.Xsim4 == 'XANES':
-            model.obj4_val = float((lowest_rms)*100)
+            model.obj4_val = float((lowest_spectra_distance)*100)
 
-        return model, lowest_rms
+        return model, lowest_spectra_distance
 
 
 class pdf_of_model(object):

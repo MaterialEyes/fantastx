@@ -7,7 +7,7 @@ from sklearn.preprocessing import normalize
 from fx19 import distance_check as dc
 import numpy as np
 import math
-from sklearn.metrics import pairwise_distances, pairwise
+from sklearn.metrics import pairwise_distances, pairwise, mean_squared_error, mean_absolute_error, r2_score
 from pymatgen.core.structure import Structure, Lattice
 
 def cutoff(dist, dist_cut):
@@ -18,7 +18,15 @@ def cutoff(dist, dist_cut):
 
 class DistanceCalculator(object):
     def __init__(self, metric):
-        self.metric = metric
+        valid_metrics = ["manhattan", "euclidean", "cosine", "laplacian",\
+            "gaussian", "mae", "mse", "rmse", "r2_score"]
+        if metric not in valid_metrics:
+            print("User assigned metric {metric} not contained in the the set"\
+                "of valid DistanceCalculator metrics: {valid_metrics}. Default"\
+                     "option 'euclidean' assigned.")
+            self.metric = "euclidean"
+        else:
+            self.metric = metric
     def create(self, fingerprint1, fingerprint2):
         if self.metric == "euclidean":
             return pairwise_distances(fingerprint1, fingerprint2, metric = "euclidean")[0][0]
@@ -33,6 +41,14 @@ class DistanceCalculator(object):
             return 1 - pairwise.laplacian_kernel(fingerprint1, fingerprint2, gamma = 1e-2)[0][0]
         if self.metric == "gaussian":
             return 1 - pairwise.rbf_kernel(fingerprint1, fingerprint2, gamma = 1e-2)[0][0]
+        if self.metric == "rmse":
+            return mean_squared_error(fingerprint1, fingerprint2, squared = False)
+        if self.metric == "mse":
+            return mean_squared_error(fingerprint1, fingerprint2, squared = True)
+        if self.metric == "mae":
+            return mean_absolute_error(fingerprint1, fingerprint2)
+        if self.metric == "r2_score":
+            return r2_score(fingerprint1, fingerprint2)
 
 class Comparator(object):
     '''

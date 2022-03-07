@@ -1461,44 +1461,46 @@ class Population(object):
         cluster (True) as the first parent model, or a different cluster
         (False).
         '''
-        if cluster is None:
-            [model_one, model_two] = np.random.choice(self.models, 2)
-        else:
-            # Refer to cluster dictionary to get models
-            if same:
-                models = self.cluster_models[cluster]
-                # Usurp this requirement if cluster is single occupancy
-                if len(models) == 1:
-                    try:
-                        other_cluster = np.random.choice(self.multi_model_clusters)
-                    except:
-                        print(f"All clusters: {self.cluster_models}")
-                        print(f"Multi model clusters: {self.multi_model_clusters}")
-                        other_cluster = cluster
+        if len(self.models) >= 2:
+            if cluster is None:
+                [model_one, model_two] = np.random.choice(self.models, 2)
+            else:
+                # Refer to cluster dictionary to get models
+                if same:
+                    models = self.cluster_models[cluster]
+                    # Usurp this requirement if cluster is single occupancy
+                    if len(models) == 1:
+                        try:
+                            other_cluster = np.random.choice(self.multi_model_clusters)
+                        except:
+                            print(f"All clusters: {self.cluster_models}")
+                            print(f"Multi model clusters: {self.multi_model_clusters}")
+                            other_cluster = cluster
+                        models = self.cluster_models[other_cluster]
+                        [model_one, model_two] = np.random.choice(models, 2)
+                    else:
+                        [model_one, model_two] = np.random.choice(models, 2)
+                        if len(models) == 2:
+                            # return the dominated model, because it is the model
+                            # which does not live in the archive
+                            nd_model = self._dominance.choose_non_dominated(
+                                model_one, model_two)
+                            return models[models.index(nd_model) - 1]
+                else:
+                    other_cluster = np.random.choice(self.multi_model_clusters)
+                    while other_cluster == cluster and \
+                            len(self.multi_model_clusters) != 1:
+                        try:
+                            other_cluster = np.random.choice(self.multi_model_clusters)
+                        except:
+                            print(f"All clusters: {self.cluster_models}")
+                            print(f"Multi model clusters: {self.multi_model_clusters}")
+                            other_cluster = cluster
                     models = self.cluster_models[other_cluster]
                     [model_one, model_two] = np.random.choice(models, 2)
-                else:
-                    [model_one, model_two] = np.random.choice(models, 2)
-                    if len(models) == 2:
-                        # return the dominated model, because it is the model
-                        # which does not live in the archive
-                        nd_model = self._dominance.choose_non_dominated(
-                            model_one, model_two)
-                        return models[models.index(nd_model) - 1]
-            else:
-                other_cluster = np.random.choice(self.multi_model_clusters)
-                while other_cluster == cluster and \
-                        len(self.multi_model_clusters) != 1:
-                    try:
-                        other_cluster = np.random.choice(self.multi_model_clusters)
-                    except:
-                        print(f"All clusters: {self.cluster_models}")
-                        print(f"Multi model clusters: {self.multi_model_clusters}")
-                        other_cluster = cluster
-                models = self.cluster_models[other_cluster]
-                [model_one, model_two] = np.random.choice(models, 2)
-
-        return self._dominance.choose_non_dominated(model_one, model_two)
+            return self._dominance.choose_non_dominated(model_one, model_two)
+        else:
+            return self.models[0]
 
 
 class Archive(object):

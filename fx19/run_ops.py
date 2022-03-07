@@ -138,7 +138,7 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
                 continue
             # check redundancy of the new model with all previous models
             model_is_unique = pool.comparator.check_model_uniqueness(new_model,
-                                                pool.all_models, exact=False)
+                                                pool.all_models, exact=True)
         # add the new_model inheritance to select.all_parent_labels
         select.all_parent_labels += new_model.inheritance
 

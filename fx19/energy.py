@@ -594,8 +594,8 @@ class vasp_code(object):
         evaluation will be done
         """
         vasp_exec = self.energy_exec_cmd.split()
-        log_file = open('job.log', 'w')
-        err_file = open('job.err', 'w')
+        log_file = open(model.relax_path + '/job.log', 'w')
+        err_file = open(model.relax_path + '/job.err', 'w')
         sp.call(vasp_exec, stdout=log_file, stderr=err_file, cwd = model.relax_path)
         # sp.call will wait for the calculation to finish
 
