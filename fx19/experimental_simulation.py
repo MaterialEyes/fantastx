@@ -34,6 +34,7 @@ import subprocess as sp
 from scipy.interpolate import CubicSpline, UnivariateSpline
 from ase.data import atomic_numbers
 from fx19.fingerprinting import DistanceCalculator
+import re
 
 class xanes_of_model(object):
     """
@@ -85,20 +86,39 @@ class xanes_of_model(object):
             # options are any of those in fingerprinting.DistanceCalculator
             self.distance_calculator = DistanceCalculator('rmse')
 
-        self.spline_mesh = np.arange(7110, 7165, 0.25)
+        if 'spline_mesh_params' in xanes_params:
+            spline_min = xanes_params['spline_mesh_params'][0]
+            spline_max = xanes_params['spline_mesh_params'][1]
+            spline_step = xanes_params['spline_mesh_params'][2]
+            self.spline_mesh = np.arange(spline_min, spline_max, spline_step)
+            self.mesh_step = spline_step
+        else:
+            self.spline_mesh = np.arange(7110, 7165, 0.1)
+            self.mesh_step = 0.1
+
+        if 'convolution_params' in xanes_params:
+            self.convolution_type = xanes_params['convolution_params'][0]
+            self.convolution_params = xanes_params['convolution_params'][1]
+            self.extract_cutting_energy = xanes_params['convolution_params'][2]
+        else:
+            self.convolution_type = 'lorentzian'
+            self.convolution_params = [1.33, 15., 23.5, 23.5, -8]
+            self.extract_cutting_energy = True
+        self.cutting_energy_correction = -11.
+        self.refine_alignment_using_difference_spectra = False
 
         # Gather experimental data
         self.arrays_fe_2, self.maxes_fe_2 = self.read_in_experimental_spectra(self.fe_2_filepath)
         self.arrays_fe_3, self.maxes_fe_3 = self.read_in_experimental_spectra(self.fe_3_filepath)
-        fe_2_spline = self.fit_spline(self.arrays_fe_2[0], self.arrays_fe_2[1], self.spline_mesh, "cubic")
-        fe_3_spline = self.fit_spline(self.arrays_fe_3[0], self.arrays_fe_3[1], self.spline_mesh, "cubic")
+        fe_2_spline = self.fit_spline(self.arrays_fe_2[0], self.arrays_fe_2[1], "cubic")
+        fe_3_spline = self.fit_spline(self.arrays_fe_3[0], self.arrays_fe_3[1], "cubic")
         self.experiment_dif_spectra = fe_3_spline - fe_2_spline
 
         print("Gathered experimental data.")
 
         # Gather fe_2 spectra
         self.comp_arrays_fe_2, _ = self.read_in_calculated_spectra(self.comp_fe_2_filepath, self.maxes_fe_2)
-        self.comp_fe_2_spline = self.fit_spline(self.comp_arrays_fe_2[0], self.comp_arrays_fe_2[1], self.spline_mesh, "cubic")
+        self.comp_fe_2_spline = self.fit_spline(self.comp_arrays_fe_2[0], self.comp_arrays_fe_2[1], "cubic")
 
         print("Gathered pre-computed computational data.")
 
@@ -109,6 +129,35 @@ class xanes_of_model(object):
     def lorentzian_broadening(self, E, g_ch, g_m, E_cent, E_larg, E_f):
         eps = (E - E_f)/E_cent
         return g_ch + g_m*(0.5 + 1/np.pi*np.arctan(np.pi/3*g_m/E_larg*(eps-1/eps**2)))
+
+    def calculate_zero_derivative_peak(self, x_array, y_array):
+        '''
+        Adjusts the peak of the spectra to be the point closest to the
+        maximum intensity point where the first derivative is zero. The
+        spectra is first fitted with a spline, so as to correspond with
+        the final mesh which will be used.
+        The first derivative is then calculated numerically as:
+        f'(x) = f(x+h) - f(x-h)/(2*h)
+        The second derivative is then calculated numerically as:
+        f''(x) = (f(x+h) - 2*f(x) + f(x-h))/(h**2)
+        The zero-crossing of the first derivative is then estimated
+        by approximating the second-derivative as constant in this
+        narrow mesh interval.
+        
+        Returns the estimated x-coordinate of the peak.
+        '''
+        spline_y = self.fit_spline(x_array, y_array, "cubic")
+        y_max = np.amax(spline_y)
+        max_indice = np.argmax(spline_y)
+        x_max = self.spline_mesh[np.argmax(spline_y)]
+
+        # now find the second_derivative maximum
+        peak_derivative = (spline_y[max_indice + 1] - spline_y[max_indice - 1])/(2*self.mesh_step)
+        peak_second_derivative = (spline_y[max_indice + 1] - 2*spline_y[max_indice] + spline_y[max_indice - 1])/(self.mesh_step**2)
+        zero_derivative_adjustment = (-peak_derivative)/peak_second_derivative
+        x_max = x_max + zero_derivative_adjustment
+
+        return x_max
 
 
     def create_lorentzian_kernel(self, g_ch, g_m, E_cent, E_larg, E_f):
@@ -171,7 +220,7 @@ class xanes_of_model(object):
         return smoothed_y
 
 
-    def fit_spline(self, x_array, y_array, x_mesh, type):
+    def fit_spline(self, x_array, y_array, type):
         '''
         Fit a cubic spline to the spectra, and use it
         to interpolate points onto a pre-defined mesh.
@@ -181,10 +230,10 @@ class xanes_of_model(object):
         if type == "cubic":
             cs = CubicSpline(x_array, y_array)
             # us = UnivariateSpline(x_array, y_array, s=0.01)
-            new_data = cs(x_mesh)
+            new_data = cs(self.spline_mesh)
         else:
             us = UnivariateSpline(x_array, y_array, s=0.0001)
-            new_data = us(x_mesh)
+            new_data = us(self.spline_mesh)
         return new_data
 
     def read_in_experimental_spectra(self, file_path):
@@ -204,7 +253,7 @@ class xanes_of_model(object):
         smoothed_y = self.convolve_with_gaussian(0.5, y_array)
 
         y_max = np.amax(smoothed_y)
-        x_max = x_array[np.argmax(smoothed_y)]
+        x_max = self.calculate_zero_derivative_peak(x_array, smoothed_y)
 
         return (x_array, smoothed_y), (x_max, y_max)
 
@@ -225,19 +274,32 @@ class xanes_of_model(object):
         x_array = np.array(x_list)
         y_array = np.array(y_list)
 
-        smoothed_y = self.convolve_with_lorentzian(
-            y_array, 1.33, 10.0, 30, 30, -8)
+        if self.convolution_type == "lorentzian":
+            if self.extract_cutting_energy:
+                # Grab the fermi level to cut with
+                pattern = re.compile("Cycle  19")
+                bav_file = file_path[:-9] + "bav.txt"
+                lines = open(bav_file, "r").read().splitlines()
+                for line in lines:
+                    match = re.search(pattern, line)
+                    if match is not None:
+                        fermi_energy = float(line.split()[5])
+                        fermi_energy += self.cutting_energy_correction
+                        self.convolution_params[4] = fermi_energy
+                        break
+            smoothed_y = self.convolve_with_lorentzian(
+                y_array, *self.convolution_params)
+        else:
+            smoothed_y = self.convolve_with_gaussian(y_array, *self.convolution_params)
 
-        y_max = np.amax(smoothed_y)
-        x_max = x_array[np.argmax(smoothed_y)]
-        if np.argmax(smoothed_y) < 70:
+        max_indice = np.argmax(smoothed_y)
+        if max_indice < 30:
             print("Had to trim arrays.")
-            test_y_array = smoothed_y[70:]
-            x_max = x_array[np.argmax(test_y_array) + 70]
-            y_max = np.amax(test_y_array)
-
             smoothed_y = smoothed_y[30:]
             x_array = x_array[30:]
+
+        y_max = np.amax(smoothed_y)
+        x_max = self.calculate_zero_derivative_peak(x_array, smoothed_y)
 
         scale_factor = experimental_maxes[1] / y_max
         shift_factor = experimental_maxes[0] - x_max
@@ -283,13 +345,13 @@ class xanes_of_model(object):
         # Write the fdmnes input file #
 
         # Define parameters for the calculation
-        cluster_radius = 6.5
+        cluster_radius = 4.0
         structure_type = "molecule"
         structure_id = "0"
         if structure_type == "molecule":
             structure_id = "1"
         edge = "K"
-        molecule_radius = "3.5"
+        molecule_radius = "4.0"
         core_hole_site = "Fe"  # string or site index
 
         fdmnes_cards = {
@@ -297,6 +359,7 @@ class xanes_of_model(object):
             "Atom_conf": 1, #alternate way of defining the valence orbitals
             "Green": 0, # if we want to use the multiple scattering mode
             "Range": 1, # if we want to define the energy range (corresponds to e_grid below)
+            "Screening": 1,
             "Multipolar": 1,
             "SCF": 1,
             "Self_abs": 0,
@@ -309,11 +372,11 @@ class xanes_of_model(object):
         }
 
         fdmnes_card_values = {
-            #"electronic_densities": {"13": "2 3 0 2 3 1 1", "8": "2 2 0 2 2 1 4"},
             "electronic_densities": {"26": "3 3 2 5.5 4 0 1.5 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."},
             "e_grid": "-5 0.2 7 0.8 50.0",
             "multipole_expansion": "Quadrupole",
-            "Lmax_tddft": "2",
+            "screening_orbital": "3 2 0.55",
+            # "Lmax_tddft": "2",
             "hubbard_U": "5.3 0.0 0.0"
         }
 
@@ -389,6 +452,9 @@ class xanes_of_model(object):
                     if "Lmax_tddft" in fdmnes_card_values.keys():
                         inputfile.write("Lmax_tddft\n")
                         inputfile.write(fdmnes_card_values["Lmax_tddft"] + "\n")
+                if key == "Screening":
+                    if "screening_orbital" in fdmnes_card_values.keys():
+                        inputfile.write(fdmnes_card_values["screening_orbital"] + "\n")
                 if key == "Multipolar":
                     inputfile.write(fdmnes_card_values["multipole_expansion"] + "\n")
                 if key == "Hubbard":
@@ -492,27 +558,33 @@ class xanes_of_model(object):
 
         print("Read in calculated spectra.")
 
-        # # Shift curves in order to minimize root mean square of difference spectras
         compare_indices = (self.spline_mesh <= 7135) & (self.spline_mesh >= 7110)
-        lowest_spectra_distance = np.inf
-        lowest_shift = shift_factor
-        best_scale = scale_factor
-        lowest_spline = None
-        scale_factor_og = scale_factor
-        for i in range(-50, 50):
-            for j in range(-5, 5):
-                y_array = self.comp_arrays_fe_3[1]*(1 + 0.01*j/scale_factor_og)
-                x_array = self.comp_arrays_fe_3[0] - i*0.01
-                new_spline = self.fit_spline(
-                    x_array, y_array, self.spline_mesh, "cubic")
-                compare_spline = self.comp_fe_2_spline[compare_indices]
-                fdmnes_dif_spectra = new_spline[compare_indices] - \
-                    compare_spline
-                spectra_distance = self.distance_calculator(fdmnes_dif_spectra, self.experiment_dif_spectra[compare_indices])
+        if self.refine_alignment_using_difference_spectra:
+            # Shift curves in order to minimize root mean square of difference spectras
+            lowest_spectra_distance = np.inf
+            lowest_shift = shift_factor
+            best_scale = scale_factor
+            lowest_spline = None
+            scale_factor_og = scale_factor
+            for i in range(-50, 50):
+                for j in range(-5, 5):
+                    y_array = self.comp_arrays_fe_3[1]*(1 + 0.01*j/scale_factor_og)
+                    x_array = self.comp_arrays_fe_3[0] - i*0.01
+                    new_spline = self.fit_spline(
+                        x_array, y_array, self.spline_mesh, "cubic")
+                    compare_spline = self.comp_fe_2_spline[compare_indices]
+                    fdmnes_dif_spectra = new_spline[compare_indices] - \
+                        compare_spline
+                    spectra_distance = self.distance_calculator.create(fdmnes_dif_spectra, self.experiment_dif_spectra[compare_indices])
 
-                if spectra_distance < lowest_spectra_distance:
-                    lowest_spectra_distance = spectra_distance
-                    lowest_spline = new_spline
+                    if spectra_distance < lowest_spectra_distance:
+                        lowest_spectra_distance = spectra_distance
+                        lowest_spline = new_spline
+        else:
+            compare_spline = self.comp_fe_2_spline[compare_indices]
+            fdmnes_dif_spectra = self.comp_fe_3_spline[compare_indices] - \
+                compare_spline
+            spectra_distance =  self.distance_calculator.create(fdmnes_dif_spectra, self.experiment_dif_spectra[compare_indices])
 
         # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
         # print(lowest_spline_array)

@@ -652,7 +652,8 @@ class vasp_code(object):
                     print("Error. VASP species " + elem +
                           " not contained in input yaml file.")
 
-            model.obj0_val = float(free_en)
+            #model.obj0_val = float(free_en)
+            model.obj0_val = total_energy/model.astr.num_sites
             # other objective functions should be evaluated here.
 
     def move_atoms_inside(self, astr):

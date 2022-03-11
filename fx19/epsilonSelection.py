@@ -1269,11 +1269,11 @@ class Population(object):
             self.cluster_models, self.multi_model_clusters, _ = \
                 self.cluster_obj.initialize_clusters(
                     self.models)
-            self.cluster_obj.visualize_clusters()
+            # self.cluster_obj.visualize_clusters()
             print("Cluster object seeded with models.\n")
             print(f"Clustered models: {self.cluster_models}\n")
             print(f"Multi-model clusters: {self.multi_model_clusters}\n")
-            print(f"Visualized clusters.")
+            # print(f"Visualized clusters.")
 
     def basic_addition_to_population(self, model, select, sim_ids=None):
         '''
