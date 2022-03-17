@@ -211,7 +211,7 @@ if input_model_obj is not None:
     working_jobs = get_working_jobs(evald_futures)
     while submitted_input_models < len(input_models):
         working_jobs = get_working_jobs(evald_futures)
-        while working_jobs < max_workers and models_evald < 2:
+        while working_jobs < max_workers and models_evald < len(input_models) - i_dict['workers']['max_workers']:
             input_model = input_models[submitted_input_models]
             new_model, select = make_model(random_model_obj, evolve, select, pool,
                                         reg_id, model_type='inputs',

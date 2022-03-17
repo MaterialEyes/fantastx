@@ -598,6 +598,8 @@ class vasp_code(object):
         err_file = open(model.relax_path + '/job.err', 'w')
         sp.call(vasp_exec, stdout=log_file, stderr=err_file, cwd = model.relax_path)
         # sp.call will wait for the calculation to finish
+        log_file.close()
+        err_file.close()
 
         # TODO: get energy
         # check if calculation is converged

@@ -66,9 +66,9 @@ class xanes_of_model(object):
             self.fe_2_filepath = self.main_path + "/experiment_fe2+.dat"
 
         if 'computational_fe_2_filepath' in xanes_params:
-            self.comp_fe_2_filepath = xanes_params["computational_fe_2_filepath"] + "/computational_fe2+.dat"
+            self.comp_fe_2_filepath = xanes_params["computational_fe_2_filepath"] + "/computational_fe2+_tddft.dat"
         else:
-            self.comp_fe_2_filepath = self.main_path + "/computational_fe2+.dat"
+            self.comp_fe_2_filepath = self.main_path + "/computational_fe2+_tddft.dat"
 
         if 'experiment_fe_3_filepath' in xanes_params:
             self.fe_3_filepath = xanes_params["experiment_fe_3_filepath"] + "/experiment_fe3+.dat"
@@ -113,6 +113,7 @@ class xanes_of_model(object):
         fe_2_spline = self.fit_spline(self.arrays_fe_2[0], self.arrays_fe_2[1], "cubic")
         fe_3_spline = self.fit_spline(self.arrays_fe_3[0], self.arrays_fe_3[1], "cubic")
         self.experiment_dif_spectra = fe_3_spline - fe_2_spline
+        self.experiment_dif_spectra_array = np.reshape(self.experiment_dif_spectra, (-1, 1))
 
         print("Gathered experimental data.")
 
@@ -345,13 +346,13 @@ class xanes_of_model(object):
         # Write the fdmnes input file #
 
         # Define parameters for the calculation
-        cluster_radius = 4.0
+        cluster_radius = 5.0
         structure_type = "molecule"
         structure_id = "0"
         if structure_type == "molecule":
             structure_id = "1"
         edge = "K"
-        molecule_radius = "4.0"
+        molecule_radius = "5.0"
         core_hole_site = "Fe"  # string or site index
 
         fdmnes_cards = {
@@ -372,7 +373,7 @@ class xanes_of_model(object):
         }
 
         fdmnes_card_values = {
-            "electronic_densities": {"26": "3 3 2 5.5 4 0 1.5 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."},
+            "electronic_densities": {"26": "3 3 2 5.0 4 0 2. 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."},
             "e_grid": "-5 0.2 7 0.8 50.0",
             "multipole_expansion": "Quadrupole",
             "screening_orbital": "3 2 0.55",
@@ -554,28 +555,29 @@ class xanes_of_model(object):
         xanes_result_path = relax_path + "/FDMNES_out/run_fdmnes_result_tddft.txt"
         self.comp_arrays_fe_3, (scale_factor, shift_factor) = self.read_in_calculated_spectra(xanes_result_path, self.maxes_fe_3)
         self.comp_fe_3_spline = \
-            self.fit_spline(self.comp_arrays_fe_3[0], self.comp_arrays_fe_3[1], self.spline_mesh, "cubic")
+            self.fit_spline(self.comp_arrays_fe_3[0], self.comp_arrays_fe_3[1], "cubic")
 
         print("Read in calculated spectra.")
 
         compare_indices = (self.spline_mesh <= 7135) & (self.spline_mesh >= 7110)
+        lowest_spectra_distance = np.inf
+        lowest_spline = None
         if self.refine_alignment_using_difference_spectra:
             # Shift curves in order to minimize root mean square of difference spectras
-            lowest_spectra_distance = np.inf
             lowest_shift = shift_factor
             best_scale = scale_factor
-            lowest_spline = None
             scale_factor_og = scale_factor
             for i in range(-50, 50):
                 for j in range(-5, 5):
                     y_array = self.comp_arrays_fe_3[1]*(1 + 0.01*j/scale_factor_og)
                     x_array = self.comp_arrays_fe_3[0] - i*0.01
                     new_spline = self.fit_spline(
-                        x_array, y_array, self.spline_mesh, "cubic")
+                        x_array, y_array, "cubic")
                     compare_spline = self.comp_fe_2_spline[compare_indices]
                     fdmnes_dif_spectra = new_spline[compare_indices] - \
                         compare_spline
-                    spectra_distance = self.distance_calculator.create(fdmnes_dif_spectra, self.experiment_dif_spectra[compare_indices])
+                    fdmnes_dif_spectra_array = np.reshape(fdmnes_dif_spectra, (-1, 1))
+                    spectra_distance = self.distance_calculator.create(fdmnes_dif_spectra_array, self.experiment_dif_spectra_array[compare_indices])
 
                     if spectra_distance < lowest_spectra_distance:
                         lowest_spectra_distance = spectra_distance
@@ -584,7 +586,9 @@ class xanes_of_model(object):
             compare_spline = self.comp_fe_2_spline[compare_indices]
             fdmnes_dif_spectra = self.comp_fe_3_spline[compare_indices] - \
                 compare_spline
-            spectra_distance =  self.distance_calculator.create(fdmnes_dif_spectra, self.experiment_dif_spectra[compare_indices])
+            fdmnes_dif_spectra_array = np.reshape(fdmnes_dif_spectra, (-1, 1))
+            lowest_spectra_distance =  self.distance_calculator.create(fdmnes_dif_spectra, self.experiment_dif_spectra_array[compare_indices])
+            lowest_spline = self.comp_fe_3_spline
 
         # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
         # print(lowest_spline_array)
