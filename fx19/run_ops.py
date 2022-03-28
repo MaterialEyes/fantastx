@@ -2,7 +2,7 @@
 """
 This module contains functions which are used in run_fx.py
 """
-import time
+
 
 def get_working_jobs(futures):
     """
@@ -34,21 +34,23 @@ def write_data(model, data_file):
 
     data_file (str) - path to the data_file
     """
-    try: 
+    try:
         with open(data_file, 'a') as f:
             if model.obj1_val:
                 line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
-                                model.label, str(model.inheritance), model.tot_en,
-                                model.obj0_val, model.obj1_val, model.made_by)
+                    model.label, str(model.inheritance), model.tot_en,
+                    model.obj0_val, model.obj1_val, model.made_by)
             else:
                 line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4}\n'.format(
-                                model.label, str(model.inheritance), model.tot_en,
-                                model.obj0_val, model.made_by)
+                    model.label, str(model.inheritance), model.tot_en,
+                    model.obj0_val, model.made_by)
             f.write(line)
     except:
         print(f"Couldn't find data_file {data_file}")
 
 # Temporary selection probs based on overall_value
+
+
 def temp_selection_probs(pool):
     """
     (Deprecated)
@@ -82,7 +84,7 @@ def relax(model, reg_id, energy_code):
         print('Duplicate label in parallel processes. Skipping..')
         return None
     resubmitted = 2
-    if model.converged == False:
+    if not model.converged:
         for i in range(len(energy_code.resubmit)):
             if resubmitted < energy_code.resubmit and model.converged == False:
                 resubmitted += 1
@@ -137,8 +139,10 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
             if new_model is None:
                 continue
             # check redundancy of the new model with all previous models
-            model_is_unique = pool.comparator.check_model_uniqueness(new_model,
-                                                pool.all_models, exact=True)
+            model_is_unique = pool.comparator.check_model_uniqueness(
+                new_model,
+                pool.all_models,
+                exact=True)
         # add the new_model inheritance to select.all_parent_labels
         select.all_parent_labels += new_model.inheritance
 
@@ -283,7 +287,8 @@ def cluster_models(pool, data_file, xsim, cluster_obj):
     '''
     models = pool.all_models
     obj_fncs = cluster_obj.read_in_objective_functions(data_file)
-    distance_matrix, sorted_labels, sorted_models = cluster_obj.create_distance_matrix(
-        models, xsim)
+    distance_matrix, sorted_labels, sorted_models =\
+        cluster_obj.create_distance_matrix(
+            models, xsim)
     cluster_obj.calculate_clustering(
         sorted_models, sorted_labels, obj_fncs, distance_matrix)

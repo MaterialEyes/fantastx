@@ -170,7 +170,7 @@ class structure_constraints(object):
                 if 'max_dist' in str_record:
                     if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
-        #########################cluster parameters###########################
+        # ########################cluster parameters###########################
         # shape and related
         if 'cluster' in str_record:
             self.shape = 'cluster'
@@ -197,9 +197,9 @@ class structure_constraints(object):
                       'Using default diameter of 8Å')
                 self.max_dia = 8
 
-        ####################cluster parameters ends###########################
+        # ###################cluster parameters ends###########################
 
-        #########################gb parameters begins#########################
+        # ########################gb parameters begins#########################
         if self.shape == 'gb':
             init_gb_astr_path = str_record['gb']['init_gb_astr']
             self.init_gb_astr = Structure.from_file(init_gb_astr_path)
@@ -238,9 +238,9 @@ class structure_constraints(object):
             #self.grain2_orientation =
             #self.grain2.tilt =
             """
-        ######################### gb parameters ends #########################
+        # ######################## gb parameters ends #########################
 
-        ##################### surface parameters begins ######################
+        # #################### surface parameters begins ######################
         if self.shape == 'surface':
             surface_params = str_record['surface']
             init_slabs_dir = surface_params['init_slabs_dir']
@@ -282,9 +282,9 @@ class structure_constraints(object):
             if 'hop_mate_frac' in surface_params:
                 self.hop_mate_frac = surface_params['hop_mate_frac']
 
-        ###################### surface parameters ends #######################
+        # ##################### surface parameters ends #######################
 
-        #################### molecule parameters begins ######################
+        # ################### molecule parameters begins ######################
         if self.shape == 'molecule':
             if 'box_abc' in str_record['molecule']:
                 self.box_abc = str_record['molecule']['box_abc']

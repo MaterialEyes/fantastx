@@ -6,26 +6,13 @@ of models
 
 from __future__ import division, unicode_literals, print_function
 import numpy as np
-import random, copy
+import random
 from math import sqrt, exp
 # import time
 
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.preprocessing import normalize
 from scipy.optimize import minimize
 from scipy.spatial import ConvexHull  # , convex_hull_plot_2d
-
-try:
-    from dscribe.kernels import REMatchKernel
-    from dscribe.descriptors import SOAP
-except ImportError:
-    print ('Install Dscribe for structure comparison using SOAP kernels..')
-
-from ase.ga.ofp_comparator import OFPComparator
-from pymatgen.io.ase import AseAtomsAdaptor
-from pymatgen.core.structure import Structure, Lattice
-
-from fx19 import distance_check as dc
 
 
 class Pool(object):
@@ -122,12 +109,13 @@ class Pool(object):
         # fingerprint for model
         if self.comparator is not None:
             self.comparator.create_fingerprint(model)
-            
+
         # If all_models contains at least one model, check to make sure that
         # the model is unique.
         unique = True
         if len(self.all_models) >= 1 and self.comparator is not None:
-            unique = self.comparator.check_model_uniqueness(model, self.population.models)
+            unique = self.comparator.check_model_uniqueness(
+                model, self.population.models)
 
         # If model is unique, add to all_models and proceed
         # Otherwise, reject.
@@ -138,7 +126,7 @@ class Pool(object):
 
         if len(self.all_models) < 10:
             print('New Model {} made by {} added to good pool'.format(
-                                                model.label, model.made_by))
+                model.label, model.made_by))
             self.good_pool = self.all_models
 
             return select
@@ -153,7 +141,7 @@ class Pool(object):
                     sim_ids=sim_ids)
                 print('New model {} made by {} added: probs updated'
                       ' based on sum of normalized obj. values!'.format(
-                                                model.label, model.made_by))
+                          model.label, model.made_by))
 
                 return select
 
@@ -186,10 +174,10 @@ class Pool(object):
                 del self.good_pool[remove_ind]
                 print('New Model {} made by {} added to good pool '
                       'and Model {} demoted from good_pool'.format(
-                                model.label, model.made_by, demoted_label))
+                          model.label, model.made_by, demoted_label))
             else:
                 print('New Model {} made by {} added to good pool'.format(
-                                            model.label, model.made_by))
+                    model.label, model.made_by))
 
             # scale the good_pool_values using MinMaxScaler
             good_pool_values = good_pool_values.reshape(-1, 1)
@@ -221,7 +209,7 @@ class Pool(object):
 
         if to_good_pool is False:
             print('New Model {} made by {} not added to good pool'.format(
-                                                model.label, model.made_by))
+                model.label, model.made_by))
             return select
 
         if to_good_pool is None:
@@ -232,11 +220,11 @@ class Pool(object):
             if len(self.good_pool) == 0 or select.type == 'single':
                 # if update fails due to too few points for convex hull
                 print('New Model {} made by {} added to good pool'.format(
-                                                model.label, model.made_by))
+                    model.label, model.made_by))
                 self.good_pool = self.all_models
             else:
                 print('New Model {} made by {} is pareto efficient!'.format(
-                                                model.label, model.made_by))
+                    model.label, model.made_by))
                 if select.operator_assignment == "auto-adaptive":
                     # update operator probabilities in select
                     # Formula:
@@ -246,10 +234,10 @@ class Pool(object):
                         len(select.operator_hashmap))
                     for operator in select.operator_inheritance:
                         if operator != "random":
-                            if operator is not None: # for user-input models
+                            if operator is not None:  # for user-input models
                                 operator_counts[
                                     select.operator_hashmap[operator]
-                                    ] += 1
+                                ] += 1
                         else:
                             operator_counts += 1 / \
                                 len(select.operator_hashmap)
@@ -310,7 +298,7 @@ class Select(object):
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
         # set defaults
-        self.max_times_as_parent = 20 # max times to be chosen as a parent
+        self.max_times_as_parent = 20  # max times to be chosen as a parent
         self.num_required_above_50 = 100  # default
         self.num_models_before_pareto = 200  # default
         def_weights = [1, 1, 1, 1, 1]  # [w0, w1, w2, w3, w4]
@@ -620,7 +608,7 @@ class Select(object):
             # Get indices of points (models) which are pareto efficient
             pareto_true_inds = Select._is_pareto_efficient(weighted_norm_vals)
             pareto_points_inds = [i for i, b in enumerate(pareto_true_inds)
-                                  if b == True]
+                                  if b]
             pareto_points = [list(weighted_norm_vals[i]) for i in
                              pareto_points_inds]
             # store pareto optimal points as class attribute
@@ -641,8 +629,8 @@ class Select(object):
                 pareto_models = [all_models[i] for i in pareto_points_inds]
                 # update operator inheritance based on pareto points
                 self.operator_inheritance = [
-                            model.made_by for model in pareto_models \
-                            if model.made_by is not None]
+                    model.made_by for model in pareto_models
+                    if model.made_by is not None]
 
             try:
                 # Make convex hull with pareto points
@@ -905,7 +893,7 @@ class Select(object):
         return m, c
 
     def get_parents(self, pool, num_parents, same_cluster=None,
-                                        same_ab=False, abs_tol=0.2):
+                    same_ab=False, abs_tol=0.2):
         """
         Selects requested number of parents based on their probabilities
         Returns a list of parents

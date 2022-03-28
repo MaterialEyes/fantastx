@@ -2,26 +2,17 @@
 # coding: utf-8
 import os
 import yaml
-import sys
 import datetime
-import random
-import copy
 from fx19 import inputs
-from fx19 import distance_check as dc
-from fx19.structure_operations import gb_ops
 from fx19.run_ops import *
-from fx19.clustering import hierarchical_clusterer, compositional_clusterer
-import multiprocessing as mp
-import traceback
-
-import numpy as np
-from time import sleep
+import time
 
 # dask import
 from dask_jobqueue import SLURMCluster, PBSCluster
-from dask.distributed import Client, LocalCluster
+from dask.distributed import Client
 
-# change worker unresponsive time to 3h (Assuming max elapsed time for one calc)
+# change worker unresponsive time to 3h
+# (Assuming max elapsed time for one calc)
 import dask
 import dask.distributed
 dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
@@ -37,13 +28,10 @@ all_objects = inputs.make_objects(i_dict)
 
 # Assign objects from all_objects to local variables
 reg_id = all_objects['reg_id']
-
 input_model_obj = all_objects['input_model_obj']
-
 gb_ops_obj = None
 if 'gb_ops_obj' in all_objects:
     gb_ops_obj = all_objects['gb_ops_obj']
-
 # kwargs for full_eval() function
 if gb_ops_obj is not None:
     random_model_obj = gb_ops_obj
@@ -63,8 +51,6 @@ else:
 
 pool = all_objects['pool']
 select = all_objects['select']
-weights = select.weights  # If single_objective, weights should be
-# [1, 0, 0, 0, 0, 0] - see inputs.py
 
 # Create a folder 'Calcs' where all calculations take place
 if 'calcs' in os.listdir(main_path):
@@ -76,25 +62,25 @@ if 'calcs' in os.listdir(main_path):
 calcs = i_dict['main_path'] + '/calcs'
 os.mkdir(calcs)
 
-# write data to a file
+# Create data file where objective function values and inheritance
+# information will be written.
 data_file = main_path + '/data_file'
 with open(data_file, 'w') as f:
     first_line = 'Label   Inheritance     Total Energy    Obj_0' + \
-                        '           Obj_1           Operator\n\n'
+        '           Obj_1           Operator\n\n'
     if not Xsim_1:
         first_line = 'Label   Inheritance     Total Energy    Obj_0' + \
-                        '           Operator\n\n'
+            '           Operator\n\n'
     f.write(first_line)
 
-# set up everything for calculations
+# Set up everything for calculations
 models_evald = 0
-# the output of energy evaluation for models is stored in this dict
 evald_futures, simd_futures = [], []
-
+pool_status_update = 10
 workers = i_dict['workers']
 max_workers = workers['max_workers']
-#job_script = '/home/dunruh/sample_job_script.txt'
-#jobfile = open(job_script, "w+")
+
+# Start Dask client
 if workers['cluster'] == 'SLURM':
     job_script = '/home/dunruh/fantastx_vasp_xanes/sample_job_script.txt'
     jobfile = open(job_script, "w+")
@@ -108,7 +94,7 @@ if workers['cluster'] == 'SLURM':
                                job_extra=workers['job_extra'],
                                env_extra=workers['env_extra'],
                                header_skip=workers['header_skip'])
-    print ("Job script for dask-worker: \n", cluster_job.job_script())
+    print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
     jobfile.write(cluster_job.job_script())
     jobfile.close()
@@ -122,7 +108,7 @@ elif workers['cluster'] == 'PBS':
                              walltime=workers['walltime'],
                              job_extra=workers['job_extra'],
                              header_skip=workers['header_skip'])
-    print ("Job script for dask-worker: \n", cluster_job.job_script())
+    print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
 elif workers['cluster'] == 'local':
     client = Client('tcp://127.0.0.1:8786')
@@ -159,9 +145,9 @@ def full_eval(model):
         return None
 
     resubmitted = 2
-    if model.converged == False:
+    if not model.converged:
         for i in range(len(energy_code.resubmit)):
-            if resubmitted < energy_code.resubmit and model.converged == False:
+            if resubmitted < energy_code.resubmit and not model.converged:
                 resubmitted += 1
                 try:
                     energy_code.re_relax(model)
@@ -176,8 +162,8 @@ def full_eval(model):
     # Do Xsim if required
     if Xsim_1:
         if not model.converged:
-            print ('Energy calculation of model {} is not'
-                   ' converged'.format(model.label))
+            print('Energy calculation of model {} is not'
+                  ' converged'.format(model.label))
             return None
         # get the relaxed structure
         relaxed_str = model.astr
@@ -207,43 +193,42 @@ if input_model_obj is not None:
                 input_models.append(new_model)
 
     # evaluate the input models
-    submitted_input_models = 0
-    working_jobs = get_working_jobs(evald_futures)
-    while submitted_input_models < len(input_models):
-        working_jobs = get_working_jobs(evald_futures)
-        while working_jobs < max_workers and models_evald < len(input_models) - i_dict['workers']['max_workers']:
-            input_model = input_models[submitted_input_models]
-            new_model, select = make_model(random_model_obj, evolve, select, pool,
-                                        reg_id, model_type='inputs',
-                                        model=input_model)
-            print(f"Made new input model. Model label is: {new_model.label}")
-            # relax the model in dask-workers
-            out = client.submit(full_eval, new_model)
-            evald_futures.append(out)
-            submitted_input_models += 1
-            print(f"Successfully submitted input model {submitted_input_models}")
-            evald_futures, models_evald, pool, select = update_pool(evald_futures,
-                                                                models_evald,
-                                                                pool, select,
-                                                                data_file,
-                                                                sim_ids)
-            working_jobs = get_working_jobs(evald_futures)
-    print('Input models are finished. Making random models..')
-    # Post-processing & Xsim are done along with random models for input models
+    for input_model in input_models:
+        new_model, select = make_model(random_model_obj, evolve, select, pool,
+                                       reg_id, model_type='inputs',
+                                       model=input_model)
+        # relax the model in dask-workers
+        out = client.submit(full_eval, new_model)
+        evald_futures.append(out)
+        print(
+            f"Successfully submitted input model {new_model.label}")
 
 num_initial_pop = i_dict['population_limits']['initial_population']
 total_models_needed = i_dict['population_limits']['total_population']
 evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                        models_evald,
+                                                        pool, select,
+                                                        data_file,
+                                                        sim_ids)
+working_jobs = get_working_jobs(evald_futures)
+
+# For molecules, which have no random generation, wait for
+# at least a few workers to finish before proceeding
+if all_objects['constraints_obj'].shape == 'molecule':
+    evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                             models_evald,
                                                             pool, select,
                                                             data_file,
                                                             sim_ids)
-working_jobs = get_working_jobs(evald_futures)
-print(working_jobs)
+    while models_evald < min(len(input_models), num_initial_pop):
+        evald_futures, models_evald, pool, select = update_pool(evald_futures,
+                                                                models_evald,
+                                                                pool, select,
+                                                                data_file,
+                                                                sim_ids)
+print('Input models are finished. Making random models..')
 start_time = time.time()
 # Make random models & evolved models
-pool_status_update = 10 # number of models before current pool status is printed
-# models_evald = len(input_models)
 while models_evald < total_models_needed:
     working_jobs = get_working_jobs(evald_futures)
     # In some cases (lammps based), working_jobs always < max_workers
@@ -260,7 +245,6 @@ while models_evald < total_models_needed:
             new_model, select = make_model(random_model_obj, evolve, select,
                                            pool, reg_id, model_type='evolved')
 
-
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
@@ -271,25 +255,41 @@ while models_evald < total_models_needed:
                                                                 sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
-        if models_evald % pool_status_update == 0 and models_evald >= i_dict['population_limits']['pool']:
+        if models_evald % pool_status_update == 0 and\
+                models_evald >= i_dict['population_limits']['pool']:
             # print statements which output visualization information
             if "selection_algorithm" in i_dict["select_params"]:
-                if i_dict["select_params"]["selection_algorithm"] == "distance_from_pareto":
+                if i_dict["select_params"]["selection_algorithm"] ==\
+                        "distance_from_pareto":
                     good_pool = pool.good_pool
                     good_pool_labels = [model.label for model in good_pool]
-                    print(f"Current good_pool population models: {good_pool_labels}.")
-                elif i_dict["select_params"]["selection_algorithm"] == "epsilon_moea":
-                    pop_labels = [model.label for model in pool.population.models]
-                    archive_labels = [model.label for model in pool.archive.models]
-                    print(f"Current pool population models: {pop_labels}")
-                    print(f"Current pool archive models: {archive_labels}")
-                elif i_dict["select_params"]["selection_algorithm"] == "clustered_selection":
-                    nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
-                    print(f"Current pool population non-dominated models: {nd_pop_labels}")
+                    print(
+                        "Current good_pool population models: "
+                        f"{good_pool_labels}.")
+                elif i_dict["select_params"]["selection_algorithm"] ==\
+                        "epsilon_moea":
+                    pop_labels = [
+                        model.label for model in pool.population.models]
+                    archive_labels = [
+                        model.label for model in pool.archive.models]
+                    print("Current pool population models: "
+                          f"{pop_labels}")
+                    print("Current pool archive models:"
+                          f"{archive_labels}")
+                elif i_dict["select_params"]["selection_algorithm"] ==\
+                        "clustered_selection":
+                    nd_pop_labels = [
+                        model.label for
+                        model in pool.population.non_dominated_models]
+                    print(
+                        "Current pool population non-dominated models: "
+                        f"{nd_pop_labels}")
             else:
                 good_pool = pool.good_pool
                 good_pool_labels = [model.label for model in good_pool]
-                print(f"Current good_pool population models: {good_pool_labels}.")
+                print(
+                    "Current good_pool population models: "
+                    f"{good_pool_labels}.")
 
 # process extra calculations running in last batch
 while len(evald_futures) > 0:
@@ -300,7 +300,8 @@ while len(evald_futures) > 0:
 
 # print statements which output visualization information
 if "selection_algorithm" in i_dict["select_params"]:
-    if i_dict["select_params"]["selection_algorithm"] == "distance_from_pareto":
+    if i_dict["select_params"]["selection_algorithm"] ==\
+            "distance_from_pareto":
         good_pool = pool.good_pool
         good_pool_labels = [model.label for model in good_pool]
         print(f"Current good_pool population models: {good_pool_labels}.")
@@ -309,8 +310,10 @@ if "selection_algorithm" in i_dict["select_params"]:
         archive_labels = [model.label for model in pool.archive.models]
         print(f"Current pool population models: {pop_labels}")
         print(f"Current pool archive models: {archive_labels}")
-    elif i_dict["select_params"]["selection_algorithm"] == "clustered_selection":
-        nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
+    elif i_dict["select_params"]["selection_algorithm"] ==\
+            "clustered_selection":
+        nd_pop_labels = [
+            model.label for model in pool.population.non_dominated_models]
         print(f"Current pool population non-dominated models: {nd_pop_labels}")
 else:
     good_pool = pool.good_pool

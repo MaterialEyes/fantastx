@@ -8,7 +8,7 @@ from pymatgen.io.cif import CifWriter
 try:
     from diffpy.Structure import loadStructure
     from diffpy.srfit.pdf import PDFContribution
-    from diffpy.srfit.fitbase import FitRecipe, FitResults
+    from diffpy.srfit.fitbase import FitRecipe
     import matplotlib.pyplot as plt
 except ImportError:
     print('Install Diffpy-CMI for PDF simulation. Otherwise ignore..')
@@ -24,17 +24,19 @@ try:
     import ingrained.image_ops as iop
     import cv2
 except ImportError:
-    print ('Install scikit-image, Ingrained, opencv for TEM simulation.'
-           ' Otherwise ignore..')
+    print('Install scikit-image, Ingrained, opencv for TEM simulation.'
+          ' Otherwise ignore..')
 
 from math import floor
 import numpy as np
 import os
+import yaml
 import subprocess as sp
 from scipy.interpolate import CubicSpline, UnivariateSpline
 from ase.data import atomic_numbers
 from fx19.fingerprinting import DistanceCalculator
 import re
+
 
 class xanes_of_model(object):
     """
@@ -54,26 +56,40 @@ class xanes_of_model(object):
         # main path as in energy.py
         self.name = 'XANES'
         self.main_path = xanes_params['main_path']
+        self.simulation_code = xanes_params['simulation_code']
+        self.input_yaml_filepath = xanes_params['input_yaml_filepath']
+        self.comparison_spectra_type = xanes_params['comparison_spectra_type']
 
-        if 'fdmnes_folder' in xanes_params:
-            self.fdmnes_folder = xanes_params['fdmnes_folder']
+        if 'code_folder' in xanes_params:
+            self.code_folder = xanes_params['code_folder']
         else:
-            self.fdmnes_folder = "/mnt/c/Users/dunru/Research/XANES/parallel_fdmnes"
+            self.code_folder =\
+                "/mnt/c/Users/dunru/Research/XANES/parallel_fdmnes"
 
-        if 'experiment_fe_2_filepath' in xanes_params:
-            self.fe_2_filepath = xanes_params["experiment_fe_2_filepath"] + "/experiment_fe2+.dat"
+        if self.comparison_spectra_type == "difference":
+            # 3 files need to be read in: base and excited experimental
+            # reference spectra, and the computational base spectra.
+            if "exp_base_ref_filepath" in xanes_params:
+                self.exp_base_ref_filepath =\
+                    xanes_params["exp_base_ref_filepath"]
+            else:
+                self.exp_base_ref_filepath = "/experiment_base_ref.dat"
+            if "exp_exc_ref_filepath" in xanes_params:
+                self.exp_exc_ref_filepath =\
+                    xanes_params["exp_exc_ref_filepath"]
+            else:
+                self.exp_exc_ref_filepath = "/experiment_exc_ref.dat"
+            if "comp_base_ref_filepath" in xanes_params:
+                self.comp_base_ref_filepath =\
+                    xanes_params["comp_base_ref_filepath"]
+            else:
+                self.comp_base_ref_filepath = "/computational_base_ref.dat"
         else:
-            self.fe_2_filepath = self.main_path + "/experiment_fe2+.dat"
-
-        if 'computational_fe_2_filepath' in xanes_params:
-            self.comp_fe_2_filepath = xanes_params["computational_fe_2_filepath"] + "/computational_fe2+_tddft.dat"
-        else:
-            self.comp_fe_2_filepath = self.main_path + "/computational_fe2+_tddft.dat"
-
-        if 'experiment_fe_3_filepath' in xanes_params:
-            self.fe_3_filepath = xanes_params["experiment_fe_3_filepath"] + "/experiment_fe3+.dat"
-        else:
-            self.fe_3_filepath = self.main_path + "/experiment_fe3+.dat"
+            if "exp_base_ref_filepath" in xanes_params:
+                self.exp_base_ref_filepath =\
+                    xanes_params["exp_base_ref_filepath"]
+            else:
+                self.exp_base_ref_filepath = "/experiment_base_ref.dat"
 
         if 'fdmnes_exec_cmd' in xanes_params:
             self.fdmnes_exec_cmd = xanes_params['fdmnes_exec_cmd']
@@ -81,7 +97,8 @@ class xanes_of_model(object):
             self.fdmnes_exec_cmd = "./mpirun_fdmnes -np 4"
 
         if 'spectra_distance_metric' in xanes_params:
-            self.distance_calculator = DistanceCalculator(xanes_params['spectra_distance_metric'])
+            self.distance_calculator = DistanceCalculator(
+                xanes_params['spectra_distance_metric'])
         else:
             # options are any of those in fingerprinting.DistanceCalculator
             self.distance_calculator = DistanceCalculator('rmse')
@@ -108,28 +125,41 @@ class xanes_of_model(object):
         self.refine_alignment_using_difference_spectra = False
 
         # Gather experimental data
-        self.arrays_fe_2, self.maxes_fe_2 = self.read_in_experimental_spectra(self.fe_2_filepath)
-        self.arrays_fe_3, self.maxes_fe_3 = self.read_in_experimental_spectra(self.fe_3_filepath)
-        fe_2_spline = self.fit_spline(self.arrays_fe_2[0], self.arrays_fe_2[1], "cubic")
-        fe_3_spline = self.fit_spline(self.arrays_fe_3[0], self.arrays_fe_3[1], "cubic")
-        self.experiment_dif_spectra = fe_3_spline - fe_2_spline
-        self.experiment_dif_spectra_array = np.reshape(self.experiment_dif_spectra, (-1, 1))
+        self.exp_base_arrays, self.exp_base_maxes =\
+            self.read_in_experimental_spectra(self.exp_base_ref_filepath)
+        exp_base_spline = self.fit_spline(
+            self.exp_base_arrays[0], self.exp_base_arrays[1], "cubic")
+        if self.comparison_spectra_type == "difference":
+            self.exp_exc_arrays, self.exp_exc_maxes =\
+                self.read_in_experimental_spectra(self.exp_exc_ref_filepath)
+            exp_exc_spline = self.fit_spline(
+                self.arrays_exp_exc[0], self.arrays_exp_exc[1], "cubic")
+            self.exp_dif_spline = exp_exc_spline - exp_base_spline
+            self.exp_dif_reshaped_spline = np.reshape(
+                self.exp_dif_spline, (-1, 1))
+        else:
+            self.exp_base_spline = exp_base_spline
+            self.exp_base_reshaped_spline = np.reshape(
+                self.exp_base_spline, (-1, 1))
 
         print("Gathered experimental data.")
 
-        # Gather fe_2 spectra
-        self.comp_arrays_fe_2, _ = self.read_in_calculated_spectra(self.comp_fe_2_filepath, self.maxes_fe_2)
-        self.comp_fe_2_spline = self.fit_spline(self.comp_arrays_fe_2[0], self.comp_arrays_fe_2[1], "cubic")
-
-        print("Gathered pre-computed computational data.")
+        if self.comparison_spectra_type == "difference":
+            # Gather pre-computed computational base spectra
+            self.comp_base_arrays, _ = self.read_in_calculated_spectra(
+                self.comp_base_ref_filepath, self.maxes_exp_base)
+            self.comp_base_spline = self.fit_spline(
+                self.comp_base_arrays[0], self.comp_base_arrays[1], "cubic")
+            print("Gathered pre-computed computational data.")
 
     def fwhm2sigma(self, fwhm):
         return fwhm / np.sqrt(8 * np.log(2))
 
-
     def lorentzian_broadening(self, E, g_ch, g_m, E_cent, E_larg, E_f):
         eps = (E - E_f)/E_cent
-        return g_ch + g_m*(0.5 + 1/np.pi*np.arctan(np.pi/3*g_m/E_larg*(eps-1/eps**2)))
+        return g_ch + g_m*(0.5 +
+                           1/np.pi *
+                           np.arctan(np.pi/3*g_m/E_larg*(eps-1/eps**2)))
 
     def calculate_zero_derivative_peak(self, x_array, y_array):
         '''
@@ -144,22 +174,24 @@ class xanes_of_model(object):
         The zero-crossing of the first derivative is then estimated
         by approximating the second-derivative as constant in this
         narrow mesh interval.
-        
+
         Returns the estimated x-coordinate of the peak.
         '''
         spline_y = self.fit_spline(x_array, y_array, "cubic")
-        y_max = np.amax(spline_y)
         max_indice = np.argmax(spline_y)
         x_max = self.spline_mesh[np.argmax(spline_y)]
 
         # now find the second_derivative maximum
-        peak_derivative = (spline_y[max_indice + 1] - spline_y[max_indice - 1])/(2*self.mesh_step)
-        peak_second_derivative = (spline_y[max_indice + 1] - 2*spline_y[max_indice] + spline_y[max_indice - 1])/(self.mesh_step**2)
+        peak_derivative = (spline_y[max_indice + 1] -
+                           spline_y[max_indice - 1])/(2*self.mesh_step)
+        peak_second_derivative = (
+            spline_y[max_indice + 1] -
+            2*spline_y[max_indice] +
+            spline_y[max_indice - 1]) / (self.mesh_step**2)
         zero_derivative_adjustment = (-peak_derivative)/peak_second_derivative
         x_max = x_max + zero_derivative_adjustment
 
         return x_max
-
 
     def create_lorentzian_kernel(self, g_ch, g_m, E_cent, E_larg, E_f):
         x_for_kernel = np.arange(-10, 10)
@@ -172,7 +204,6 @@ class xanes_of_model(object):
         kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
 
         return finite_kernel, kernel_n_below_0
-
 
     def create_gaussian_kernel(self, fwhm):
         '''
@@ -189,7 +220,6 @@ class xanes_of_model(object):
 
         return finite_kernel, kernel_n_below_0
 
-
     def convolve_with_gaussian(self, fwhm, y_array):
         '''
         Convolve spectra with a gaussian
@@ -204,8 +234,8 @@ class xanes_of_model(object):
 
         return smoothed_y
 
-
-    def convolve_with_lorentzian(self, y_array, g_ch, g_m, E_cent, E_larg, E_f):
+    def convolve_with_lorentzian(self, y_array,
+                                 g_ch, g_m, E_cent, E_larg, E_f):
         '''
         Convolve spectra with a lorentzian
 
@@ -219,7 +249,6 @@ class xanes_of_model(object):
             n_points + kernel_n_below_0)]
 
         return smoothed_y
-
 
     def fit_spline(self, x_array, y_array, type):
         '''
@@ -291,7 +320,8 @@ class xanes_of_model(object):
             smoothed_y = self.convolve_with_lorentzian(
                 y_array, *self.convolution_params)
         else:
-            smoothed_y = self.convolve_with_gaussian(y_array, *self.convolution_params)
+            smoothed_y = self.convolve_with_gaussian(
+                y_array, *self.convolution_params)
 
         max_indice = np.argmax(smoothed_y)
         if max_indice < 30:
@@ -310,13 +340,25 @@ class xanes_of_model(object):
 
         return (shifted_x, scaled_y), (scale_factor, shift_factor)
 
-    def prepare_fdmnes(self, relax_path, fdmnes_path):
-        # Define the directory containing the VASP poscar, and define the filename
-        # which will match the FDMNES outputs
-        vaspfile = relax_path + "/POSCAR_relaxed"
+    def prepare_fdmnes(self, model, fdmnes_path):
+        '''
+        Function which prepares the FDMNES input file as well as the
+        mpi file if running on a computer which does not have mpi
+        installed.
+        Filenames are standardized for all FANTASTX runs. However, the
+        FDMNES inputs themselves are defined through a yaml file for
+        user friendliness.
 
-        fdmnes_input_folder = relax_path + "/FDMNES_in/"
-        fdmnes_output_folder = relax_path + "/FDMNES_out/"
+        Inputs:
+        yaml_filename (string): path to the yaml input file
+        model (obj): model object which is the target of FDMNES
+        fdmnes_path (string): path to the folder containing the fdmnes
+            mpi executable.
+        '''
+        ################################################
+        # Define the filenames for all FDMNES operations
+        fdmnes_input_folder = model.relax_path + "/FDMNES_in/"
+        fdmnes_output_folder = model.relax_path + "/FDMNES_out/"
         try:
             os.mkdir(fdmnes_input_folder)
             print("Created FDMNES input directory.")
@@ -327,13 +369,10 @@ class xanes_of_model(object):
             print("Created FDMNES input directory.")
         except FileExistsError:
             print("Error. Output directory already exists.")
-
         fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
-        fdmnes_abbr_input_filename = fdmnes_input_filename # fdmnes_folder + "run" + sys.argv[1] + ".inp"
-        fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
-        fdmfile_filename = relax_path + "/fdmfile.txt"
-        fdmnes_mpirun_filename = relax_path + "/mpirun_fdmnes"
-
+        fdmnes_abbr_input_filename = fdmnes_input_filename
+        fdmfile_filename = model.relax_path + "/fdmfile.txt"
+        fdmnes_mpirun_filename = model.relax_path + "/mpirun_fdmnes"
 
         #############################################
         #  Write the fdmfile.txt file #
@@ -344,87 +383,35 @@ class xanes_of_model(object):
 
         #############################################
         # Write the fdmnes input file #
-
-        # Define parameters for the calculation
-        cluster_radius = 5.0
-        structure_type = "molecule"
-        structure_id = "0"
-        if structure_type == "molecule":
-            structure_id = "1"
-        edge = "K"
-        molecule_radius = "5.0"
-        core_hole_site = "Fe"  # string or site index
-
-        fdmnes_cards = {
-            "Atom": 0, # if we want to define the valence orbitals ourselves (corresponds to electronic_densities below)
-            "Atom_conf": 1, #alternate way of defining the valence orbitals
-            "Green": 0, # if we want to use the multiple scattering mode
-            "Range": 1, # if we want to define the energy range (corresponds to e_grid below)
-            "Screening": 1,
-            "Multipolar": 1,
-            "SCF": 1,
-            "Self_abs": 0,
-            "Double_cor": 0,
-            "Convolution" : 0,
-            "TDDFT": 1,
-            "Hubbard": 1,
-            "Perdew": 0,
-            "Chfree": 1
-        }
-
-        fdmnes_card_values = {
-            "electronic_densities": {"26": "3 3 2 5.0 4 0 2. 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."},
-            "e_grid": "-5 0.2 7 0.8 50.0",
-            "multipole_expansion": "Quadrupole",
-            "screening_orbital": "3 2 0.55",
-            # "Lmax_tddft": "2",
-            "hubbard_U": "5.3 0.0 0.0"
-        }
-
-        fdmnes_inputs = {
-            "Filout": fdmnes_output_filename,
-            "Radius": cluster_radius,
-            "Edge": "K"
-        }
-
-
-        # Read in POSCAR
-        filename = vaspfile
-        structure = Structure.from_file(filename)
+        with open(self.input_yaml_filepath) as ifile:
+            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
 
         # Absorber and core_hole_coords are determined based on structure
-        core_hole_index = 0
-        core_hole_coords = [0,0,0]
-        for n, site in enumerate(structure.sites):
+        core_hole_index = 1
+        core_hole_coords = [0, 0, 0]
+        for n, site in enumerate(model.astr.sites):
             specie = site.specie.symbol
-            if specie == core_hole_site:
-                core_hole_index = n
-                core_hole_coords = np.copy(site.coords)
-                absorber_index = n + 1
-        fdmnes_inputs["Absorber"] = str(absorber_index)
+            if specie == fdmnes_dict["core_hole_site"]:
+                if core_hole_index == fdmnes_dict["core_hole_site_id"]:
+                    core_hole_coords = np.copy(site.coords)
+                    fdmnes_dict["fdmnes_cards"]["Absorber"] = str(
+                        n+1)
+                core_hole_index += 1
 
         inputfile = open(fdmnes_input_filename, "w+")
-        separator = " "
-        for key, value in fdmnes_inputs.items():
-            inputfile.write(key + "\n")
-            inputfile.write(str(value) + "\n" + "\n")
-
-        for key, value in fdmnes_cards.items():
-            if value == 1 and key != "Convolution":
-                if key != "Multipolar":
+        for key, value in fdmnes_dict["fdmnes_cards"].items():
+            if value is not None:
+                if value == "include":
                     inputfile.write(key + "\n")
-                if key == "Atom":
-                    if "electronic_densities" in fdmnes_card_values.keys():
-                        for sub_key, sub_value in fdmnes_card_values["electronic_densities"].items():
+                else:
+                    if key == "Atom":
+                        for sub_key, sub_value in value.items():
                             inputfile.write(sub_key + " " + sub_value + "\n")
-                    else:
-                        print("Need to add electronic_densities to fdmnes_card_values!")
-                if key == "Atom_conf":
-                    if "electronic_densities" in fdmnes_card_values.keys():
+                    elif key == "Atom_conf":
                         all_atom_counts = {}
                         all_atom_indices = {}
                         atom_index = 1
-                        for site in structure.sites:
+                        for site in model.astr.sites:
                             specie = site.specie.symbol
                             an = str(atomic_numbers[specie])
                             if an in all_atom_counts:
@@ -437,68 +424,47 @@ class xanes_of_model(object):
                                 all_atom_indices[an] = [str(atom_index)]
                             atom_index += 1
 
-                        for sub_key, sub_value in fdmnes_card_values["electronic_densities"].items():
+                        for sub_key, sub_value in value.items():
                             # Need to get number of atoms and their indices
                             atom_count = str(all_atom_counts[sub_key])
                             atom_indices = " ".join(all_atom_indices[sub_key])
-                            inputfile.write(atom_count + " " + atom_indices + " " + sub_value + "\n")
+                            inputfile.write(
+                                atom_count + " " +
+                                atom_indices + " " +
+                                sub_value + "\n")
                     else:
-                        print("Need to add electronic_densities to fdmnes_card_values!")
-                if key == "Range":
-                    if "e_grid" in fdmnes_card_values.keys():
-                        inputfile.write(fdmnes_card_values["e_grid"] + "\n")
-                    else:
-                        print("Need to add e_grid to fdmnes_card_values!")
-                if key == "TDDFT":
-                    if "Lmax_tddft" in fdmnes_card_values.keys():
-                        inputfile.write("Lmax_tddft\n")
-                        inputfile.write(fdmnes_card_values["Lmax_tddft"] + "\n")
-                if key == "Screening":
-                    if "screening_orbital" in fdmnes_card_values.keys():
-                        inputfile.write(fdmnes_card_values["screening_orbital"] + "\n")
-                if key == "Multipolar":
-                    inputfile.write(fdmnes_card_values["multipole_expansion"] + "\n")
-                if key == "Hubbard":
-                    inputfile.write(fdmnes_card_values["hubbard_U"] + "\n")
-
-                inputfile.write("\n")
+                        inputfile.write(key + "\n")
+                        inputfile.write(value + "\n")
+                    inputfile.write("\n")
 
         # create atoms card
-        if structure_id == "1":
-            inputfile.write("Molecule\n")
-        else:
-            inputfile.write("Crystal\n")
+        inputfile.write(fdmnes_dict["struture_type"] + "\n")
 
         # grab cartesian coordinates of lattice
-        abc = structure.lattice.abc
-        angles = structure.lattice.angles
+        abc = model.astr.lattice.abc
+        angles = model.astr.lattice.angles
         l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
-        angle_vals = str(angles[0]) + " " + str(angles[1]) + " " + str(angles[2])
+        angle_vals = str(angles[0]) + " " + \
+            str(angles[1]) + " " + str(angles[2])
         inputfile.write("    " + l_vals + " " + angle_vals + "\n")
 
-        # for site in structure.sites:
-        #     print(site.coords)
-
-        for site in structure.sites:
+        for site in model.astr.sites:
             specie = site.specie.symbol
             an = atomic_numbers[specie]
             coords = site.coords
             mc = []
             for i in range(3):
                 coords[i] -= core_hole_coords[i]
-                #coords[i] -= abc[i]/2
                 if coords[i] > abc[i]/2:
                     mc.append((coords[i] - abc[i])/abc[i])
                 else:
                     mc.append(coords[i]/abc[i])
-            inputfile.write(str(an) + "  " + str(mc[0]) + " " + str(mc[1]) + " " + str(mc[2]) + "\n")
+            inputfile.write(
+                str(an) + "  " + str(mc[0]) +
+                " " + str(mc[1]) +
+                " " + str(mc[2]) + "\n")
 
         inputfile.write("\n")
-
-        if fdmnes_cards["Convolution"] == 1:
-            inputfile.write("Convolution"+ "\n" + "\n")
-            inputfile.write("Gamma_max\n")
-            inputfile.write("7.5\n\n")
 
         inputfile.write("END\n")
         inputfile.close()
@@ -510,7 +476,9 @@ class xanes_of_model(object):
         mpifile.write(f"fdmnesDir={fdmnes_path}\n")
         mpifile.write("IFS=$'\\n'\n")
         mpifile.write(". \"${fdmnesDir}/mpirt/bin/intel64/mpivars.sh\"\n")
-        mpifile.write("\"${fdmnesDir}/mpirt/bin/intel64/mpirun\" $* \"${fdmnesDir}/fdmnes_mpi_linux64\"\n")
+        mpifile.write(
+            "\"${fdmnesDir}/mpirt/bin/intel64/mpirun\" "
+            "$* \"${fdmnesDir}/fdmnes_mpi_linux64\"\n")
         mpifile.write("IFS=$' \\t\\n'\n")
         mpifile.close()
 
@@ -536,15 +504,18 @@ class xanes_of_model(object):
         model (obj): structure_record.model() object for which TEM simulation
                      is obtained and a mismatch score is assigned
         """
-        relax_path = model.relax_path
 
         # Prepare FDMNES input file and run simulation
-        self.prepare_fdmnes(relax_path, self.fdmnes_folder)
+        self.prepare_fdmnes(model, self.code_folder)
 
         fdmnes_exec = self.fdmnes_exec_cmd.split()
-        with open(relax_path + '/log_fdmnes.{}'.format(model.label), 'w') as log_file:
+        with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
+                  'w') as log_file:
             fdmnes_job = sp.Popen(
-                fdmnes_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
+                fdmnes_exec,
+                stdout=sp.PIPE,
+                stderr=sp.STDOUT,
+                cwd=model.relax_path)
             for each_line in fdmnes_job.stdout:
                 line = each_line.decode('utf-8')
                 log_file.write(line)
@@ -552,54 +523,78 @@ class xanes_of_model(object):
         fdmnes_job.wait()
 
         # Reference XANES simulation against experiment
-        xanes_result_path = relax_path + "/FDMNES_out/run_fdmnes_result_tddft.txt"
-        self.comp_arrays_fe_3, (scale_factor, shift_factor) = self.read_in_calculated_spectra(xanes_result_path, self.maxes_fe_3)
-        self.comp_fe_3_spline = \
-            self.fit_spline(self.comp_arrays_fe_3[0], self.comp_arrays_fe_3[1], "cubic")
+        xanes_result_path = model.relax_path +\
+            "/FDMNES_out/run_fdmnes_result_tddft.txt"
+        reference_maxes = self.exp_base_maxes
+        if self.comparison_spectra_type == "difference":
+            reference_maxes = self.exp_exc_maxes
+        self.model_comp_arrays, (scale_factor, shift_factor) =\
+            self.read_in_calculated_spectra(xanes_result_path,
+                                            reference_maxes)
+        self.model_comp_spline = \
+            self.fit_spline(
+                self.model_comp_arrays[0], self.model_comp_arrays[1], "cubic")
 
         print("Read in calculated spectra.")
 
-        compare_indices = (self.spline_mesh <= 7135) & (self.spline_mesh >= 7110)
+        compare_indices = (self.spline_mesh <= 7135) & (
+            self.spline_mesh >= 7110)
         lowest_spectra_distance = np.inf
         lowest_spline = None
-        if self.refine_alignment_using_difference_spectra:
-            # Shift curves in order to minimize root mean square of difference spectras
-            lowest_shift = shift_factor
-            best_scale = scale_factor
-            scale_factor_og = scale_factor
-            for i in range(-50, 50):
-                for j in range(-5, 5):
-                    y_array = self.comp_arrays_fe_3[1]*(1 + 0.01*j/scale_factor_og)
-                    x_array = self.comp_arrays_fe_3[0] - i*0.01
-                    new_spline = self.fit_spline(
-                        x_array, y_array, "cubic")
-                    compare_spline = self.comp_fe_2_spline[compare_indices]
-                    fdmnes_dif_spectra = new_spline[compare_indices] - \
-                        compare_spline
-                    fdmnes_dif_spectra_array = np.reshape(fdmnes_dif_spectra, (-1, 1))
-                    spectra_distance = self.distance_calculator.create(fdmnes_dif_spectra_array, self.experiment_dif_spectra_array[compare_indices])
+        if self.comparison_spectra_type == "difference":
+            if self.refine_alignment_using_difference_spectra:
+                scale_factor_og = scale_factor
+                for i in range(-50, 50):
+                    for j in range(-5, 5):
+                        y_array = self.model_comp_arrays[1] * \
+                            (1 + 0.01*j/scale_factor_og)
+                        x_array = self.model_comp_arrays[0] - i*0.01
+                        new_spline = self.fit_spline(
+                            x_array, y_array, "cubic")
+                        compare_spline = self.comp_base_spline[compare_indices]
+                        fdmnes_dif_spectra = new_spline[compare_indices] - \
+                            compare_spline
+                        fdmnes_dif_spectra_array = np.reshape(
+                            fdmnes_dif_spectra, (-1, 1))
+                        spectra_distance = self.distance_calculator.create(
+                            fdmnes_dif_spectra_array,
+                            self.exp_dif_reshaped_spline[compare_indices])
 
-                    if spectra_distance < lowest_spectra_distance:
-                        lowest_spectra_distance = spectra_distance
-                        lowest_spline = new_spline
+                        if spectra_distance < lowest_spectra_distance:
+                            lowest_spectra_distance = spectra_distance
+                            lowest_spline = new_spline
+            else:
+                compare_spline = self.comp_base_spline[compare_indices]
+                fdmnes_dif_spline =\
+                    self.model_comp_spline[compare_indices] - \
+                    compare_spline
+                fdmnes_dif_reshaped_spline = np.reshape(
+                    fdmnes_dif_spline, (-1, 1))
+                lowest_spectra_distance = self.distance_calculator.create(
+                    fdmnes_dif_reshaped_spline,
+                    self.exp_dif_reshaped_spline[compare_indices])
+                lowest_spline = self.model_comp_spline
         else:
-            compare_spline = self.comp_fe_2_spline[compare_indices]
-            fdmnes_dif_spectra = self.comp_fe_3_spline[compare_indices] - \
-                compare_spline
-            fdmnes_dif_spectra_array = np.reshape(fdmnes_dif_spectra, (-1, 1))
-            lowest_spectra_distance =  self.distance_calculator.create(fdmnes_dif_spectra, self.experiment_dif_spectra_array[compare_indices])
-            lowest_spline = self.comp_fe_3_spline
+            fdmnes_compare_spline = self.model_comp_spline[compare_indices]
+            fdmnes_compare_array = np.reshape(
+                fdmnes_compare_spline, (-1, 1)
+            )
+            lowest_spectra_distance = self.distance_calculator.create(
+                fdmnes_compare_array, self.exp_base_reshaped_spline
+            )
+            lowest_spline = self.model_comp_spline
 
         # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
         # print(lowest_spline_array)
         # print(lowest_spline)
         print(f"RMS score: {float((lowest_spectra_distance)*100)}")
-        np.save(relax_path + "/model_sim_spectra.npy", lowest_spline)
+        np.save(model.relax_path + "/model_sim_spectra.npy", lowest_spline)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
         if model.Xsim1 == 'XANES':
-            model.obj1_val = float((lowest_spectra_distance)*100)  # Minimizing the obj vals
+            # Minimizing the obj vals
+            model.obj1_val = float((lowest_spectra_distance)*100)
         elif model.Xsim2 == 'XANES':
             model.obj2_val = float((lowest_spectra_distance)*100)
         elif model.Xsim3 == 'XANES':
@@ -633,7 +628,8 @@ class pdf_of_model(object):
         self.Uiso_val = 0.009
         # default structure scale factor
         self.scale = 1.0
-        # quadratic term related to sharpness of first peak (from pdfgui manual)
+        # quadratic term related to sharpness of first peak
+        # (from pdfgui manual)
         self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
         self.qdamp = 0.043
@@ -648,7 +644,7 @@ class pdf_of_model(object):
 
         # minimization method from scipy_optimize.minimize i.e., one of strings
         # ['L-BFGS-B', 'SLSQP']
-        self.minimize_method = 'L-BFGS-B' # or 'SLSQP' only
+        self.minimize_method = 'L-BFGS-B'  # or 'SLSQP' only
         # Range parameters of the PDF function (x-axis)
         self.xmin = 1.5
         self.xmax = 7.5
@@ -732,7 +728,7 @@ class pdf_of_model(object):
         # add stretched structure to PDF object
         PDF.addStructure("generator", diffpy_str, periodic=False)
         PDF.setQmin(self.Qmin)
-        #PDF.setQmax(self.Qmax)
+        # PDF.setQmax(self.Qmax)
 
         return PDF
 
@@ -767,7 +763,7 @@ class pdf_of_model(object):
                     Fit.constrain(atom.Uiso, 'Uiso{}'.format(sym))
 
         # Set all Uiso values to provided or default Uiso_val
-        #for p in Uisos:
+        # for p in Uisos:
         #    fit_param = Fit._parameters[p]
         #    fit_param.setValue(self.Uiso_val)
 
@@ -776,10 +772,10 @@ class pdf_of_model(object):
         Fit.addVar(PDF.generator.delta2, self.delta2, fixed=False)
         Fit.addVar(PDF.qdamp, self.qdamp, fixed=False)
 
-        bounds=[self.var_bounds['Uiso_val'],
-                self.var_bounds['scale'],
-                self.var_bounds['delta2'],
-                self.var_bounds['qdamp']]
+        bounds = [self.var_bounds['Uiso_val'],
+                  self.var_bounds['scale'],
+                  self.var_bounds['delta2'],
+                  self.var_bounds['qdamp']]
 
         # Add coordinates as fixed variables
         pymat_str = Structure.from_file(cif_file)
@@ -850,7 +846,8 @@ class pdf_of_model(object):
         Performs optimization ofatomic coordiantes of a structure. This does
         not try to optimize the PDF related variables. Take the energy_code
         relaxed structure, and create a PDF object. Then perform
-        fit_variables_recipe() using the resulting fitted coordinates from this.
+        fit_variables_recipe() using the resulting fitted coordinates from
+        this.
 
         Returns nothing. (Writes temp_opt.cif to the pdf_sim_dir)
 
@@ -872,7 +869,7 @@ class pdf_of_model(object):
                     Fit.constrain(atom.Uiso, 'Uiso{}'.format(sym))
 
         # Set all Uiso values to provided or default Uiso_val
-        #for p in Uisos:
+        # for p in Uisos:
         #    fit_param = Fit._parameters[p]
         #    fit_param.setValue(self.Uiso_val)
 
@@ -882,7 +879,7 @@ class pdf_of_model(object):
         Fit.addVar(PDF.qdamp, self.qdamp, fixed=True)
 
         # We 'fixed' all variables defined so far. So no bounds needed for them
-        bounds=[]
+        bounds = []
 
         # Add coordinates as variables and then optimize
         temp_init = self.pdf_sim_dir + '/temp_init.cif'
@@ -922,13 +919,13 @@ class pdf_of_model(object):
                                          options={'maxiter': 100000})
         # get residue from the fitted params
         fitted_params = result.x
-        residual = Fit.scalarResidual(fitted_params)
+        Fit.scalarResidual(fitted_params)
 
         # Write output structure with new coordinates
         fcs = result.x
         fcs_new = np.insert(fcs, center_ind,
                             pymat_str.frac_coords[center_ind], axis=0)
-        #fcs_new = np.concatenate((pymat_str.frac_coords[center_ind], fcs))
+        # fcs_new = np.concatenate((pymat_str.frac_coords[center_ind], fcs))
         fcs_new = fcs_new.reshape(14, 3)
         astr_varied = Structure(pymat_str.lattice, pymat_str.species,
                                 fcs_new, coords_are_cartesian=False)
@@ -1057,15 +1054,16 @@ class gb_ingrained(object):
 
         sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
 
-        #np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        #np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
+        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
         # Temporarily "hard-coded" exp interface region for VASP runs
         # Load prev_whole_exp.npy that is from the LAMMPS runs
         # exp_prev = np.load('prev_whole_exp.npy')
         # in y & x directions # TODO: remove hard-coded values
-        exp_patch_for_vasp = exp_img[459:584, 249:374] #exp_prev[152:279, 12:]
-        #exp_patch_for_vasp = exp_prev
+        exp_patch_for_vasp = exp_img[459:584,
+                                     249:374]  # exp_prev[152:279, 12:]
+        # exp_patch_for_vasp = exp_prev
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))

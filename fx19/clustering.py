@@ -16,7 +16,7 @@ class hierarchical_clusterer(object):
     clusters for use in ML or GA applications.
     '''
 
-    def __init__(self, params, xsim=None, comparator_obj = None):
+    def __init__(self, params, xsim=None, comparator_obj=None):
         '''
         Args:
 
@@ -47,10 +47,21 @@ class hierarchical_clusterer(object):
 
         self.type = "hierarchical"
 
+        # visualization parameters
+        self.visualization_folder =\
+            "/mnt/c/Users/dunru/GitHub/fantastx/" +\
+            "epsilon_selection_Al2O3_LCRC_files/"
+        self.visualization_clustering_prefix =\
+            "Al2O3_clustering_"
+        self.visualization_dendrogram_prefix =\
+            "Al2O3_cluster_dendrogram_"
+        self.visualization_gif_prefix =\
+            "Al2O3_clustering"
+
     def initialize_clusters(self, models):
         '''
         Function to initialize the cluster object. Name matches the
-        same function in compositional_clusterer. 
+        same function in compositional_clusterer.
 
         Args:
 
@@ -136,7 +147,8 @@ class hierarchical_clusterer(object):
                         comparison = self.xsim.evaluate_obj_two_models(
                             test_model, other_model)
                     elif self.distance_calculation == "fingerprint":
-                        comparison = self.comparator_obj.compare_fingerprints(test_model, other_model)[0]
+                        comparison = self.comparator_obj.compare_fingerprints(
+                            test_model, other_model)[0]
                     self.distance_matrix[test_label][other_label] = comparison
                     self.distance_matrix[other_label][test_label] = comparison
                     if comparison > max_ssim:
@@ -179,7 +191,8 @@ class hierarchical_clusterer(object):
                     comparison = self.xsim.evaluate_obj_two_models(
                         comp_model, added_model)
                 elif self.distance_calculation == "fingerprint":
-                    comparison = self.comparator_obj.compare_fingerprints(comp_model, added_model)[0]
+                    comparison = self.comparator_obj.compare_fingerprints(
+                        comp_model, added_model)[0]
                 new_col[comp_label] = comparison
                 new_row[comp_label] = comparison
             except:
@@ -197,7 +210,7 @@ class hierarchical_clusterer(object):
     def assign_clusters(self):
         '''
         Assign clusters using hierarchical clustering based on the
-        distance matrix which was previously calculated. 
+        distance matrix which was previously calculated.
 
         Returns cluster_models, a (dictionary) which contains the
         clusters as keys, and a list of the models belonging to each
@@ -275,10 +288,10 @@ class hierarchical_clusterer(object):
     def update_clustering(self, new_model, old_model):
         '''
         A method to update the clustering by taking out the old model
-        and adding the new model. 
+        and adding the new model.
 
         Returns the cluster_models and multi_model_clusters calculated
-        by the assign_clusters() function. 
+        by the assign_clusters() function.
 
         Args:
 
@@ -318,7 +331,7 @@ class hierarchical_clusterer(object):
         n = 0
         for cluster, models in cluster_models.items():
             for model in models:
-                leaf_colors[n] = hex_colors[(cluster-1)%20]
+                leaf_colors[n] = hex_colors[(cluster-1) % 20]
                 n += 1
         link_cols = {}
         for i, i12 in enumerate(linkage[:, :2].astype(int)):
@@ -333,13 +346,13 @@ class hierarchical_clusterer(object):
                       color_threshold=None, above_threshold_color='y',
                       orientation='top',
                       link_color_func=lambda x: link_cols[x])
-        axes.set_ylabel(r"Bag-of-bonds Distance", fontsize=16)
+        axes.set_ylabel(r"Fingerprint Distance", fontsize=16)
         axes.set_ylim([0, 2.0])
         plt.title(
-            r"Al/Al$_2$O$_3$ Grain Boundary Dendrogram", fontsize=24)
-        folder = "/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3_LCRC_files/"
-        plt.savefig(folder + "Al2O3_bag-of-bonds_cluster_dendrogram_" + file_label
-                    + ".png",
+            r"Dendrogram", fontsize=24)
+        plt.savefig(self.visualization_folder +
+                    self.visualization_clustering_prefix +
+                    file_label + ".png",
                     format="png", dpi=300)
         plt.show()
 
@@ -350,7 +363,6 @@ class hierarchical_clusterer(object):
         min_y = 0
         max_y = 0
         min_index = 100
-
 
         # Collect data to plot
         index = 0
@@ -414,9 +426,9 @@ class hierarchical_clusterer(object):
         plt.setp(axes.get_yticklabels(), fontsize=13)
         plt.legend(fontsize=16)
         plt.title(
-            r"Clustering of Al/Al$_2$O$_3$ Grain Boundaries", fontsize=24)
-        folder = "/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3_LCRC_files/"
-        plt.savefig(folder + "Al2O3_bag-of-bonds_clustering_" + file_label + ".png",
+            r"Objective Space Clustering", fontsize=24)
+        plt.savefig(self.visualization_folder + self.visualization_prefix +
+                    file_label + ".png",
                     format="png", dpi=300)
         plt.close()
 
@@ -447,11 +459,10 @@ class hierarchical_clusterer(object):
             plt.setp(axes.get_yticklabels(), fontsize=13)
             plt.legend(fontsize=16)
             plt.title(
-                r"Clustering of Al/Al$_2$O$_3$ Grain Boundaries",
+                r"Objective Space Clustering",
                 fontsize=24)
-            folder = \
-            "/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3_LCRC_files/"
-            filename = folder + "Al2O3_bag-of-bonds_clustering_" + \
+            filename = self.visualization_folder + \
+                self.visualization_prefix + \
                 file_label + "_" + str(index) + ".png"
             plt.savefig(filename, format="png", dpi=300)
             plt.close()
@@ -463,13 +474,15 @@ class hierarchical_clusterer(object):
 
         # assemble gif
         print("Charts saved. Building gif.")
-        gif_filename = folder + "Al2O3_SSIM_clustering_" + file_label \
-                       + ".gif"
+        gif_filename = self.visualization_folder +\
+            self.visualization_gif_prefix +\
+            file_label + ".gif"
         with imageio.get_writer(gif_filename, mode="I") as writer:
             for filename in gif_filenames:
                 image = imageio.imread(filename)
                 writer.append_data(image)
         # print("Gif saved.")
+
 
 class compositional_clusterer(object):
     '''

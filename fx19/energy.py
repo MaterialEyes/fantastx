@@ -156,7 +156,9 @@ class lammps_code(object):
         # relax_path = model.relax_path
         # os.chdir(relax_path)
         lammps_exec = self.energy_exec_cmd.split()
-        with open(relax_path + '/log_lammps.{}'.format(model.label), 'w') as log_file:
+        with open(
+            relax_path + '/log_lammps.{}'.format(model.label), 'w'
+        )as log_file:
             lammps_job = sp.Popen(
                 lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
             for each_line in lammps_job.stdout:
@@ -425,7 +427,9 @@ class vasp_code(object):
         # Ex: 'mpirun <path_to_vasp_binary>'
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
         # how many times to resubmit job if not converged
-        self.resubmit = energy_params['resubmit']
+        self.resubmit = 0
+        if 'resubmit' in energy_params:
+            self.resubmit = energy_params['resubmit']
 
         #  All these parameters for use in sd_flags
         # These are stored in inputs after object creation
@@ -596,7 +600,8 @@ class vasp_code(object):
         vasp_exec = self.energy_exec_cmd.split()
         log_file = open(model.relax_path + '/job.log', 'w')
         err_file = open(model.relax_path + '/job.err', 'w')
-        sp.call(vasp_exec, stdout=log_file, stderr=err_file, cwd = model.relax_path)
+        sp.call(vasp_exec, stdout=log_file,
+                stderr=err_file, cwd=model.relax_path)
         # sp.call will wait for the calculation to finish
         log_file.close()
         err_file.close()
@@ -646,17 +651,17 @@ class vasp_code(object):
             # DU
             # Evaluate free energy by calculating
             # chemical potential contribution
-            free_en = total_energy
-            for elem in astr_elems:
-                if elem in self.sym_mu_dict.keys():
-                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
-                else:
-                    print("Error. VASP species " + elem +
-                          " not contained in input yaml file.")
-
-            #model.obj0_val = float(free_en)
-            model.obj0_val = total_energy/model.astr.num_sites
-            # other objective functions should be evaluated here.
+            if self.shape == "molecule":
+                model.obj0_val = total_energy/model.astr.num_sites
+            else:
+                free_en = total_energy
+                for elem in astr_elems:
+                    if elem in self.sym_mu_dict.keys():
+                        free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                    else:
+                        print("Error. VASP species " + elem +
+                              " not contained in input yaml file.")
+                model.obj0_val = float(free_en)
 
     def move_atoms_inside(self, astr):
         """

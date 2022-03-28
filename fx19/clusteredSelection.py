@@ -4,15 +4,8 @@ import random
 import math
 import itertools
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.preprocessing import normalize
 from scipy.optimize import minimize
-from dscribe.kernels import REMatchKernel
-from dscribe.descriptors import SOAP
-from ase.ga.ofp_comparator import OFPComparator
-from pymatgen.io.ase import AseAtomsAdaptor
-from fx19 import distance_check as dc
 from fx19.fingerprinting import Comparator
-import copy
 
 """
 This module contains functions to conduct multi-objective search.
@@ -49,6 +42,7 @@ of V.S.C. Kolluru.
 Note: currently only compositional clusters are supported,
 support for hierarchical clusters will be added in a subsequent update.
 """
+
 
 class ParetoDominance(object):
     '''
@@ -526,7 +520,8 @@ class StructuralEpsilonDominance(object):
             # it was already ruled out. If models fall within similarity
             # tolerance, then keep model which is closest to the corner
             # of the epsilon box. Otherwise, keep both models
-            similarity = self.comparator.assess_models_similarity(test_model, ref_model)
+            similarity = self.comparator.assess_models_similarity(
+                test_model, ref_model)
             if similarity >= 0:
                 return 2
             else:
@@ -536,7 +531,7 @@ class StructuralEpsilonDominance(object):
                 # the number of structural comparisons which are made. The
                 # commented out code is standard epsilon dominance
 
-                ################# EPSILON DOMINANCE #######################
+                # ################ EPSILON DOMINANCE #######################
                 # d_test = 0.0
                 # d_ref = 0.0
 
@@ -558,7 +553,7 @@ class StructuralEpsilonDominance(object):
                 # else:
                 #     return 1
 
-                #################### PARETO DOMINANCE ####################
+                # ################### PARETO DOMINANCE ####################
                 pareto_dom_test = False
                 pareto_dom_ref = False
 
@@ -584,7 +579,7 @@ class StructuralEpsilonDominance(object):
                         if pareto_dom_test:
                             return 0
 
-                # Otherwise one dominates the other, return the appropriate value
+                # Otherwise one dominates the other
                 if pareto_dom_test:
                     return -1
                 else:
@@ -663,10 +658,11 @@ class Pool(object):
 
         self.all_models = []
 
-        if 'cluster_obj' not in pool_params:
-            self.cluster_obj = None
-        else:
-            self.cluster_obj = pool_params["cluster_obj"]
+        self.cluster_obj = pool_params["cluster_obj"]
+        if self.cluster_obj is None:
+            print(
+                "Error, must provide cluster object in order to perform"
+                "clustered selection.")
 
         if 'comparator_obj' not in pool_params:
             print("self.comparator_obj is None")
@@ -678,12 +674,13 @@ class Pool(object):
         if self.comparator is None:
             # no fingerprint comparisons are going to be made
             self.population = Population(
-                self.capacity, ParetoDominance(), self.weights, None)
+                self.capacity, self.cluster_obj, ParetoDominance(),
+                self.weights, None)
         else:
             self.population = Population(
-                self.capacity, StructuralEpsilonDominance(
+                self.capacity, self.cluster_obj, StructuralEpsilonDominance(
                     self.comparator, self.epsilons), self.weights,
-                self.comparator, self.cluster_obj
+                self.comparator
             )
 
     def add_to_pool(self, model, select, sim_ids=None):
@@ -722,7 +719,8 @@ class Pool(object):
         # capacity, check for uniqueness here. Otherwise, uniqueness
         # will be checked for internally when adding to the population.
         unique = True
-        if 1 <= self.population.size < self.capacity and self.comparator is not None:
+        if 1 <= self.population.size < self.capacity and\
+                self.comparator is not None:
             unique = self.comparator.check_model_uniqueness(model)
         if unique:
             # If population size is less than 10, add any models created
@@ -1210,8 +1208,8 @@ class Population(object):
     the list at index 1 contains all rank 1 models, etc.
     """
 
-    def __init__(self, capacity, dominance=ParetoDominance(),
-                 weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
+    def __init__(self, capacity, cluster_obj, dominance=ParetoDominance(),
+                 weights=[1, 1, 1, 1, 1], comparator=None):
         """
         Args:
 
@@ -1224,13 +1222,13 @@ class Population(object):
         weights (list of floats): the weights of each objective function.
         Only used for linear selection.
 
-        comparator (Comparator object): the comparator class instance
-        which handles all model similarity checks.
-
         cluster_obj (Clustering object): the cluster class instance
         which handles the clustering of all models. NOTE: currently only
         compositional clustering is supported for use with this selection
         algorithm.
+
+        comparator (Comparator object): the comparator class instance
+        which handles all model similarity checks.
         """
         self.capacity = capacity
         self.models = []

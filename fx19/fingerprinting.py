@@ -1,14 +1,20 @@
-from dscribe.kernels import REMatchKernel, AverageKernel
-from dscribe.descriptors import SOAP, SineMatrix, EwaldSumMatrix, ACSF, MBTR
+try:
+    from dscribe.kernels import REMatchKernel, AverageKernel
+    from dscribe.descriptors import SOAP, SineMatrix
+    from dscribe.descriptors import EwaldSumMatrix, MBTR
+except ImportError:
+    print('Install Dscribe for structure comparison'
+          'using dscribe fingerprints.')
 from ase.ga.ofp_comparator import OFPComparator
 from pymatgen.io.ase import AseAtomsAdaptor
 import copy
 from sklearn.preprocessing import normalize
 from fx19 import distance_check as dc
 import numpy as np
-import math
-from sklearn.metrics import pairwise_distances, pairwise, mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import pairwise_distances, pairwise
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from pymatgen.core.structure import Structure, Lattice
+
 
 def cutoff(dist, dist_cut):
     if dist < dist_cut:
@@ -16,39 +22,54 @@ def cutoff(dist, dist_cut):
     else:
         return 0.0
 
+
 class DistanceCalculator(object):
     def __init__(self, metric):
-        valid_metrics = ["manhattan", "euclidean", "cosine", "laplacian",\
-            "gaussian", "mae", "mse", "rmse", "r2_score"]
+        valid_metrics = ["manhattan", "euclidean", "cosine", "laplacian",
+                         "gaussian", "mae", "mse", "rmse", "r2_score"]
         if metric not in valid_metrics:
-            print("User assigned metric {metric} not contained in the the set"\
-                "of valid DistanceCalculator metrics: {valid_metrics}. Default"\
-                     "option 'euclidean' assigned.")
+            print("User assigned metric {metric} not contained in the the set"
+                  "of valid DistanceCalculator metrics: {valid_metrics}."
+                  "Default option 'euclidean' assigned.")
             self.metric = "euclidean"
         else:
             self.metric = metric
+
     def create(self, fingerprint1, fingerprint2):
         if self.metric == "euclidean":
-            return pairwise_distances(fingerprint1, fingerprint2, metric = "euclidean")[0][0]
-#             difference = np.subtract(fingerprint1, fingerprint2)
-#             return np.sqrt(np.sum(np.square(difference)))
+            return pairwise_distances(fingerprint1,
+                                      fingerprint2,
+                                      metric="euclidean")[0][0]
         if self.metric == "cosine":
-            return pairwise.cosine_distances(fingerprint1, fingerprint2)[0][0]
-#             return 0.5*(1 - np.dot(fingerprint1, fingerprint2)/(np.linalg.norm(fingerprint1) * np.linalg.norm(fingerprint2)))
+            return pairwise.cosine_distances(fingerprint1,
+                                             fingerprint2)[0][0]
         if self.metric == "manhattan":
-            return pairwise_distances(fingerprint1, fingerprint2, metric = "manhattan")[0][0]
+            return pairwise_distances(fingerprint1,
+                                      fingerprint2,
+                                      metric="manhattan")[0][0]
         if self.metric == "laplacian":
-            return 1 - pairwise.laplacian_kernel(fingerprint1, fingerprint2, gamma = 1e-2)[0][0]
+            return 1 - pairwise.laplacian_kernel(fingerprint1,
+                                                 fingerprint2,
+                                                 gamma=1e-2)[0][0]
         if self.metric == "gaussian":
-            return 1 - pairwise.rbf_kernel(fingerprint1, fingerprint2, gamma = 1e-2)[0][0]
+            return 1 - pairwise.rbf_kernel(fingerprint1,
+                                           fingerprint2,
+                                           gamma=1e-2)[0][0]
         if self.metric == "rmse":
-            return mean_squared_error(fingerprint1, fingerprint2, squared = False)
+            return mean_squared_error(fingerprint1,
+                                      fingerprint2,
+                                      squared=False)
         if self.metric == "mse":
-            return mean_squared_error(fingerprint1, fingerprint2, squared = True)
+            return mean_squared_error(fingerprint1,
+                                      fingerprint2,
+                                      squared=True)
         if self.metric == "mae":
-            return mean_absolute_error(fingerprint1, fingerprint2)
+            return mean_absolute_error(fingerprint1,
+                                       fingerprint2)
         if self.metric == "r2_score":
-            return r2_score(fingerprint1, fingerprint2)
+            return r2_score(fingerprint1,
+                            fingerprint2)
+
 
 class Comparator(object):
     '''
@@ -66,7 +87,10 @@ class Comparator(object):
             tolerances["valle-oganov"] = 1e-3
             tolerances["bag-of-bonds"] = [.02, 0.7]
             tolerances["rematch-soap"] = 1e-3
+            tolerances['average-soap'] = 1e-3
             tolerances["mbtr"] = 1e-3
+            tolerances['sine-matrix'] = 1e-3
+            tolerances['ewald-sum-matrix'] = 1e-3
 
         self.tolerances = tolerances
         self.comp = None
@@ -75,7 +99,7 @@ class Comparator(object):
         self.distance_calculator = None
         # whether to remove vacuum in all directions before fingerprint
         # to be used in cluster & surface geometries
-        self.rem_vac = False # defaults to False
+        self.rem_vac = False  # defaults to False
 
     def set_soap_descriptor(self, _species, soap_values=None):
         '''
@@ -111,7 +135,7 @@ class Comparator(object):
                              lmax=_lmax, sigma=_sigma,
                              periodic=True, crossover=True, sparse=False)
 
-    def set_mbtr_descriptor(self, _species, mbtr_values = None):
+    def set_mbtr_descriptor(self, _species, mbtr_values=None):
         '''
         Creates the class MBTR descriptor object.
 
@@ -128,43 +152,72 @@ class Comparator(object):
                 species=_species,
                 k1={
                     "geometry": {"function": "atomic_number"},
-                    "grid": {"min": 0, "max": 18, "n": 100, "sigma": 0.6},
+                    "grid": {"min": 0,
+                             "max": 18,
+                             "n": 100,
+                             "sigma": 0.6},
                 },
                 k2={
                     "geometry": {"function": "inverse_distance"},
-                    "grid": {"min": 0, "max": 2, "n": 100, "sigma": 0.08},
-                    "weighting": {"function": "exp", "scale": 0.5, "threshold": 1e-3},
+                    "grid": {"min": 0,
+                             "max": 2,
+                             "n": 100,
+                             "sigma": 0.08},
+                    "weighting": {"function": "exp",
+                                  "scale": 0.5,
+                                  "threshold": 1e-3},
                 },
                 k3={
                     "geometry": {"function": "cosine"},
-                    "grid": {"min": -1, "max": 1, "n": 100, "sigma": 0.03},
-                    "weighting": {"function": "exp", "scale": 0.5, "threshold": 1e-3},
+                    "grid": {"min": -1,
+                             "max": 1,
+                             "n": 100,
+                             "sigma": 0.03},
+                    "weighting": {"function": "exp",
+                                  "scale": 0.5,
+                                  "threshold": 1e-3},
                 },
-                flatten = True,
+                flatten=True,
                 periodic=True,
                 normalization="l2_each"
             )
         else:
-            if "k1" not in mbtr_values and "k2" not in mbtr_values and "k3" not in mbtr_values:
-                print("Problem! Need to provide individual k-body term dictionaries to set any mbtr"
-                      "parameters. Using default settings. ")
+            if "k1" not in mbtr_values and\
+               "k2" not in mbtr_values and\
+                    "k3" not in mbtr_values:
+                print("Problem! Need to provide individual k-body term "
+                      "dictionaries to set any mbtr parameters. "
+                      "Using default settings. ")
                 self.desc = MBTR(
                     species=_species,
                     k1={
                         "geometry": {"function": "atomic_number"},
-                        "grid": {"min": 0, "max": 18, "n": 100, "sigma": 0.6},
+                        "grid": {"min": 0,
+                                 "max": 18,
+                                 "n": 100,
+                                 "sigma": 0.6},
                     },
                     k2={
                         "geometry": {"function": "inverse_distance"},
-                        "grid": {"min": 0, "max": 2, "n": 100, "sigma": 0.08},
-                        "weighting": {"function": "exp", "scale": 0.5, "threshold": 1e-3},
+                        "grid": {"min": 0,
+                                 "max": 2,
+                                 "n": 100,
+                                 "sigma": 0.08},
+                        "weighting": {"function": "exp",
+                                      "scale": 0.5,
+                                      "threshold": 1e-3},
                     },
                     k3={
                         "geometry": {"function": "cosine"},
-                        "grid": {"min": -1, "max": 1, "n": 100, "sigma": 0.03},
-                        "weighting": {"function": "exp", "scale": 0.5, "threshold": 1e-3},
+                        "grid": {"min": -1,
+                                 "max": 1,
+                                 "n": 100,
+                                 "sigma": 0.03},
+                        "weighting": {"function": "exp",
+                                      "scale": 0.5,
+                                      "threshold": 1e-3},
                     },
-                    flatten = True,
+                    flatten=True,
                     periodic=True,
                     normalization="l2_each"
                 )
@@ -176,13 +229,13 @@ class Comparator(object):
                 if "k3" not in mbtr_values:
                     mbtr_values["k3"] = None
                 self.desc = MBTR(
-                    species = _species,
-                    k1 = mbtr_values["k1"],
-                    k2 = mbtr_values["k2"],
-                    k3 = mbtr_values["k3"]
+                    species=_species,
+                    k1=mbtr_values["k1"],
+                    k2=mbtr_values["k2"],
+                    k3=mbtr_values["k3"]
                 )
 
-    def set_sine_matrix_descriptor(self, sm_values = None):
+    def set_sine_matrix_descriptor(self, sm_values=None):
         '''
         Creates the class Sine Matrix descriptor object.
 
@@ -193,10 +246,10 @@ class Comparator(object):
         '''
         if sm_values is None:
             self.desc = SineMatrix(
-                    n_atoms_max = 24,
-                    permutation = "sorted_l2",
-                    sparse = "False",
-                    flatten = "True"
+                n_atoms_max=24,
+                permutation="sorted_l2",
+                sparse="False",
+                flatten="True"
             )
         else:
             _n_atoms_max = 24
@@ -206,12 +259,12 @@ class Comparator(object):
             if "n_atoms_max" in sm_values:
                 _n_atoms_max = sm_values["n_atoms_max"]
             self.desc = SineMatrix(
-                             n_atoms_max=_n_atoms_max,
-                             permutation=_permutation, 
-                             sparse="False",
-                             flatten="True")
+                n_atoms_max=_n_atoms_max,
+                permutation=_permutation,
+                sparse="False",
+                flatten="True")
 
-    def set_ewald_sum_matrix_descriptor(self, esm_values = None):
+    def set_ewald_sum_matrix_descriptor(self, esm_values=None):
         '''
         Creates the class Ewald Sum Matrix descriptor object.
 
@@ -222,10 +275,10 @@ class Comparator(object):
         '''
         if esm_values is None:
             self.desc = EwaldSumMatrix(
-                    n_atoms_max = 24,
-                    permutation = "sorted_l2",
-                    sparse = "False",
-                    flatten = "True"
+                n_atoms_max=24,
+                permutation="sorted_l2",
+                sparse="False",
+                flatten="True"
             )
         else:
             _n_atoms_max = 24
@@ -235,10 +288,10 @@ class Comparator(object):
             if "n_atoms_max" in esm_values:
                 _n_atoms_max = esm_values["n_atoms_max"]
             self.desc = EwaldSumMatrix(
-                             n_atoms_max=_n_atoms_max,
-                             permutation=_permutation, 
-                             sparse="False",
-                             flatten="True")
+                n_atoms_max=_n_atoms_max,
+                permutation=_permutation,
+                sparse="False",
+                flatten="True")
 
     def set_valle_oganov_comparator(self, comp_values=None):
         '''
@@ -323,8 +376,8 @@ class Comparator(object):
             elif self.label == "rematch-soap":
                 self.kernel_gen = REMatchKernel(
                     metric=_metric, alpha=_alpha, threshold=_threshold)
-    
-    def set_distance_calculator(self, distance_metric = None):
+
+    def set_distance_calculator(self, distance_metric=None):
         '''
         Creates the DistanceCalculator object which will calculate the
         distance between models for the following fingerprints:
@@ -367,45 +420,47 @@ class Comparator(object):
         '''
         if self.label == "valle-oganov":
             comp = self.comp
-            return (comp._compare_structure(test_model.fingerprint["valle-oganov"], ref_model.fingerprint["valle-oganov"]),)
+            return (comp._compare_structure(
+                test_model.fingerprint["valle-oganov"],
+                ref_model.fingerprint["valle-oganov"]),)
 
-        elif self.label == "soap":
-            kernel_gen = self.kernel_gen
-            comparison = kernel_gen.create([test_model.fingerprint["soap"],
-                                                ref_model.fingerprint["soap"]])
-            distance = np.sqrt(
-                comparison[0][0] + comparison[1][1] - 2*comparison[0][1])
-            return (distance,)
-        
         elif self.label == "rematch-soap":
             kernel_gen = self.kernel_gen
-            comparison = kernel_gen.create([test_model.fingerprint["rematch-soap"],
-                                                ref_model.fingerprint["rematch-soap"]])
+            comparison = kernel_gen.create(
+                [test_model.fingerprint["rematch-soap"],
+                 ref_model.fingerprint["rematch-soap"]])
             distance = np.sqrt(
                 comparison[0][0] + comparison[1][1] - 2*comparison[0][1])
             return (distance,)
 
-        elif self.label == "rematch-simple":
+        elif self.label == "average-soap":
             kernel_gen = self.kernel_gen
-            comparison = kernel_gen.create([test_model.fingerprint["rematch-simple"],
-                                                ref_model.fingerprint["rematch-simple"]])
+            comparison = kernel_gen.create(
+                [test_model.fingerprint["average-soap"],
+                 ref_model.fingerprint["average-soap"]])
             distance = np.sqrt(
                 comparison[0][0] + comparison[1][1] - 2*comparison[0][1])
             return (distance,)
-            
+
         elif self.label == "ewald-sum-matrix":
             distance_calculator = self.distance_calculator
-            distance = distance_calculator.create(test_model.fingerprint["ewald-sum-matrix"], ref_model.fingerprint["ewald-sum-matrix"])
+            distance = distance_calculator.create(
+                test_model.fingerprint["ewald-sum-matrix"],
+                ref_model.fingerprint["ewald-sum-matrix"])
             return (distance,)
-            
+
         elif self.label == "sine-matrix":
             distance_calculator = self.distance_calculator
-            distance = distance_calculator.create(test_model.fingerprint["sine-matrix"], ref_model.fingerprint["sine-matrix"])
+            distance = distance_calculator.create(
+                test_model.fingerprint["sine-matrix"],
+                ref_model.fingerprint["sine-matrix"])
             return (distance,)
 
         elif self.label == "mbtr":
             distance_calculator = self.distance_calculator
-            distance = distance_calculator.create(test_model.fingerprint["mbtr"], ref_model.fingerprint["mbtr"])
+            distance = distance_calculator.create(
+                test_model.fingerprint["mbtr"],
+                ref_model.fingerprint["mbtr"])
             print(f"Fingerprint distance: {distance}")
             return (distance,)
 
@@ -455,15 +510,7 @@ class Comparator(object):
         except (AssertionError, KeyError):
             # models did not contain the same number of atoms (bag-of-bonds)
             return -1
-        if self.label == "valle-oganov":
-            if np.isclose(comparison[0], 0.0, atol=1e-5):
-                return 0
-            elif comparison < self.tolerances["valle-oganov"]:
-                return 1
-            else:
-                return -1
-
-        elif self.label == "bag-of-bonds":
+        if self.label == "bag-of-bonds":
             if np.isclose(comparison[0], 0.0, atol=1e-5) and \
                     np.isclose(comparison[1], 0.0, atol=1e-5):
                 return 0
@@ -472,17 +519,10 @@ class Comparator(object):
                 return 1
             else:
                 return -1
-        elif self.label == "rematch-soap":
+        else:
             if np.isclose(comparison[0], 0.0, atol=1e-5):
                 return 0
-            elif comparison[0] < self.tolerances["rematch-soap"]:
-                return 1
-            else:
-                return -1
-        elif self.label == "mbtr":
-            if np.isclose(comparison[0], 0.0, atol=1e-5):
-                return 0
-            elif comparison[0] < self.tolerances["mbtr"]:
+            elif comparison[0] < self.tolerances[self.label]:
                 return 1
             else:
                 return -1
@@ -499,7 +539,7 @@ class Comparator(object):
         model (obj): structure_record.model() which will be assigned a
         fingerprint.
         '''
-        # 
+        #
         model_astr = copy.deepcopy(model.astr)
         if self.zbounds is not None:
             site_removal_indices = []
@@ -543,23 +583,25 @@ class Comparator(object):
             model.features = self.desc.create(ase_atoms)
             reshaped_features = self.features.reshape(-1, 1)
             normalized_features = normalize(reshaped_features)
-            self.fingerprint["ewald-sum-matrix"] = normalized_features.reshape(1, -1)
-        
+            self.fingerprint["ewald-sum-matrix"] = normalized_features.reshape(
+                1, -1)
+
         elif self.label == "mbtr":
             ase_atoms = AseAtomsAdaptor.get_atoms(model_astr)
             model.features = self.desc.create(ase_atoms)
-            model.fingerprint["mbtr"] = model.features.reshape(1,-1)
-        
+            model.fingerprint["mbtr"] = model.features.reshape(1, -1)
+
         elif self.label == "hammer":
             nums = model_astr.atomic_numbers
             species = model_astr.types_of_specie
             num_species = len(species)
-            
+
             # Create empty feature array
             model.features = np.zeros((model_astr.num_sites, 1 + num_species))
-            species_indexing = {species: index + 1 for index, species in enumerate(species)}
-            model.features[:,0] = nums
-            
+            species_indexing = {species: index +
+                                1 for index, species in enumerate(species)}
+            model.features[:, 0] = nums
+
             # Fingerprint is of the form: [Z, rho_A, rho_B]
             # Need to assemble rho terms
             # Each rho value is defined as:
@@ -570,19 +612,20 @@ class Comparator(object):
             r_cut = 11.9
             for col_index_one, site_one in enumerate(model_astr.sites[:-1]):
                 coords_one = site_one.coords
-                for col_index_prime, site_two in enumerate(model_astr.sites[col_index_one + 1:]):
+                for col_index_prime, site_two in enumerate(
+                        model_astr.sites[col_index_one + 1:]):
                     coords_two = site_two.coords
                     col_index_two = col_index_one + col_index_prime + 1
                     r = dc.dist_pbc(coords_one, coords_two, lattice)
                     factor = np.exp(-r/λ)*cutoff(r, r_cut)
-                    
+
                     # Need to assign rho value based on specie of other site
                     row_index_one = species_indexing[site_two.specie]
                     row_index_two = species_indexing[site_one.specie]
-                    
+
                     self.features[col_index_one, row_index_one] += factor
                     self.features[col_index_two, row_index_two] += factor
-                    
+
             model.fingerprint["hammer"] = self.features
 
         elif self.label == "bag-of-bonds":
@@ -656,9 +699,9 @@ class Comparator(object):
         astr (obj): Pymatgen structure object
         """
         xcarts, ycarts, zcarts = astr.cart_coords.T
-        xthick  = xcarts.max() - xcarts.min()
+        xthick = xcarts.max() - xcarts.min()
         ythick = ycarts.max() - ycarts.min()
-        zthick  = zcarts.max() - zcarts.min()
+        zthick = zcarts.max() - zcarts.min()
 
         newa, newb, newc = xthick+2, ythick+2, zthick+2
         new_latt = Lattice([[newa, 0, 0], [0, newb, 0], [0, 0, newc]])
