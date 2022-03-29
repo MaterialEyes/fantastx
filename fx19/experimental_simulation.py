@@ -133,7 +133,7 @@ class xanes_of_model(object):
             self.exp_exc_arrays, self.exp_exc_maxes =\
                 self.read_in_experimental_spectra(self.exp_exc_ref_filepath)
             exp_exc_spline = self.fit_spline(
-                self.arrays_exp_exc[0], self.arrays_exp_exc[1], "cubic")
+                self.exp_exc_arrays[0], self.exp_exc_arrays[1], "cubic")
             self.exp_dif_spline = exp_exc_spline - exp_base_spline
             self.exp_dif_reshaped_spline = np.reshape(
                 self.exp_dif_spline, (-1, 1))
@@ -147,7 +147,7 @@ class xanes_of_model(object):
         if self.comparison_spectra_type == "difference":
             # Gather pre-computed computational base spectra
             self.comp_base_arrays, _ = self.read_in_calculated_spectra(
-                self.comp_base_ref_filepath, self.maxes_exp_base)
+                self.comp_base_ref_filepath, self.exp_base_maxes)
             self.comp_base_spline = self.fit_spline(
                 self.comp_base_arrays[0], self.comp_base_arrays[1], "cubic")
             print("Gathered pre-computed computational data.")
@@ -371,6 +371,7 @@ class xanes_of_model(object):
             print("Error. Output directory already exists.")
         fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
         fdmnes_abbr_input_filename = fdmnes_input_filename
+        fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
         fdmfile_filename = model.relax_path + "/fdmfile.txt"
         fdmnes_mpirun_filename = model.relax_path + "/mpirun_fdmnes"
 
@@ -386,28 +387,40 @@ class xanes_of_model(object):
         with open(self.input_yaml_filepath) as ifile:
             fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
 
+        fdmnes_headers = {
+            "Filout": fdmnes_output_filename,
+            "Radius": fdmnes_dict["cluster_radius"],
+            "Edge": fdmnes_dict["edge"]
+        }
+
         # Absorber and core_hole_coords are determined based on structure
         core_hole_index = 1
+        absorption_site = ""
         core_hole_coords = [0, 0, 0]
         for n, site in enumerate(model.astr.sites):
             specie = site.specie.symbol
-            if specie == fdmnes_dict["core_hole_site"]:
+            if specie == fdmnes_dict["core_hole_site_element"]:
                 if core_hole_index == fdmnes_dict["core_hole_site_id"]:
                     core_hole_coords = np.copy(site.coords)
-                    fdmnes_dict["fdmnes_cards"]["Absorber"] = str(
-                        n+1)
+                    absorption_site = str(n+1)
                 core_hole_index += 1
 
         inputfile = open(fdmnes_input_filename, "w+")
+        for key, value in fdmnes_headers.items():
+            inputfile.write(str(key) + "\n" + str(value) + "\n\n")
+
         for key, value in fdmnes_dict["fdmnes_cards"].items():
+            print(f"key: {key}; value: {value}")
             if value is not None:
                 if value == "include":
                     inputfile.write(key + "\n")
                 else:
                     if key == "Atom":
+                        inputfile.write(key + "\n")
                         for sub_key, sub_value in value.items():
                             inputfile.write(sub_key + " " + sub_value + "\n")
                     elif key == "Atom_conf":
+                        inputfile.write(key + "\n")
                         all_atom_counts = {}
                         all_atom_indices = {}
                         atom_index = 1
@@ -432,13 +445,19 @@ class xanes_of_model(object):
                                 atom_count + " " +
                                 atom_indices + " " +
                                 sub_value + "\n")
+                    elif key == "Multipolar":
+                        if type(value) is str:
+                            inputfile.write(value + "\n")
+                        else:
+                            for sub_value in value:
+                                inputfile.write(sub_value + "\n")
                     else:
                         inputfile.write(key + "\n")
                         inputfile.write(value + "\n")
-                    inputfile.write("\n")
+                inputfile.write("\n")
 
         # create atoms card
-        inputfile.write(fdmnes_dict["struture_type"] + "\n")
+        inputfile.write(fdmnes_dict["structure_type"] + "\n")
 
         # grab cartesian coordinates of lattice
         abc = model.astr.lattice.abc
