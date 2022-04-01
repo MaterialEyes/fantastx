@@ -1,0 +1,42 @@
+site_name: FANTASTX Documentation
+docs_dir: Docs
+theme: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          selection:
+            docstring_style: google
+  - mkdocs-jupyter
+
+markdown_extensions:
+  - admonition
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+
+nav:
+  - Home: home.md
+  - Installation: installation.md
+  - FAQs: FAQs.md
+  - Usage: USAGE.md
+  - Citation: citation.md
+  - FANTASTX YAML Preparation: YAML_PREP.md
+  - XANES YAML inputs: xanes.md
+  - API:
+      - run_ops: run_ops-reference.md
+      - inputs: inputs-reference.md
+      - energy: energy-reference.md
+      - epsilonSelection: epsilonSelection-reference.md
+      - clusteredSelection: clusteredSelection-reference.md
+      - selection: selection-reference.md
+      - fingerprinting: fingerprinting-reference.md
+      - clustering: clustering-reference.md
+      - distance_check: distance_check-reference.md
+      - structure_operations: structure_operations-reference.md
+      - structure_record: structure_record-reference.md
+      - experimental_simulation: experimental_simulation-reference.md

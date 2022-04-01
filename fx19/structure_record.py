@@ -54,6 +54,7 @@ class model(object):
         # where the structure came from (list of ints)
         self.inheritance = None
         self.made_by = None
+        self.relax_path = None
         # set exp sim functions as variables
         self.Xsim1 = None
         self.Xsim2 = None
@@ -84,7 +85,10 @@ class model(object):
         # and clusteredSelection
         self.cluster = None
         # How many times this structure is selected from get_parent()
-        self.times_chosen_as_parent = None
+        self.times_chosen_as_parent = 0
+        # fingerprinting information
+        self.fingerprint = {}
+        self.features = None
 
 
 class structure_constraints(object):
@@ -166,7 +170,7 @@ class structure_constraints(object):
                 if 'max_dist' in str_record:
                     if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
-        #########################cluster parameters###########################
+        # ########################cluster parameters###########################
         # shape and related
         if 'cluster' in str_record:
             self.shape = 'cluster'
@@ -174,6 +178,8 @@ class structure_constraints(object):
             self.shape = 'gb'
         elif 'surface' in str_record:
             self.shape = 'surface'
+        elif 'molecule' in str_record:
+            self.shape = 'molecule'
         # TODO: add other shapes here
 
         if self.shape == 'cluster':
@@ -191,9 +197,14 @@ class structure_constraints(object):
                       'Using default diameter of 8Å')
                 self.max_dia = 8
 
-        ####################cluster parameters ends###########################
+            if 'origin' in str_record['cluster']:
+                self.origin = str_record['cluster']['origin']
+            else:
+                self.origin = [i/2. for i in self.box_abc]
 
-        #########################gb parameters begins#########################
+        # ###################cluster parameters ends###########################
+
+        # ########################gb parameters begins#########################
         if self.shape == 'gb':
             init_gb_astr_path = str_record['gb']['init_gb_astr']
             self.init_gb_astr = Structure.from_file(init_gb_astr_path)
@@ -232,9 +243,9 @@ class structure_constraints(object):
             #self.grain2_orientation =
             #self.grain2.tilt =
             """
-        ######################### gb parameters ends #########################
+        # ######################## gb parameters ends #########################
 
-        ##################### surface parameters begins ######################
+        # #################### surface parameters begins ######################
         if self.shape == 'surface':
             surface_params = str_record['surface']
             init_slabs_dir = surface_params['init_slabs_dir']
@@ -275,6 +286,36 @@ class structure_constraints(object):
 
             if 'hop_mate_frac' in surface_params:
                 self.hop_mate_frac = surface_params['hop_mate_frac']
+
+        # ##################### surface parameters ends #######################
+
+        # ################### molecule parameters begins ######################
+        if self.shape == 'molecule':
+            if 'box_abc' in str_record['molecule']:
+                self.box_abc = str_record['molecule']['box_abc']
+            else:
+                print('The lattice lengths of the box are not specified.'
+                      ' Using default orthogonal box of a=b=c=20Å')
+                self.box_abc = [20, 20, 20]
+
+            if 'max_dia' in str_record['molecule']:
+                self.max_dia = str_record['molecule']['max_dia']
+            else:
+                print('The maximum diameter of the molecule is not specified. '
+                      'Using default diameter of 8Å')
+                self.max_dia = 8
+
+            if 'origin' in str_record['molecule']:
+                self.origin = str_record['molecule']['origin']
+            else:
+                self.origin = [i/2. for i in self.box_abc]
+
+            if 'fixed_species' in str_record['molecule']:
+                self.fixed_species = str_record['molecule']['fixed_species']
+            else:
+                print('No species were specified as being held fixed. '
+                      'Using default setting of [].')
+                self.fixed_species = []
 
     def get_constraints(self):
         """

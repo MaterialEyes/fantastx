@@ -3,6 +3,8 @@ import numpy as np
 import scipy.cluster.hierarchy as ch
 import matplotlib.colors as col
 from collections import Counter
+from fx19.fingerprinting import Comparator
+import imageio
 
 
 class hierarchical_clusterer(object):
@@ -14,7 +16,7 @@ class hierarchical_clusterer(object):
     clusters for use in ML or GA applications.
     '''
 
-    def __init__(self, params, xsim):
+    def __init__(self, params, xsim=None, comparator_obj=None):
         '''
         Args:
 
@@ -33,7 +35,9 @@ class hierarchical_clusterer(object):
         self.max_incons_cutoff = params["max_incons_cutoff"]
         self.max_dist_cutoff = params["max_dist_cutoff"]
         self.min_cluster_occupancy = params["min_cluster_occupancy"]
+        self.distance_calculation = params["distance_calculation"]
         self.xsim = xsim
+        self.comparator_obj = comparator_obj
         self.num_items = 0
         self.num_clusters = 0
 
@@ -43,10 +47,21 @@ class hierarchical_clusterer(object):
 
         self.type = "hierarchical"
 
+        # visualization parameters
+        self.visualization_folder =\
+            "/mnt/c/Users/dunru/GitHub/fantastx/" +\
+            "epsilon_selection_Al2O3_LCRC_files/"
+        self.visualization_clustering_prefix =\
+            "Al2O3_clustering_"
+        self.visualization_dendrogram_prefix =\
+            "Al2O3_cluster_dendrogram_"
+        self.visualization_gif_prefix =\
+            "Al2O3_clustering"
+
     def initialize_clusters(self, models):
         '''
         Function to initialize the cluster object. Name matches the
-        same function in compositional_clusterer. 
+        same function in compositional_clusterer.
 
         Args:
 
@@ -128,8 +143,12 @@ class hierarchical_clusterer(object):
             for j, other_model in enumerate(comparison_models):
                 other_label = test_label + j + 1
                 try:
-                    comparison = self.xsim.evaluate_obj_two_models(
-                        test_model, other_model)
+                    if self.distance_calculation == "xsim":
+                        comparison = self.xsim.evaluate_obj_two_models(
+                            test_model, other_model)
+                    elif self.distance_calculation == "fingerprint":
+                        comparison = self.comparator_obj.compare_fingerprints(
+                            test_model, other_model)[0]
                     self.distance_matrix[test_label][other_label] = comparison
                     self.distance_matrix[other_label][test_label] = comparison
                     if comparison > max_ssim:
@@ -168,8 +187,12 @@ class hierarchical_clusterer(object):
         new_row = np.zeros(self.num_items)
         for comp_label, comp_model in enumerate(self.sorted_models):
             try:
-                comparison = self.xsim.evaluate_obj_two_models(
-                    comp_model, added_model)
+                if self.distance_calculation == "xsim":
+                    comparison = self.xsim.evaluate_obj_two_models(
+                        comp_model, added_model)
+                elif self.distance_calculation == "fingerprint":
+                    comparison = self.comparator_obj.compare_fingerprints(
+                        comp_model, added_model)[0]
                 new_col[comp_label] = comparison
                 new_row[comp_label] = comparison
             except:
@@ -187,7 +210,7 @@ class hierarchical_clusterer(object):
     def assign_clusters(self):
         '''
         Assign clusters using hierarchical clustering based on the
-        distance matrix which was previously calculated. 
+        distance matrix which was previously calculated.
 
         Returns cluster_models, a (dictionary) which contains the
         clusters as keys, and a list of the models belonging to each
@@ -265,10 +288,10 @@ class hierarchical_clusterer(object):
     def update_clustering(self, new_model, old_model):
         '''
         A method to update the clustering by taking out the old model
-        and adding the new model. 
+        and adding the new model.
 
         Returns the cluster_models and multi_model_clusters calculated
-        by the assign_clusters() function. 
+        by the assign_clusters() function.
 
         Args:
 
@@ -279,7 +302,7 @@ class hierarchical_clusterer(object):
         self.edit_distance_matrix(new_model, old_model)
         return self.assign_clusters()
 
-    def calculate_clustering(self, labels, obj_fncs):
+    def visualize_clusters(self):
         '''
         Method to calculate hierarchical clustering of structures.
         Will create a cluster dendrogram, as well as a visualization
@@ -293,63 +316,11 @@ class hierarchical_clusterer(object):
         obj_fncs (dictionary): maps each label to the set of objective
         functions for that model.
         '''
-        file_label = self.cutoff_type
-        if labels is None:
-            actual_labels = np.arange(1, len(self.distance_matrix)+1, 1)
-        else:
-            actual_labels = labels
-
+        print(f"Max distance in matrix: {np.amax(self.distance_matrix)}")
+        print(f"Min distance in matrix: {np.amin(self.distance_matrix)}")
         linkage = ch.linkage(self.distance_matrix, method=self.linkage_method)
-
-        # print("Created linkage array.")
-
-        inconsistency_cutoff = 1.0
-        distance_cutoff = 1.0
-        max_cluster_index = self.max_clusters + 1
-        occupation = self.min_cluster_occupancy
-        if self.cutoff_type == "inconsistent":
-            while max_cluster_index > self.max_clusters \
-                or max_cluster_index < self.min_clusters \
-                    or occupation < self.min_cluster_occupancy:
-                clusters = ch.fcluster(linkage, inconsistency_cutoff,
-                                       criterion='inconsistent', depth=30)
-                inconsistency_cutoff += 0.1
-                if inconsistency_cutoff > self.max_incons_cutoff:
-                    print("Unable to reach desired number of clusters")
-                    break
-                max_cluster_index = np.amax(clusters)
-
-                frequency_dict = Counter(clusters)
-                frequencies = list(frequency_dict.values())
-                occupation = np.min(frequencies)
-        elif self.cutoff_type == "distance":
-            while max_cluster_index > self.max_clusters \
-                or max_cluster_index < self.min_clusters \
-                    or occupation < self.min_cluster_occupancy:
-                # clusters = ch.fcluster(
-                #     linkage, t=self.max_clusters, criterion="maxclust")
-                clusters = ch.fcluster(linkage, distance_cutoff,
-                                       criterion='distance')
-                distance_cutoff += 0.5
-                if distance_cutoff > self.max_dist_cutoff:
-                    print("Unable to reach desired number of clusters")
-                    break
-                max_cluster_index = np.amax(clusters)
-                frequency_dict = Counter(clusters)
-                frequencies = list(frequency_dict.values())
-                occupation = np.min(frequencies)
-        elif self.cutoff_type == "maxclust_monocrit":
-            R = ch.inconsistent(linkage, d=30)
-            MI = ch.maxinconsts(linkage, R)
-            clusters = ch.fcluster(
-                linkage, t=self.max_clusters,
-                criterion=self.cutoff_type, monocrit=MI)
-            max_cluster_index = np.amax(clusters)
-            frequency_dict = Counter(clusters)
-            frequencies = list(frequency_dict.values())
-            occupation = np.min(frequencies)
-
-        print("Assigned clusters.")
+        cluster_models, multi_model_clusters, _ = self.assign_clusters()
+        file_label = self.cutoff_type
 
         # Create the dendrogram
         dflt_col = "black"   # Unclustered gray
@@ -357,8 +328,11 @@ class hierarchical_clusterer(object):
         colors = [i for i in plt.get_cmap('tab20').colors]
         hex_colors = [col.rgb2hex(i) for i in colors]
         leaf_colors = {}
-        for n, i in enumerate(clusters):
-            leaf_colors[n] = hex_colors[(i-1) % 20]
+        n = 0
+        for cluster, models in cluster_models.items():
+            for model in models:
+                leaf_colors[n] = hex_colors[(cluster-1) % 20]
+                n += 1
         link_cols = {}
         for i, i12 in enumerate(linkage[:, :2].astype(int)):
             c1, c2 = (link_cols[x] if x > len(linkage) else leaf_colors[x]
@@ -372,13 +346,13 @@ class hierarchical_clusterer(object):
                       color_threshold=None, above_threshold_color='y',
                       orientation='top',
                       link_color_func=lambda x: link_cols[x])
-        axes.set_ylabel(r"SSIM Distance", fontsize=16)
-        axes.set_ylim([0, 200.0])
+        axes.set_ylabel(r"Fingerprint Distance", fontsize=16)
+        axes.set_ylim([0, 2.0])
         plt.title(
-            r"Al/Al$_2$O$_3$ Grain Boundary Dendrogram", fontsize=24)
-        folder = "/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/"
-        plt.savefig(folder + "Al2O3_SSIM_cluster_dendrogram_" + file_label
-                    + ".png",
+            r"Dendrogram", fontsize=24)
+        plt.savefig(self.visualization_folder +
+                    self.visualization_clustering_prefix +
+                    file_label + ".png",
                     format="png", dpi=300)
         plt.show()
 
@@ -391,12 +365,12 @@ class hierarchical_clusterer(object):
         min_index = 100
 
         # Collect data to plot
-        for index, label in enumerate(actual_labels):
-            try:
-                cluster = clusters[index]
-                total_energy = obj_fncs[label][0]
-                formation_energy = obj_fncs[label][1]
-                exp = obj_fncs[label][2]
+        index = 0
+        for cluster, models in cluster_models.items():
+            for model in models:
+                total_energy = model.tot_en
+                formation_energy = model.obj0_val
+                exp = model.obj1_val
                 color = leaf_colors[index]
                 if cluster in cluster_properties:
                     cluster_properties[cluster]["Formation Energy"].append(
@@ -429,9 +403,8 @@ class hierarchical_clusterer(object):
                         min_y = exp
                     if exp > max_y:
                         max_y = exp
-            except KeyError:
-                print("Error! Can't find label: ", label)
-                continue
+
+                index += 1
 
         # Plot data for each cluster
         fig, axes = plt.subplots(1, 1, gridspec_kw={"hspace": 0.5})
@@ -444,73 +417,71 @@ class hierarchical_clusterer(object):
                          label=cluster_label)
             index += 1
 
-        axes.set_ylabel("STEM", fontsize=16)
+        axes.set_ylabel("STEM SSIM", fontsize=16)
         axes.set_xlabel(
-            "Energy", fontsize=16)
+            "Formation Energy (eV)", fontsize=16)
         axes.set_xlim((min_x - 1, max_x + 1))
         axes.set_ylim((min_y - 0.1, max_y + 0.1))
         plt.setp(axes.get_xticklabels(), fontsize=13)
         plt.setp(axes.get_yticklabels(), fontsize=13)
         plt.legend(fontsize=16)
         plt.title(
-            r"Clustering of Al/Al$_2$O$_3$ Grain Boundaries", fontsize=24)
-        folder = "/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/"
-        plt.savefig(folder + "Al2O3_SSIM_clustering_" + file_label + ".png",
+            r"Objective Space Clustering", fontsize=24)
+        plt.savefig(self.visualization_folder + self.visualization_prefix +
+                    file_label + ".png",
                     format="png", dpi=300)
         plt.close()
 
-        # # Make a gif
-        # gif_filenames = []
-        # index = 0
+        # Make a gif
+        gif_filenames = []
+        index = 0
 
-        # # frames between transitions
-        # n_frames = 6
+        # frames between transitions
+        n_frames = 6
 
-        # # Plot data for each cluster
-        # for key in sorted(cluster_properties.keys()):
-        #     cluster_label = "Cluster " + str(key)
-        #     # if key == last_cluster:
-        #     #     cluster_label = "Unclustered (cluster " + str(key) + ")"
-        #     cluster = cluster_properties[key]
-        #     fig, axes = plt.subplots(1, 1, gridspec_kw={"hspace": 0.5})
-        #     fig.set_size_inches(14, 10)
-        #     axes.scatter(cluster["Formation Energy"], cluster["Exp"],
-        #                  s=100, marker="o", c=cluster["Color"],
-        #                  label=cluster_label)
-        #     axes.set_ylabel("STEM", fontsize=16)
-        #     axes.set_xlabel(
-        #         "Energy", fontsize=16)
-        #     axes.set_xlim((min_x - 1, max_x + 1))
-        #     axes.set_ylim((min_y - 0.1, max_y + 0.1))
-        #     plt.setp(axes.get_xticklabels(), fontsize=13)
-        #     plt.setp(axes.get_yticklabels(), fontsize=13)
-        #     plt.legend(fontsize=16)
-        #     plt.title(
-        #         r"Clustering of Al/Al$_2$O$_3$ Grain Boundaries",
-        #         fontsize=24)
-        #     folder = \
-        #     "/mnt/c/Users/dunru/GitHub/fantastx/epsilon_selection_Al2O3/"
-        #     filename = folder + "Al2O3_SSIM_clustering_" + \
-        #         file_label + "_" + str(index) + ".png"
-        #     plt.savefig(filename, format="png", dpi=300)
-        #     plt.close()
+        # Plot data for each cluster
+        for key in sorted(cluster_properties.keys()):
+            cluster_label = "Cluster " + str(key)
+            # if key == last_cluster:
+            #     cluster_label = "Unclustered (cluster " + str(key) + ")"
+            cluster = cluster_properties[key]
+            fig, axes = plt.subplots(1, 1, gridspec_kw={"hspace": 0.5})
+            fig.set_size_inches(14, 10)
+            axes.scatter(cluster["Formation Energy"], cluster["Exp"],
+                         s=100, marker="o", c=cluster["Color"],
+                         label=cluster_label)
+            axes.set_ylabel("STEM SSIM", fontsize=16)
+            axes.set_xlabel(
+                "Formation Energy (eV)", fontsize=16)
+            axes.set_xlim((min_x - 1, max_x + 1))
+            axes.set_ylim((min_y - 0.1, max_y + 0.1))
+            plt.setp(axes.get_xticklabels(), fontsize=13)
+            plt.setp(axes.get_yticklabels(), fontsize=13)
+            plt.legend(fontsize=16)
+            plt.title(
+                r"Objective Space Clustering",
+                fontsize=24)
+            filename = self.visualization_folder + \
+                self.visualization_prefix + \
+                file_label + "_" + str(index) + ".png"
+            plt.savefig(filename, format="png", dpi=300)
+            plt.close()
 
-        #     index += 1
+            index += 1
 
-        #     for i in np.arange(0, n_frames+1):
-        #         gif_filenames.append(filename)
+            for i in np.arange(0, n_frames+1):
+                gif_filenames.append(filename)
 
-        # # assemble gif
-        # print("Charts saved. Building gif.")
-        # gif_filename = folder + "Al2O3_SSIM_clustering_" + file_label
-        #                + ".gif"
-        # with imageio.get_writer(gif_filename, mode="I") as writer:
-        #     for filename in gif_filenames:
-        #         image = imageio.imread(filename)
-        #         writer.append_data(image)
+        # assemble gif
+        print("Charts saved. Building gif.")
+        gif_filename = self.visualization_folder +\
+            self.visualization_gif_prefix +\
+            file_label + ".gif"
+        with imageio.get_writer(gif_filename, mode="I") as writer:
+            for filename in gif_filenames:
+                image = imageio.imread(filename)
+                writer.append_data(image)
         # print("Gif saved.")
-
-        return (linkage, clusters)
 
 
 class compositional_clusterer(object):

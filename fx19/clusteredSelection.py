@@ -4,14 +4,8 @@ import random
 import math
 import itertools
 from sklearn.preprocessing import MinMaxScaler
-from sklearn.preprocessing import normalize
 from scipy.optimize import minimize
-from dscribe.kernels import REMatchKernel
-from dscribe.descriptors import SOAP
-from ase.ga.ofp_comparator import OFPComparator
-from pymatgen.io.ase import AseAtomsAdaptor
-from fx19 import distance_check as dc
-import copy
+from fx19.fingerprinting import Comparator
 
 """
 This module contains functions to conduct multi-objective search.
@@ -48,311 +42,6 @@ of V.S.C. Kolluru.
 Note: currently only compositional clusters are supported,
 support for hierarchical clusters will be added in a subsequent update.
 """
-
-
-class Comparator(object):
-    '''
-    Class which handles all structural fingerprinting. Contains functions
-    to create fingerprints, compare fingerprint, and compare models
-    based on their fingerprints (whether local or global).
-    '''
-
-    def __init__(self, label='bag-of-bonds', tolerances=None):
-        self.label = label
-
-        # Assign default tolerance values if none are provided
-        if tolerances is None:
-            tolerances = {}
-            tolerances["valle-oganov"] = 1e-3
-            tolerances["bag-of-bonds"] = [.02, 0.7]
-            tolerances["rematch-soap"] = 1e-3
-
-        self.tolerances = tolerances
-        self.comp = None
-        self.kernel_gen = None
-        self.zbounds = None
-
-    def set_soap_descriptor(self, _species, soap_values=None):
-        '''
-        Creates the class SOAP descriptor object.
-
-        Arguments:
-
-        _species: (string array) containing the element names of
-        all atomic species handled by the descriptor.
-
-        soap_values: (dictionary) containing user-defined
-        values for some or all SOAP descriptor parameters.
-        '''
-        if soap_values is None:
-            self.desc = SOAP(species=_species, rcut=5.0, nmax=9, lmax=6,
-                             sigma=0.5, periodic=True, crossover=True,
-                             sparse=False)
-        else:
-            _rcut = 5.0
-            _nmax = 9
-            _lmax = 6
-            _sigma = 0.5
-            if "rcut" in soap_values:
-                _rcut = soap_values["rcut"]
-            if "nmax" in soap_values:
-                _nmax = soap_values["nmax"]
-            if "lmax" in soap_values:
-                _lmax = soap_values["lmax"]
-            if "sigma" in soap_values:
-                _sigma = soap_values["sigma"]
-            self.desc = SOAP(species=_species,
-                             rcut=_rcut, nmax=_nmax,
-                             lmax=_lmax, sigma=_sigma,
-                             periodic=True, crossover=True, sparse=False)
-
-    def set_valle_oganov_comparator(self, comp_values=None):
-        '''
-        Creates the class valle-oganov comparator object.
-
-        Arguments:
-
-        comp_values: (dictionary) containing user-defined
-        values for some or all valle-oganov comparator parameters.
-        '''
-        if comp_values is None:
-            self.comp = OFPComparator(n_top=None, dE=None,
-                                      cos_dist_max=1e-3, rcut=10.,
-                                      binwidth=0.05, pbc=[True, True, True],
-                                      sigma=0.05, nsigma=4, recalculate=False)
-        else:
-            _n_top = None
-            _dE = None
-            _cos_dist_max = 1e-3
-            _rcut = 10.
-            _binwidth = 0.05
-            _pbc = [True, True, True]
-            _sigma = 0.05
-            _nsigma = 4
-            _recalculate = False
-
-            if 'n_top' in comp_values:
-                _n_top = comp_values['n_top']
-            if 'dE' in comp_values:
-                _dE = comp_values['dE']
-            if 'cos_dist_max' in comp_values:
-                _cos_dist_max = comp_values['cos_dist_max']
-            if 'rcut' in comp_values:
-                _rcut = comp_values['rcut']
-            if 'binwidth' in comp_values:
-                _binwidth = comp_values['binwidth']
-            if 'pbc' in comp_values:
-                _pbc = comp_values['pbc']
-            if 'sigma' in comp_values:
-                _sigma = comp_values['sigma']
-            if 'nsigma' in comp_values:
-                _nsigma = comp_values['nsigma']
-            if 'recalculate' in comp_values:
-                _recalculate = comp_values['recalculate']
-            self.comp = OFPComparator(n_top=_n_top, dE=_dE,
-                                      cos_dist_max=_cos_dist_max, rcut=_rcut,
-                                      binwidth=_binwidth, pbc=_pbc,
-                                      sigma=_sigma, nsigma=_nsigma,
-                                      recalculate=_recalculate)
-
-    def set_rematch_kernel_generator(self, kg_values=None):
-        '''
-        Creates the class SOAP REMatch kernel generator object, to map
-        local SOAP descriptors to a global descriptor.
-
-        Arguments:
-
-        kg_values: (dictionary) containing user-defined values for
-        some or all REMatch kernel generator parameters.
-        '''
-        if kg_values is None:
-            self.kernel_gen = REMatchKernel(
-                metric="linear", alpha=1, threshold=1e-6)
-        else:
-            _metric = "linear"
-            _alpha = 1
-            _threshold = 1e-6
-            if 'metric' in kg_values:
-                _metric = kg_values['metric']
-            if 'alpha' in kg_values:
-                _alpha = kg_values['alpha']
-            if 'threshold' in kg_values:
-                _threshold = kg_values['threshold']
-            self.kernel_gen = REMatchKernel(
-                metric=_metric, alpha=_alpha, threshold=_threshold)
-
-    def compare_fingerprints(self, test_model, ref_model):
-        '''
-        Compare the fingerprints between two structures. Each model
-        contains a fingerprint dictionary, assigned using the
-        create_fingerprint function, which has all the relevant
-        information for the appropriate fingerprint. In the case of the
-        Valle-Oganov fingerprint, this information is contained within
-        an ASE Atoms structure. In the case of the bag-of-bonds
-        fingerprint, this information is contained within a pair_cor
-        dictionary. In the case of the REMatch SOAP kernel, this
-        information is contained within a set of normalized soap
-        descriptors called normed_features.
-
-        Returns a tuple of length 2, quantifying the fingerprint
-        similarity. Only the bag-of-bonds comparison completely
-        fills the tuple, all other comparisons only result in one
-        similarity or distance metric.
-
-        Note: the order of the test_model and ref_models are irrelevant,
-        the function will return the same value if models A and B are
-        swapped.
-
-        Args:
-
-        test_model (obj): structure_record.model() A for the comparison.
-
-        ref_model (obj): structure_record.model() B for the comparison.
-        '''
-        if self.label == "valle-oganov":
-            return (self.comp._compare_structure(test_model.fingerprint["ase"],
-                                                 ref_model.fingerprint["ase"]),
-                    )
-
-        elif self.label == "rematch-soap":
-            return (self.kernel_gen.create([test_model.fingerprint[
-                "normed_features"],
-                ref_model.fingerprint["normed_features"]]),)
-
-        elif self.label == "bag-of-bonds":
-            pair_cor1 = test_model.pair_cor
-            pair_cor2 = ref_model.pair_cor
-            total_cum_diff = 0.
-            max_diff = 0
-            for n in pair_cor1.keys():
-                cum_diff = 0.
-                norm_factor = pair_cor1[n][0]
-                dists1 = pair_cor1[n][1]
-                dists2 = pair_cor2[n][1]
-                assert len(dists1) == len(dists2)
-                if len(dists1) == 0:
-                    continue
-                diff = np.abs(dists1 - dists2)
-                sum = np.abs(dists1 + dists2)
-                cum_diff = np.sum(diff)
-                cum_sum = np.sum(sum)
-                max_diff_key = np.max(diff)
-                if max_diff_key > max_diff:
-                    max_diff = max_diff_key
-                total_cum_diff += norm_factor * 2 * cum_diff / cum_sum
-            return (total_cum_diff, max_diff)
-
-    def compare_models(self, test_model, ref_model):
-        '''
-        Runs comparison of models, utilizing the appropriate tolerance
-        parameters depending on the global fingerprint used.
-
-        Returns 0 if the models are exactly same, 1 if the models are
-        the same within tolerance, and -1 if they are not within
-        tolerance of each other.
-
-        Note: test_model and ref_model are interchangeable, the same
-        comparison result will be yielded if models A and B are swapped.
-
-        Args:
-
-        test_model (obj): structure_record.model() A for the comparison.
-
-        ref_model (obj): structure_record.model() B for the comparison.
-        '''
-        try:
-            comparison = self.compare_fingerprints(test_model, ref_model)
-        except (AssertionError, KeyError):
-            # models did not contain the same number of atoms (bag-of-bonds)
-            return -1
-        if self.label == "valle-oganov":
-            if np.isclose(comparison, 0.0, atol=1e-5):
-                return 0
-            elif comparison < self.tolerances["valle-oganov"]:
-                return 1
-            else:
-                return -1
-
-        elif self.label == "bag-of-bonds":
-            if np.isclose(comparison[0], 0.0, atol=1e-5) and \
-                    np.isclose(comparison[1], 0.0, atol=1e-5):
-                return 0
-            elif comparison[0] < self.tolerances["bag-of-bonds"][0] and \
-                    comparison[1] < self.tolerances["bag-of-bonds"][1]:
-                return 1
-            else:
-                return -1
-        elif self.label == "rematch-soap":
-            # rematch kernel is a matrix. Here we only use one of (identical)
-            # off-diagonal matrix elements to calculate the structure distance
-            compare_fm = comparison[0][1]  # The cross-similarity
-            distance = math.sqrt(2 - 2*compare_fm)
-            if np.isclose(distance, 0.0, atol=1e-5):
-                return 0
-            elif distance < self.tolerances["rematch-soap"]:
-                return 1
-            else:
-                return -1
-
-    def create_fingerprint(self, model):
-        '''
-        Create the fingerprint for the model object.
-
-        Args:
-
-        model (obj): structure_record.model() which will be assigned a
-        fingerprint.
-        '''
-        if self.label == "valle-oganov":
-            ase_atoms = AseAtomsAdaptor.get_atoms(model.astr)
-            fp, typedic = self.comp._take_fingerprints(ase_atoms)
-            ase_atoms.info['fingerprints'] = self.comp._json_encode(
-                fp, typedic)
-            model.ase = ase_atoms
-
-        elif self.label == "rematch-soap":
-            ase_atoms = AseAtomsAdaptor.get_atoms(model.astr)
-            features = self.desc.create(ase_atoms)
-            model.normed_features = normalize(features)
-
-        elif self.label == "bag-of-bonds":
-            model_astr = copy.deepcopy(model.astr)
-            if self.zbounds is not None:
-                site_removal_indices = []
-                for site_index, site in enumerate(model_astr.sites):
-                    if site.coords[2] < self.zbounds[0] or \
-                            site.coords[2] > self.zbounds[1]:
-                        site_removal_indices.append(site_index)
-                model_astr.remove_sites(site_removal_indices)
-
-            lattice = model_astr.lattice
-            species_set = model_astr.types_of_specie
-            coord_sets = {}
-            for specie in species_set:
-                coords = [
-                    site.coords for site in model_astr.sites
-                    if site.specie == specie]
-                coord_sets[specie] = coords
-            pair_cor = {}
-            for n, specie1 in enumerate(species_set):
-                for specie2 in species_set[n:]:
-                    # Compare each specie1 to each specie2
-                    dists = []
-                    for n, i in enumerate(coord_sets[specie1]):
-                        if specie1 == specie2:
-                            for j in coord_sets[specie2][n+1:]:
-                                dists.append(dc.dist_pbc(i, j, lattice))
-                        else:
-                            for j in coord_sets[specie2]:
-                                dists.append(dc.dist_pbc(i, j, lattice))
-                    dists.sort()
-                    norm_factor = (
-                        len(coord_sets[specie1]) + len(coord_sets[specie2])) \
-                        / (2*len(model.astr))
-
-                    pair_cor[str(specie1) + "-" + str(specie2)
-                             ] = (norm_factor, np.array(dists))
-            model.pair_cor = pair_cor
 
 
 class ParetoDominance(object):
@@ -831,7 +520,8 @@ class StructuralEpsilonDominance(object):
             # it was already ruled out. If models fall within similarity
             # tolerance, then keep model which is closest to the corner
             # of the epsilon box. Otherwise, keep both models
-            similarity = self.comparator.compare_models(test_model, ref_model)
+            similarity = self.comparator.assess_models_similarity(
+                test_model, ref_model)
             if similarity >= 0:
                 return 2
             else:
@@ -841,7 +531,7 @@ class StructuralEpsilonDominance(object):
                 # the number of structural comparisons which are made. The
                 # commented out code is standard epsilon dominance
 
-                ################# EPSILON DOMINANCE #######################
+                # ################ EPSILON DOMINANCE #######################
                 # d_test = 0.0
                 # d_ref = 0.0
 
@@ -863,7 +553,7 @@ class StructuralEpsilonDominance(object):
                 # else:
                 #     return 1
 
-                #################### PARETO DOMINANCE ####################
+                # ################### PARETO DOMINANCE ####################
                 pareto_dom_test = False
                 pareto_dom_ref = False
 
@@ -889,7 +579,7 @@ class StructuralEpsilonDominance(object):
                         if pareto_dom_test:
                             return 0
 
-                # Otherwise one dominates the other, return the appropriate value
+                # Otherwise one dominates the other
                 if pareto_dom_test:
                     return -1
                 else:
@@ -968,51 +658,29 @@ class Pool(object):
 
         self.all_models = []
 
-        if 'cluster_obj' not in pool_params:
-            self.cluster_obj = None
-        else:
-            self.cluster_obj = pool_params["cluster_obj"]
+        self.cluster_obj = pool_params["cluster_obj"]
+        if self.cluster_obj is None:
+            print(
+                "Error, must provide cluster object in order to perform"
+                "clustered selection.")
 
-        if 'fingerprint_params' not in pool_params:
-            # no fingerprint comparisons are going to be made
+        if 'comparator_obj' not in pool_params:
+            print("self.comparator_obj is None")
             self.comparator = None
-            self.population = Population(
-                self.capacity, ParetoDominance(), self.weights, None)
         else:
-            fp_params = pool_params['fingerprint_params']
-            fp_label = fp_params['label']
-            tolerance = {fp_label: fp_params['tolerance']}
-            self.comparator = Comparator(label=fp_label, tolerances=tolerance)
-            if fp_label == "valle-oganov":
-                if 'comp_values' in fp_params:
-                    self.comparator.set_valle_oganov_comparator(
-                        fp_params['comp_values'])
-                else:
-                    self.comparator.set_valle_oganov_comparator()
-            elif fp_label == "rematch-soap":
-                if 'soap_values' in fp_params:
-                    self.comparator.set_soap_descriptor(
-                        _species=fp_params['species'],
-                        soap_values=fp_params['soap_values']
-                    )
-                else:
-                    self.comparator.set_soap_descriptor(
-                        _species=fp_params['species'])
+            print("Created comparator object from params.")
+            self.comparator = pool_params["comparator_obj"]
 
-                if 'kg_values' in fp_params:
-                    self.comparator.set_rematch_kernel_generator(
-                        fp_params['kg_values'])
-                else:
-                    self.comparator.set_rematch_kernel_generator()
-            if 'zbounds' in fp_params:
-                self.comparator.zbounds = fp_params['zbounds']
-            else:
-                self.comparator.zbounds = None
-
+        if self.comparator is None:
+            # no fingerprint comparisons are going to be made
             self.population = Population(
-                self.capacity, StructuralEpsilonDominance(
+                self.capacity, self.cluster_obj, ParetoDominance(),
+                self.weights, None)
+        else:
+            self.population = Population(
+                self.capacity, self.cluster_obj, StructuralEpsilonDominance(
                     self.comparator, self.epsilons), self.weights,
-                self.comparator, self.cluster_obj
+                self.comparator
             )
 
     def add_to_pool(self, model, select, sim_ids=None):
@@ -1051,8 +719,9 @@ class Pool(object):
         # capacity, check for uniqueness here. Otherwise, uniqueness
         # will be checked for internally when adding to the population.
         unique = True
-        if 1 <= self.population.size < self.capacity:
-            unique = self.population.check_uniqueness(model)
+        if 1 <= self.population.size < self.capacity and\
+                self.comparator is not None:
+            unique = self.comparator.check_model_uniqueness(model)
         if unique:
             # If population size is less than 10, add any models created
             if self.population.size < 10:
@@ -1539,8 +1208,8 @@ class Population(object):
     the list at index 1 contains all rank 1 models, etc.
     """
 
-    def __init__(self, capacity, dominance=ParetoDominance(),
-                 weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
+    def __init__(self, capacity, cluster_obj, dominance=ParetoDominance(),
+                 weights=[1, 1, 1, 1, 1], comparator=None):
         """
         Args:
 
@@ -1553,13 +1222,13 @@ class Population(object):
         weights (list of floats): the weights of each objective function.
         Only used for linear selection.
 
-        comparator (Comparator object): the comparator class instance
-        which handles all model similarity checks.
-
         cluster_obj (Clustering object): the cluster class instance
         which handles the clustering of all models. NOTE: currently only
         compositional clustering is supported for use with this selection
         algorithm.
+
+        comparator (Comparator object): the comparator class instance
+        which handles all model similarity checks.
         """
         self.capacity = capacity
         self.models = []
@@ -1596,38 +1265,6 @@ class Population(object):
         '''
         self.models.append(model)
         self.size += 1
-
-    def check_uniqueness(self, model, exact=True):
-        '''
-        Check whether a model is unique.
-
-        Returns True if the model is unique, returns False if the model
-        is the same (or "similar" if exact is False) as another model.
-
-        Args:
-
-        model (obj): the structure_record.model() for which uniqueness
-        is being tested.
-
-        exact (boolean): if True, models are considered unique if they
-        are not exactly the same as another model. If False, models are
-        considered unique if they are not the same as another model
-        within tolerance limits.
-        '''
-        if self.comparator is None:
-            # No comparator, so automatic return True
-            return True
-        else:
-            flags = [self.comparator.compare_models(
-                model, m) for m in self.models]
-            if exact:
-                same = [f == 0 for f in flags]
-            else:
-                same = [f >= 0 for f in flags]
-            if any(same):
-                return False
-            else:
-                return True
 
     def init_clustering_and_ranking(self):
         '''
