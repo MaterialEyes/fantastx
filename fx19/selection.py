@@ -26,8 +26,9 @@ class Pool(object):
 
     all_models - incldues a list of all the models evaluated thus far
 
-    NOTE: The best and worst models are chosen based on the model attribute
-    "overall_value"
+    NOTE:
+        The best and worst models are chosen based on the model attribute
+          "overall_value"
     """
 
     def __init__(self, pool_params):
@@ -256,11 +257,13 @@ class Pool(object):
         'times_chosen_as_parent' attribute after a child structure is created
         using a model as a parent.
 
-        Returns nothing
+        Returns:
+            Nothing
 
-        Args:
+        Arguments:
 
-        inheritance (list): list of one or two integers that are parent labels
+            inheritance (list): list of one or two integers that are parent
+              labels
         """
         for m in self.good_pool:
             if m.label in inheritance:

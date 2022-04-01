@@ -411,15 +411,16 @@ basinhopping_constraints:
 
 **Mandatory** section which sets the parallel behavior of FANTASTX. Currently three parallel architectures are supported: *SLURM*, *PBS*, and running DASK on a single computer.
 
-NOTE: If you are running DASK on a single computer, you need to open two separate terminal windows. In the first terminal window, run the command:
+!!! note
+    If you are running DASK on a single computer, you need to open two separate terminal windows. In the first terminal window, run the command:
 
-    dask-scheduler
+        dask-scheduler
 
-In the second terminal window, run the command:
+    In the second terminal window, run the command:
 
-    dask-worker tcp://127.0.0.1:8786 --nprocs 6 --memory-limit 5GB
+        dask-worker tcp://127.0.0.1:8786 --nprocs 6 --memory-limit 5GB
 
-where the value for nprocs is the number of workers which will run, and value for the memory-limit is how much RAM is assigned to each worker.
+    where the value for nprocs is the number of workers which will run, and value for the memory-limit is how much RAM is assigned to each worker.
 
 #### Mandatory inputs
 
@@ -430,23 +431,24 @@ where the value for nprocs is the number of workers which will run, and value fo
 
 See the YAML example below. 
 
-```YAML
-workers: # contains specifications for each dask worker job
-    cluster: "SLURM" # Specify type of scheduler. Can be "PBS", "SLURM", or "local".
-    submit_queue: "bdwall"
-    max_workers: 4 # Number of parallel calculations of models
-    num_cores: 36 # cpus-per-task option
-    total_mem: "80GB" # total memory for the job (--mem option)
-    project_name: "XRS_FANTASTX" # project under which job to be requested
-    node_type: "ib0" # infiniband or haswell etc
-    walltime: "24:00:00" # estimated entire walltime a worker job shall run
-    job_extra: # any other PBS/SLURM submit options
-         - "--ntasks-per-node=1"
-         - "--cpus-per-task=36"
-         - "--nodes=1"
-    env_extra: # any extra environment lines which need to be included
-         - "export MPI_FABRICS=shm:tmi"
-    header_skip:
-         - "-n "
-         - "--cpus-per-task"
-```
+!!! example "workers"
+    ``` yaml
+    workers: # contains specifications for each dask worker job
+        cluster: "SLURM" # Specify type of scheduler. Can be "PBS", "SLURM", or "local".
+        submit_queue: "bdwall"
+        max_workers: 4 # Number of parallel calculations of models
+        num_cores: 36 # cpus-per-task option
+        total_mem: "80GB" # total memory for the job (--mem option)
+        project_name: "XRS_FANTASTX" # project under which job to be requested
+        node_type: "ib0" # infiniband or haswell etc
+        walltime: "24:00:00" # estimated entire walltime a worker job shall run
+        job_extra: # any other PBS/SLURM submit options
+            - "--ntasks-per-node=1"
+            - "--cpus-per-task=36"
+            - "--nodes=1"
+        env_extra: # any extra environment lines which need to be included
+            - "export MPI_FABRICS=shm:tmi"
+        header_skip:
+            - "-n "
+            - "--cpus-per-task"
+    ```

@@ -199,6 +199,7 @@ class mating(object):
                 mating_params['shape'] == 'molecule':
             self.max_dia = mating_params['max_dia']
             self.box_abc = np.array(mating_params['box_abc'])
+            self.origin = np.array(mating_params['origin'])
 
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
@@ -510,13 +511,13 @@ class mating(object):
         child (obj): pymatgen structure object
         """
         radius, abc = self.max_dia/2, self.box_abc
-        origin = abc/2
+        self.origin = abc/2
 
         # get atom indices that needs to be moved
         child_sites = child.sites
         species = child.species
         move_inds = [i for i, site in enumerate(child_sites)
-                     if dc.dist(origin, site.coords) > radius]
+                     if dc.dist(self.origin, site.coords) > radius]
         if len(move_inds) > 3:
             print('More than 3 atoms lie outside max diameter of cluster. '
                   'Rejecting this model and continuing to make new model')
@@ -529,9 +530,9 @@ class mating(object):
             replaced = False
             while not replaced and tries < 1000:
                 tries += 1
-                new_cart = unif(origin[0] - radius,
-                                origin[0] + radius, size=(3,))
-                if dc.dist(origin, new_cart) > radius:
+                new_cart = unif(self.origin[0] - radius,
+                                self.origin[0] + radius, size=(3,))
+                if dc.dist(self.origin, new_cart) > radius:
                     continue
                 # Check distance and replace with new coords
                 if dc.satisfies_all_dists(new_cart,
@@ -611,6 +612,7 @@ class basinhopping(object):
             # default a=b=c=20 Å
             self.box_abc = np.array(
                 basinhopping_params['box_abc'])
+            self.origin = np.array(basinhopping_params['origin'])
         if self.shape == 'molecule':
             self.fixed_species = basinhopping_params['fixed_species']
             print(f"Atomic species held fixed: {self.fixed_species}")
@@ -694,7 +696,7 @@ class basinhopping(object):
             bh_species = [parent.astr.sites[i].specie.name for i in D_inds]
             occupancy = [i in self.fixed_species for i in bh_species]
             problematic_basinhopping = np.any(occupancy)
-            while problematic_basinhopping is True:
+            while problematic_basinhopping:
                 D_inds = random.sample(
                     range(0, total_num_atoms), num_atoms_to_perturb)
                 bh_species = [parent.astr.sites[i].specie.name for i in D_inds]
@@ -716,8 +718,8 @@ class basinhopping(object):
                 new_cart = one_coords + perturb
                 if self.shape == 'cluster' or self.shape == "molecule":
                     # check if new cart is inside the cluster radius
-                    origin = self.box_abc/2
-                    if dc.dist(origin, new_cart) > self.max_dia/2:
+                    if dc.dist(self.origin, new_cart) > self.max_dia/2:
+                        # print(f"between origin and new_cart is too large")
                         continue
                     # Check distance and replace with new coords
                     if dc.satisfies_all_dists(new_cart,

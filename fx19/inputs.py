@@ -313,12 +313,12 @@ def make_objects(i_dict):
     basinhopping_params['element_syms'] = str_constraints['element_syms']
     basinhopping_params['species_dict'] = i_dict['structure_record']['species']
     basinhopping_params['shape'] = str_constraints['shape']
-    if str_constraints['shape'] == 'cluster':
+    if str_constraints['shape'] == 'cluster' or\
+            str_constraints['shape'] == 'molecule':
         basinhopping_params['max_dia'] = str_constraints['max_dia']
         basinhopping_params['box_abc'] = str_constraints['box_abc']
+        basinhopping_params['origin'] = str_constraints['origin']
     if str_constraints['shape'] == "molecule":
-        basinhopping_params['max_dia'] = str_constraints['max_dia']
-        basinhopping_params['box_abc'] = str_constraints['box_abc']
         basinhopping_params['fixed_species'] = str_constraints['fixed_species']
     hop = structure_operations.basinhopping(basinhopping_params)
     # all_objects['hop'] = hop
@@ -537,6 +537,7 @@ def get_mating_params(i_dict, str_constraints):
             or mating_params['shape'] == 'molecule':
         mating_params['box_abc'] = str_constraints['box_abc']
         mating_params['max_dia'] = str_constraints['max_dia']
+        mating_params['origin'] = str_constraints['origin']
     if mating_params['shape'] == 'molecule':
         mating_params['fixed_species'] = str_constraints['fixed_species']
 

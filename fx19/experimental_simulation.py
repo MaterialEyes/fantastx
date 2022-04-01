@@ -44,9 +44,9 @@ class xanes_of_model(object):
     the previously computed [Fe(CN)6]-4 spectra, and compare the difference
     spectra against the experimental difference spectra.
 
-    Args:
+    Arguments:
 
-    xanes_params (dict): A dictionary of parameters used.
+        xanes_params (dict): A dictionary of parameters used.
     """
 
     def __init__(self, xanes_params):
@@ -91,10 +91,10 @@ class xanes_of_model(object):
             else:
                 self.exp_base_ref_filepath = "/experiment_base_ref.dat"
 
-        if 'fdmnes_exec_cmd' in xanes_params:
-            self.fdmnes_exec_cmd = xanes_params['fdmnes_exec_cmd']
+        if 'exec_cmd' in xanes_params:
+            self.exec_cmd = xanes_params['exec_cmd']
         else:
-            self.fdmnes_exec_cmd = "./mpirun_fdmnes -np 4"
+            self.exec_cmd = "./mpirun_fdmnes -np 4"
 
         if 'spectra_distance_metric' in xanes_params:
             self.distance_calculator = DistanceCalculator(
@@ -153,9 +153,48 @@ class xanes_of_model(object):
             print("Gathered pre-computed computational data.")
 
     def fwhm2sigma(self, fwhm):
+        '''
+        Converts the full width half maximum into a sigma for gaussian
+        convolution.
+
+        Arguments:
+
+            fwhm (float): full width half maximum
+
+        Returns:
+
+            (float): the gaussian sigma
+        '''
         return fwhm / np.sqrt(8 * np.log(2))
 
     def lorentzian_broadening(self, E, g_ch, g_m, E_cent, E_larg, E_f):
+        '''
+        Calculates the energy dependent broadening parameter for
+        Lorentzian broadening. For reference, refer to this
+        [paper](https://hal.archives-ouvertes.fr/hal-00687301/document).
+        In this method, the broadening depends on both the core-hole width
+        as well as the spectral width of the final state. This spectral
+        width is approximated by an arctangent.
+
+        Arguments:
+
+            E (float): energy
+
+            g_ch (float): core-hole broadening width
+
+            g_m (float): maximum height of the arctangent
+
+            E_cent (float): the energy of the arctangent inflection point
+
+            E_larg (float): the inclination of the arctangent
+
+            E_f (float): the effective Fermi energy (also referred to as
+              the cutting energy)
+
+        Returns:
+
+            (float): the energy dependent broadening parameter
+        '''
         eps = (E - E_f)/E_cent
         return g_ch + g_m*(0.5 +
                            1/np.pi *
@@ -175,7 +214,15 @@ class xanes_of_model(object):
         by approximating the second-derivative as constant in this
         narrow mesh interval.
 
-        Returns the estimated x-coordinate of the peak.
+        Arguments:
+
+            x_array (iterable): the bin locations of the spectra
+
+            y_array (iterable): the bin heights of the spectra
+
+        Returns:
+
+            (float): the estimated x-coordinate of the peak
         '''
         spline_y = self.fit_spline(x_array, y_array, "cubic")
         max_indice = np.argmax(spline_y)
@@ -194,6 +241,31 @@ class xanes_of_model(object):
         return x_max
 
     def create_lorentzian_kernel(self, g_ch, g_m, E_cent, E_larg, E_f):
+        '''
+        Creates a Lorentzian kernel for convolution. Uses the energy-
+        dependent broadening parameter described in this [paper](https:
+        //hal.archives-ouvertes.fr/hal-00687301/document).
+
+        Arguments:
+
+            g_ch (float): core-hole broadening width
+
+            g_m (float): maximum height of the arctangent
+
+            E_cent (float): the energy of the arctangent inflection point
+
+            E_larg (float): the inclination of the arctangent
+
+            E_f (float): the effective Fermi energy (also referred to as
+              the cutting energy)
+
+        Returns:
+            (array, int):
+            - the convolution kernel
+            - integer used for shifting the final
+            convolved spectra to remove the zero points
+
+        '''
         x_for_kernel = np.arange(-10, 10)
         gammas = self.lorentzian_broadening(
             x_for_kernel, g_ch, g_m, E_cent, E_larg, E_f)
@@ -208,6 +280,16 @@ class xanes_of_model(object):
     def create_gaussian_kernel(self, fwhm):
         '''
         Create a gaussian kernel for convolution
+
+        Arguments:
+
+            fwhm (float): the broadening energy
+
+        Returns:
+            (array, int):
+            - the convolution kernel
+            - integer used for shifting the final convolved spectra
+            to remove the zero points
         '''
         # create gaussian kernel
         sigma = self.fwhm2sigma(fwhm)
@@ -222,9 +304,17 @@ class xanes_of_model(object):
 
     def convolve_with_gaussian(self, fwhm, y_array):
         '''
-        Convolve spectra with a gaussian
+        Convolves a XANES spectra with a gaussian.
 
-        Returns convolved spectra
+        Arguments:
+
+            fwhm (float): the broadening energy
+
+            y_array (array): the absorption profile to be convolved.
+
+        Returns:
+
+            (array): the convolved absorption profile
         '''
         n_points = len(y_array)
         finite_kernel, kernel_n_below_0 = self.create_gaussian_kernel(fwhm)
@@ -237,9 +327,26 @@ class xanes_of_model(object):
     def convolve_with_lorentzian(self, y_array,
                                  g_ch, g_m, E_cent, E_larg, E_f):
         '''
-        Convolve spectra with a lorentzian
+        Convolve a XANES spectra with a lorentzian
 
-        Returns convolved spectra
+        Arguments:
+
+            y_array (array): the absorption profile to be convolved.
+
+            g_ch (float): core-hole broadening width
+
+            g_m (float): maximum height of the arctangent
+
+            E_cent (float): the energy of the arctangent inflection point
+
+            E_larg (float): the inclination of the arctangent
+
+            E_f (float): the effective Fermi energy (also referred to as
+              the cutting energy)
+
+        Returns:
+
+            (array): the convolved absorption profile
         '''
         n_points = len(y_array)
         finite_kernel, kernel_n_below_0 = self.create_lorentzian_kernel(
@@ -252,11 +359,27 @@ class xanes_of_model(object):
 
     def fit_spline(self, x_array, y_array, type):
         '''
-        Fit a cubic spline to the spectra, and use it
-        to interpolate points onto a pre-defined mesh.
+        Fit a spline to the spectra, and uses it to interpolate points
+        onto a pre-defined mesh (`self.spline_mesh`).
 
-        Returns the spline points on x_mesh
+        Arguments:
+
+            x_array (array): spectra energy values
+
+            y_array (array): spectra absorption values
+
+            type (string): which type of spline should be fit to the
+            spectra. Options are `cubic` and `univariate`.
+
+        Returns:
+
+            (array): the spline points on self.spline_mesh
         '''
+        if type not in ["cubic", "univariate"]:
+            print("Error. Tried to fit spline with a keyword that was"
+                  "not 'cubic' or 'univariate'. Using the default of 'cubic'.")
+            type = "cubic"
+
         if type == "cubic":
             cs = CubicSpline(x_array, y_array)
             # us = UnivariateSpline(x_array, y_array, s=0.01)
@@ -267,6 +390,21 @@ class xanes_of_model(object):
         return new_data
 
     def read_in_experimental_spectra(self, file_path):
+        '''
+        Reads in the experimental spectra from the .dat file, convolves
+        it with a Gaussian with broadening of 0.5 eV, and returns the
+        x- and y-coords of the first peak maximum (taken to be the energy
+        value where the absorption profile has zero derivative).
+
+        Arguments:
+
+            file_path (string): the path to the .dat file
+
+        Returns:
+            (tuple, tuple):
+            - the convolved spectra
+            - the x- and y-coords of the first peak maximum.
+        '''
         lines = open(file_path, "r").read().splitlines()
         x_list = []
         y_list = []
@@ -288,6 +426,27 @@ class xanes_of_model(object):
         return (x_array, smoothed_y), (x_max, y_max)
 
     def read_in_calculated_spectra(self, file_path, experimental_maxes):
+        '''
+        Reads in the calculated spectra from the simulation file. This
+        spectra is then convolved using the user-specified parameters. 
+        The x- and y-coords of the first peak maximum, taken to be the
+        energy value where the first derivative is zero, are then
+        extracted. These values are then used to scale and shift the
+        spectra to align with the provided experimental max values.
+
+        Arguments:
+
+            file_path (string): the path to the simulated spectra data file.
+
+            experimental_maxes (tuple): the x- and y-coords of the first peak
+            maximum of the convolved experimental spectra.
+
+        Returns:
+            (tuple, tuple):
+            - the convolved spectra, shifted and scaled to match the
+            experimental spectra.
+            - the values by which the spectra was shifted and scaled.
+        '''
         lines = open(file_path, "r").read().splitlines()
         x_list = []
         y_list = []
@@ -349,10 +508,11 @@ class xanes_of_model(object):
         FDMNES inputs themselves are defined through a yaml file for
         user friendliness.
 
-        Inputs:
-        yaml_filename (string): path to the yaml input file
-        model (obj): model object which is the target of FDMNES
-        fdmnes_path (string): path to the folder containing the fdmnes
+        Arguments:
+
+            model (obj): `model` which is the target of FDMNES
+
+            fdmnes_path (string): path to the folder containing the fdmnes
             mpi executable.
         '''
         ################################################
@@ -403,6 +563,7 @@ class xanes_of_model(object):
                 if core_hole_index == fdmnes_dict["core_hole_site_id"]:
                     core_hole_coords = np.copy(site.coords)
                     absorption_site = str(n+1)
+                    fdmnes_headers['Absorber'] = absorption_site
                 core_hole_index += 1
 
         inputfile = open(fdmnes_input_filename, "w+")
@@ -466,11 +627,12 @@ class xanes_of_model(object):
         angle_vals = str(angles[0]) + " " + \
             str(angles[1]) + " " + str(angles[2])
         inputfile.write("    " + l_vals + " " + angle_vals + "\n")
-
+        for site in model.astr.sites:
+            print(f"Old coords: {site.coords}")
         for site in model.astr.sites:
             specie = site.specie.symbol
             an = atomic_numbers[specie]
-            coords = site.coords
+            coords = np.copy(site.coords)
             mc = []
             for i in range(3):
                 coords[i] -= core_hole_coords[i]
@@ -482,6 +644,9 @@ class xanes_of_model(object):
                 str(an) + "  " + str(mc[0]) +
                 " " + str(mc[1]) +
                 " " + str(mc[2]) + "\n")
+
+        for site in model.astr.sites:
+            print(f"New coords: {site.coords}")
 
         inputfile.write("\n")
 
@@ -508,20 +673,33 @@ class xanes_of_model(object):
 
     def evaluate_obj(self, model):
         """
-        This function simulated the TEM image of a grain boundary model. Then,
-        compares it with the experimental TEM image (target). The objective
-        function is (1 - SSIM score) which is assigned as a model attribute
-        (obj1_val).
+        This function performs the full XANES simulation of the model.
+        It prepares the input file, executes the simulation code, and
+        then calculates the user-specified objective function. This
+        objective can be a straightforward comparison between the
+        experimental and simulated spectra, using a user-specified
+        distance calculation. Alternatively, it can be a comparison
+        between the experimental and simulated difference spectra. This
+        is essential to comparing to XTA experiments, where the spectra
+        is the time-resolved difference between the excited spectra and
+        the reference spectra.
+
+        Which mode is used depends on the users choice of the
+        `comparison_spectra_type` variable, which is defined in the
+        FANTASTX yaml.
 
         This function is a part of the API for all classes in
         experimental_simulation module.
-
-        Returns model object
 
         Args:
 
         model (obj): structure_record.model() object for which TEM simulation
                      is obtained and a mismatch score is assigned
+
+        Returns:
+            (model obj, float):
+            - the model whose objective was calculated
+            - the objective value
         """
 
         # Prepare FDMNES input file and run simulation

@@ -197,6 +197,11 @@ class structure_constraints(object):
                       'Using default diameter of 8Å')
                 self.max_dia = 8
 
+            if 'origin' in str_record['cluster']:
+                self.origin = str_record['cluster']['origin']
+            else:
+                self.origin = [i/2. for i in self.box_abc]
+
         # ###################cluster parameters ends###########################
 
         # ########################gb parameters begins#########################
@@ -299,6 +304,11 @@ class structure_constraints(object):
                 print('The maximum diameter of the molecule is not specified. '
                       'Using default diameter of 8Å')
                 self.max_dia = 8
+
+            if 'origin' in str_record['molecule']:
+                self.origin = str_record['molecule']['origin']
+            else:
+                self.origin = [i/2. for i in self.box_abc]
 
             if 'fixed_species' in str_record['molecule']:
                 self.fixed_species = str_record['molecule']['fixed_species']
