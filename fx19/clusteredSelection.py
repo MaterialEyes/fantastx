@@ -55,7 +55,53 @@ class ParetoDominance(object):
     non-dominated.
     '''
 
+    def __init__(self, comparator=None):
+        '''
+        Arguments:
+
+            comparator (obj): instance of the comparator class which,
+            if included, will perform all structural similarity checks
+        '''
+        # store comparator object if it exists
+        if comparator is not None:
+            self.comparator = comparator
+            self.make_similarity_checks = True
+        else:
+            self.make_similarity_checks = False
+
     def get_nondominated_solutions(self, models):
+        """
+        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
+        /general/pareto_efficiency.py
+
+        Returns the list of non-dominated models, and the list of the models
+        which are dominated by at least one other model, based on comparison
+        function flags.
+
+        Arguments:
+
+            models (list of objs): the list of `structure_record.model()` for which
+            non-domination will be determined.
+        """
+        is_efficient = np.ones(len(models), dtype=bool)
+        for index, model in enumerate(models):
+            if is_efficient[index]:
+                flags = [
+                    self.compare(m, model) for m in
+                    list(itertools.compress(models, is_efficient))]
+                # keep any point which either dominated the model
+                # or was non-dominated
+                equal_or_better = [x < 0 or x == 0 for x in flags]
+                is_efficient[is_efficient] = equal_or_better
+                is_efficient[index] = True  # and keep self
+
+        non_dominated_solutions = list(
+            itertools.compress(models, is_efficient))
+        dominated_solutions = list(
+            itertools.compress(models, np.invert(is_efficient)))
+        return non_dominated_solutions, dominated_solutions
+
+    def alt_nondominance(self, models):
         """
         Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
         /general/pareto_efficiency.py
@@ -94,70 +140,6 @@ class ParetoDominance(object):
             itertools.compress(models, np.invert(is_efficient)))
         return non_dominated_solutions, dominated_solutions
 
-    def rank_models(self, models, starting_rank, flag):
-        '''
-        Function which recursively ranks models according to
-        non-domination.
-
-        Returns non-dominated (rank 0) members of the set of models.
-        Flag will determine which selection rank (and selection
-        probability if relevant) is updated.
-
-        Args:
-
-        models (list of objs): the structure_record.model()s which will
-        be ranked by non-domination.
-
-        starting_rank (int): the rank which will be assigned to the
-        non-dominated models.
-
-        flag (string): indicates the set of models which is being ranked.
-        Choices are "cluster", or "population".
-        '''
-        assert flag in ["cluster", "population"]
-        nd_solutions, d_solutions = self.get_nondominated_solutions(models)
-        for model in nd_solutions:
-            if flag == "cluster":
-                model.cluster_rank = starting_rank
-                model.selection_prob = np.exp(-model.cluster_rank)
-            elif flag == "population":
-                model.rank = starting_rank
-        if d_solutions:
-            self.rank_models(d_solutions, starting_rank + 1, flag)
-
-        if starting_rank == 0:
-            return nd_solutions
-
-    def alt_nondominance(self, population):
-        """
-        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
-        /general/pareto_efficiency.py
-
-        An alternative non-dominance calculator which uses the self
-        calculated comparison flags between models to determine
-        non-dominance.
-
-        Returns the list of non-dominated models.
-
-        Args:
-
-        population (obj): the population from which the
-        non-dominated solutions are being obtained.
-        """
-        is_efficient = np.ones(population.size, dtype=bool)
-        for index, model in enumerate(population.models):
-            if is_efficient[index]:
-                flags = [
-                    self.compare(m, model) for m in
-                    list(itertools.compress(population.models, is_efficient))]
-                # keep any point which either dominated the model
-                # or was non-dominated
-                equal_or_better = [x < 0 or x == 0 for x in flags]
-                is_efficient[is_efficient] = equal_or_better
-                is_efficient[index] = True  # and keep self
-
-        return list(itertools.compress(population.models, is_efficient))
-
     def compare(self, test_model, ref_model):
         '''
         Function which performs comparison between models
@@ -165,16 +147,23 @@ class ParetoDominance(object):
         Returns -1 if test_model dominates the ref_model
         Returns 0 if both non-dominated
         Returns +1 if test_model dominated by the ref_model
+        Returns +2 if the test_model is the same as the ref_model
 
-        Args:
+        Arguments:
 
-        test_model (obj): structure_record.model() A for the comparison
+            test_model (obj): `structure_record.model()` A for the comparison
 
-        ref_model (obj): structure_record.model() B for the comparison
+            ref_model (obj): `structure_record.model()` B for the comparison
         '''
 
         dominate_test = False
         dominate_ref = False
+
+        if self.make_similarity_checks:
+            similarity = self.comparator.assess_models_similarity(
+                test_model, ref_model)
+            if similarity >= 0:
+                return 2
 
         # TODO: make flexible with number of objectives
         for n in range(2):
@@ -204,146 +193,27 @@ class ParetoDominance(object):
         else:
             return 1
 
-    def choose_non_dominated(self, model1, model2):
-        '''
-        Function which compares two models and returns the model
-        which dominates the other. If the two models are
-        non-dominated, returns one at random.
-
-        Args:
-
-        model1 (obj): structure_record.model() A for the comparison
-
-        model2 (obj): structure_record.model() B for the comparison
-        '''
-        dominate1 = False
-        dominate2 = False
-
-        # TODO: make flexible with number of objectives
-        for n in range(2):
-
-            if n == 0:
-                model1_obj = model1.obj0_val
-                model2_obj = model2.obj0_val
-            elif n == 1:
-                model1_obj = model1.obj1_val
-                model2_obj = model2.obj1_val
-
-            if model1_obj < model2_obj:
-                dominate1 = True
-                # Check for non-domination
-                if dominate2:
-                    model_num = np.random.randint(1, 3)
-                    if model_num == 1:
-                        return model1
-                    elif model_num == 2:
-                        return model2
-
-            elif model1_obj > model2_obj:
-                dominate2 = True
-                # Check for non-domination
-                if dominate1:
-                    model_num = np.random.randint(1, 3)
-                    if model_num == 1:
-                        return model1
-                    elif model_num == 2:
-                        return model2
-
-        # Otherwise one dominates the other, return the appropriate value
-        if dominate1:
-            return model1
-        else:
-            return model2
-
-
-class StructuralEpsilonDominance(object):
-    '''
-    Class which performs non-dominance calculations. Compared to
-    ParetoDominance, here non-dominance is determined based on two
-    additional factors. First, non-dominance is calculated based on
-    a grid which discretizes the objective function space. If two
-    models occupy the same grid square (with side lengths of
-    epsilon_a and epsilon_b), then the model which is closest to the
-    corner of the square is considered to dominate the other model.
-    HOWEVER, if the two models are structurally similar, then a flag
-    is thrown. This has the advantage of only performing structural
-    similarity checks for models which lie within the same grid box,
-    which may save large amounts of computational expense depending
-    on which fingerprinting method is used.
-    '''
-
-    def __init__(self, comparator=Comparator(), epsilons=None):
-        '''
-        Args:
-
-        comparator (obj): instance of the comparator class
-        which will perform all structural similarity checks
-
-        epsilons (list of floats): the grid size of the multiobjective
-        space. Should be the same length as the number of objectives,
-        and should be in the same order as the objectives are assigned
-        to the models.
-        '''
-        # Assign default epsilons if none are provided
-        if epsilons is None:
-            self.epsilons = [.1, .1]
-        else:
-            self.epsilons = epsilons
-
-        # store comparator object
-        self.comparator = comparator
-
-    def get_nondominated_solutions(self, models):
-        """
-        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
-        /general/pareto_efficiency.py
-
-        Returns the list of non-dominated models, and the list of the models
-        which are dominated by at least one other model, based on comparison
-        function flags.
-
-        Args:
-
-        models (list of objs): the set of structure_record.model()s for which
-        non-domination will be determined.
-        """
-        is_efficient = np.ones(len(models), dtype=bool)
-        for index, model in enumerate(models):
-            if is_efficient[index]:
-                flags = [
-                    self.compare(m, model) for m in
-                    list(itertools.compress(models, is_efficient))]
-                # keep any point which either dominated the model
-                # or was non-dominated
-                equal_or_better = [x < 0 or x == 0 for x in flags]
-                is_efficient[is_efficient] = equal_or_better
-                is_efficient[index] = True  # and keep self
-
-        non_dominated_solutions = list(
-            itertools.compress(models, is_efficient))
-        dominated_solutions = list(
-            itertools.compress(models, np.invert(is_efficient)))
-        return non_dominated_solutions, dominated_solutions
-
     def rank_models(self, models, model_level_structure, flag):
         '''
         Function which recursively ranks models according to
         non-domination.
 
-        Returns non-dominated (rank 0) members of the set of models.
-        Flag will determine which selection rank (and selection
-        probability if relevant) is updated.
+        Updates model_level_structure, the variable corresponding
+        to the model hierarchy, in place. If fed a blank list and 
+        the entire set of models, will create the model hierarchy
+        from scratch.
 
-        Args:
+        Arguments:
 
-        models (list of objs): the structure_record.model()s which
-        will be ranked by non-domination.
+            models (list of objs): the structure_record.model()s which
+            will be ranked by non-domination.
 
-        starting_rank (int): the rank which will be assigned to the
-        non-dominated models.
+            model_level_structure (list): list which will contain model
+            ranking hierarchy. Item 0 in the list is a list of all 0-rank
+            models, item 1 in the list is a list of all 1-rank models, etc. 
 
-        flag (string): indicates the set of models which is being ranked.
-        Choices are "cluster", or "population".
+            flag (string): indicates the set of models which is being
+            ranked. Choices are `"cluster"`, or `"population"`.
         '''
         assert flag in ["cluster", "population"]
         current_rank = len(model_level_structure)
@@ -359,7 +229,8 @@ class StructuralEpsilonDominance(object):
         if d_solutions:
             self.rank_models(d_solutions, model_level_structure, flag)
 
-    def update_model_levels(self, level_structure, new_model, flag):
+    def update_model_levels_with_insertion(self,
+                                           level_structure, new_model, flag):
         '''
         Function which updates the non-dominated level structure based
         on the new model. This is much more efficient than recalculating
@@ -378,14 +249,19 @@ class StructuralEpsilonDominance(object):
 
         Arguments:
 
-        level_structure (list of lists): List containing the list of models
-        at each non-domination rank.
+            level_structure (list of lists): List containing the list of
+            models at each non-domination rank.
 
-        new_model (obj): the new structure_record.model() to be added to
-        the level structure.
+            new_model (obj): the new structure_record.model() to be added to
+            the level structure.
 
-        flag (string): determines which rank (and selection probability
-        if relevant) is updated.
+            flag (string): determines which rank (and selection probability
+            if relevant) is updated.
+
+        Returns:
+
+            boolean: True if model is unique, False if model is the same as
+            another model.
         '''
         T = [new_model]
         moved_levels_up = False
@@ -394,13 +270,13 @@ class StructuralEpsilonDominance(object):
             dominated_models = []
             T_model_dominated = False
             for m in level:
-                flags = [self.compare(m, T_model) for T_model in T]
-                if -1 in flags:
+                domination_flags = [self.compare(m, T_model) for T_model in T]
+                if -1 in domination_flags:
                     T_model_dominated = True
                     break
-                elif 1 in flags:
+                elif 1 in domination_flags:
                     dominated_models.append(m)
-                elif flag == 2:
+                elif 2 in domination_flags:
                     print("SIMILARITY FLAG THROWN")
                     # model too similar, return False (non-unique)
                     return False
@@ -468,6 +344,159 @@ class StructuralEpsilonDominance(object):
                         model.cluster_rank += 1
                         model.selection_prob = np.exp(-model.cluster_rank)
         return True  # unique
+
+    def update_model_levels_with_deletion(self,
+                                          level_structure, old_model, flag):
+        '''
+        Function which updates the non-dominated level structure based
+        on the removal of a model. This is much more efficient than
+        recalculating the entire non-dominance ranking of the set of models.
+        Works as follows:
+
+        Starts from the model's tier. Removes the model, then looks at domination
+        of models in the above tier. If any models are no longer dominated by
+        any model in the current tier, then they are moved down into this tier.
+        Repeat with each higher up tier.
+
+        Arguments:
+
+            level_structure (list of lists): List containing the list of
+            models at each non-domination rank.
+
+            old_model (obj): the old structure_record.model() to be removed from
+            the level structure.
+
+            flag (string): determines which rank (and selection probability
+            if relevant) is updated.
+        '''
+        T = [old_model]
+        if flag == "population":
+            starting_level = old_model.rank
+        elif flag == "cluster":
+            starting_level = old_model.cluster_rank
+        for level_index in range(starting_level, len(level_structure)):
+            level = level_structure[level_index]
+            for m in T:
+                level.remove(m)
+                T.remove(m)
+
+            if level_index != len(level_structure) - 1:
+                if len(level) == 0:
+                    for higher_level in level_structure[level_index + 1:]:
+                        for model in higher_level:
+                            if flag == "population":
+                                model.rank -= 1
+                            elif flag == "cluster":
+                                model.cluster_rank -= 1
+                                model.selection_prob = np.exp(
+                                    -model.cluster_rank)
+                    level_structure.delete(level_index)
+                else:
+                    for m in level_structure[level_index + 1]:
+                        domination_flags = [
+                            self.compare(m, lm) for lm in level]
+                        if 1 not in domination_flags:
+                            T.append(m)
+                            if flag == "population":
+                                m.rank -= 1
+                            elif flag == "cluster":
+                                m.cluster_rank -= 1
+                                m.selection_prob = np.exp(-m.cluster_rank)
+            else:
+                if len(level) == 0:
+                    level_structure.delete(level_index)
+
+            if len(T) == 0:
+                break
+
+    def choose_non_dominated(self, model1, model2):
+        '''
+        Function which compares two models and returns the model
+        which dominates the other. If the two models are
+        non-dominated, returns one at random.
+
+        Args:
+
+        model1 (obj): structure_record.model() A for the comparison
+
+        model2 (obj): structure_record.model() B for the comparison
+        '''
+        dominate1 = False
+        dominate2 = False
+
+        # TODO: make flexible with number of objectives
+        for n in range(2):
+
+            if n == 0:
+                model1_obj = model1.obj0_val
+                model2_obj = model2.obj0_val
+            elif n == 1:
+                model1_obj = model1.obj1_val
+                model2_obj = model2.obj1_val
+
+            if model1_obj < model2_obj:
+                dominate1 = True
+                # Check for non-domination
+                if dominate2:
+                    model_num = np.random.randint(1, 3)
+                    if model_num == 1:
+                        return model1
+                    elif model_num == 2:
+                        return model2
+
+            elif model1_obj > model2_obj:
+                dominate2 = True
+                # Check for non-domination
+                if dominate1:
+                    model_num = np.random.randint(1, 3)
+                    if model_num == 1:
+                        return model1
+                    elif model_num == 2:
+                        return model2
+
+        # Otherwise one dominates the other, return the appropriate value
+        if dominate1:
+            return model1
+        else:
+            return model2
+
+
+class StructuralEpsilonDominance(ParetoDominance):
+    '''
+    Class which performs non-dominance calculations. Compared to
+    ParetoDominance, here non-dominance is determined based on two
+    additional factors. First, non-dominance is calculated based on
+    a grid which discretizes the objective function space. If two
+    models occupy the same grid square (with side lengths of
+    epsilon_a and epsilon_b), then the model which is closest to the
+    corner of the square is considered to dominate the other model.
+    HOWEVER, if the two models are structurally similar, then a flag
+    is thrown. This has the advantage of only performing structural
+    similarity checks for models which lie within the same grid box,
+    which may save large amounts of computational expense depending
+    on which fingerprinting method is used.
+    '''
+
+    def __init__(self, comparator=Comparator(), epsilons=None):
+        '''
+        Args:
+
+        comparator (obj): instance of the comparator class
+        which will perform all structural similarity checks
+
+        epsilons (list of floats): the grid size of the multiobjective
+        space. Should be the same length as the number of objectives,
+        and should be in the same order as the objectives are assigned
+        to the models.
+        '''
+        # Assign default epsilons if none are provided
+        if epsilons is None:
+            self.epsilons = [.1, .1]
+        else:
+            self.epsilons = epsilons
+
+        # store comparator object
+        self.comparator = comparator
 
     def compare(self, test_model, ref_model):
         '''
@@ -721,7 +750,8 @@ class Pool(object):
         unique = True
         if 1 <= self.population.size < self.capacity and\
                 self.comparator is not None:
-            unique = self.comparator.check_model_uniqueness(model)
+            unique = self.comparator.check_model_uniqueness(
+                model, self.population.models)
         if unique:
             # If population size is less than 10, add any models created
             if self.population.size < 10:
@@ -793,6 +823,22 @@ class Pool(object):
         num_parents (int): the number of parents to choose.
         '''
         return select.get_parents(self, num_parents)
+
+    def update_parent_selection(self, inheritance):
+        """
+        Function to update parent models in good_pool with their
+        'times_chosen_as_parent' attribute after a child structure is created
+        using a model as a parent.
+
+        Returns nothing
+
+        Args:
+
+        inheritance (list): list of one or two integers that are parent labels
+        """
+        for m in self.population.models:
+            if m.label in inheritance:
+                m.times_chosen_as_parent += 1
 
 
 class Select(object):
@@ -1485,7 +1531,7 @@ class Population(object):
             # First attempt to add new model. This will trigger any similarity
             # comparisons in at most O(N) time if the model is too similar to
             # any models currently in the model_level_structure.
-            model_unique = self._dominance.update_model_levels(
+            model_unique = self._dominance.update_model_levels_with_insertion(
                 self.model_level_structure, model, "population")
 
             if model_unique:
@@ -1512,7 +1558,7 @@ class Population(object):
                         model)
 
                 if len(self.cluster_models[model.cluster]) != 1:
-                    self._dominance.update_model_levels(
+                    self._dominance.update_model_levels_with_insertion(
                         self.cluster_models_hierarchies[model.cluster],
                         model,
                         "cluster")

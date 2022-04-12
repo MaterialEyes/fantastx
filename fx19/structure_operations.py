@@ -511,7 +511,7 @@ class mating(object):
         child (obj): pymatgen structure object
         """
         radius, abc = self.max_dia/2, self.box_abc
-        self.origin = abc/2
+        # self.origin = abc/2
 
         # get atom indices that needs to be moved
         child_sites = child.sites

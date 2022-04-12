@@ -7,7 +7,127 @@ from fx19.fingerprinting import Comparator
 import imageio
 
 
-class hierarchical_clusterer(object):
+class CompositionalClusterer(object):
+    '''
+    Cluster object which performs compositional clustering. Simpler
+    than hierarchical clustering, here models are grouped purely based
+    on their atomic composition.
+
+    Contains functions to read in models, assign clusters, and update
+    clusters by removing and adding models.
+    '''
+
+    def __init__(self):
+        self.clusters = {}
+        self.multi_model_clusters = []
+        self.type = "compositional"
+
+    def initialize_clusters(self, models):
+        '''
+        Function to initialize the clusters.
+
+        Args:
+
+        models (list of model objs): the models which will be used to
+        initially assign clusters.
+        '''
+        for model in models:
+            composition = model.astr.composition.to_pretty_string()
+            if composition in self.clusters:
+                if len(self.clusters[composition]) == 1:
+                    self.multi_model_clusters.append(composition)
+                self.clusters[composition].append(model)
+            else:
+                self.clusters[composition] = [model]
+            model.cluster = composition
+        return self.clusters, self.multi_model_clusters, None
+
+    def append_model(self, model):
+        '''
+        Function to append a new model to the clusters. Unlike
+        hierarchical clustering, here assigning a new model to a cluster
+        does not require updating the cluster assignments of all other
+        models.
+
+        Args:
+
+        model (obj): the structure_record.model() which will be added.
+        '''
+        composition = model.astr.composition.to_pretty_string()
+        if composition in self.clusters:
+            if len(self.clusters[composition]) == 1:
+                self.multi_model_clusters.append(composition)
+            self.clusters[composition].append(model)
+        else:
+            self.clusters[composition] = [model]
+        model.cluster = composition
+
+        return self.clusters, self.multi_model_clusters
+
+    def remove_model(self, model, cluster_model_levels):
+        '''
+        A function to remove a model. Here not only is the cluster
+        itself updated, but the non-domination ranking of the
+        cluster is also edited to be efficient.
+
+        Returns the clusters dictionary which contains the cluster
+        composition as keys and a list of the models in the cluster as
+        values; returns multi_model_clusters, a list which contains the
+        keys of each cluster which contains more than one model; and
+        returns update_levels, a boolean which indicates whether the
+        cluster level object will need further updating inside the
+        selection algorithm. This occurs if the model was not removed
+        from the tail of the cluster levels object.
+
+        Args:
+
+        model (obj): the structure_record.model() to be removed from the
+        clusters. Must be a model currently contained in the cluster!
+
+        cluster_model_levels (dictionary): the non-domination ranking
+        of every cluster.
+        '''
+        update_levels = False
+        composition = model.astr.composition.to_pretty_string()
+        if len(self.clusters[composition]) == 1:
+            self.clusters.pop(composition)
+            if cluster_model_levels is not None:
+                cluster_model_levels.pop(composition)
+        else:
+            if len(self.clusters[composition]) == 2:
+                self.multi_model_clusters.remove(composition)
+            self.clusters[composition].remove(model)
+            # model may not be at end of cluster structure
+            if cluster_model_levels is not None:
+                for i in range(1, len(cluster_model_levels[composition]) + 1):
+                    if model in cluster_model_levels[composition][-i]:
+                        if len(cluster_model_levels[composition][-i]) == 1:
+                            cluster_model_levels[composition].pop(-i)
+                            if i != 1:
+                                update_levels = True
+                        else:
+                            cluster_model_levels[composition][-i].remove(model)
+                            if i != 1:
+                                update_levels = True
+                        break
+
+        return self.clusters, self.multi_model_clusters, update_levels
+
+    def update_clustering(self, model_add, model_remove,
+                          cluster_model_levels=None):
+        '''
+        Function to update the clustering by both adding and removing
+        models.
+
+        For args, see append_model and remove_model.
+        '''
+        self.append_model(model_add)
+        self.clusters, self.multi_model_clusters, update_levels = \
+            self.remove_model(model_remove, cluster_model_levels)
+        return self.clusters, self.multi_model_clusters, update_levels
+
+
+class HierarchicalClusterer(object):
     '''
     Cluster object which performs hierarchical clustering. Contains
     functions to read in models, cluster them into flat clusters based
@@ -482,123 +602,3 @@ class hierarchical_clusterer(object):
                 image = imageio.imread(filename)
                 writer.append_data(image)
         # print("Gif saved.")
-
-
-class compositional_clusterer(object):
-    '''
-    Cluster object which performs compositional clustering. Simpler
-    than hierarchical clustering, here models are grouped purely based
-    on their atomic composition.
-
-    Contains functions to read in models, assign clusters, and update
-    clusters by removing and adding models.
-    '''
-
-    def __init__(self):
-        self.clusters = {}
-        self.multi_model_clusters = []
-        self.type = "compositional"
-
-    def initialize_clusters(self, models):
-        '''
-        Function to initialize the clusters.
-
-        Args:
-
-        models (list of model objs): the models which will be used to
-        initially assign clusters.
-        '''
-        for model in models:
-            composition = model.astr.composition.to_pretty_string()
-            if composition in self.clusters:
-                if len(self.clusters[composition]) == 1:
-                    self.multi_model_clusters.append(composition)
-                self.clusters[composition].append(model)
-            else:
-                self.clusters[composition] = [model]
-            model.cluster = composition
-        return self.clusters, self.multi_model_clusters
-
-    def append_model(self, model):
-        '''
-        Function to append a new model to the clusters. Unlike
-        hierarchical clustering, here assigning a new model to a cluster
-        does not require updating the cluster assignments of all other
-        models.
-
-        Args:
-
-        model (obj): the structure_record.model() which will be added.
-        '''
-        composition = model.astr.composition.to_pretty_string()
-        if composition in self.clusters:
-            if len(self.clusters[composition]) == 1:
-                self.multi_model_clusters.append(composition)
-            self.clusters[composition].append(model)
-        else:
-            self.clusters[composition] = [model]
-        model.cluster = composition
-
-        return self.clusters, self.multi_model_clusters
-
-    def remove_model(self, model, cluster_model_levels):
-        '''
-        A function to remove a model. Here not only is the cluster
-        itself updated, but the non-domination ranking of the
-        cluster is also edited to be efficient.
-
-        Returns the clusters dictionary which contains the cluster
-        composition as keys and a list of the models in the cluster as
-        values; returns multi_model_clusters, a list which contains the
-        keys of each cluster which contains more than one model; and
-        returns update_levels, a boolean which indicates whether the
-        cluster level object will need further updating inside the
-        selection algorithm. This occurs if the model was not removed
-        from the tail of the cluster levels object.
-
-        Args:
-
-        model (obj): the structure_record.model() to be removed from the
-        clusters. Must be a model currently contained in the cluster!
-
-        cluster_model_levels (dictionary): the non-domination ranking
-        of every cluster.
-        '''
-        update_levels = False
-        composition = model.astr.composition.to_pretty_string()
-        if len(self.clusters[composition]) == 1:
-            self.clusters.pop(composition)
-            if cluster_model_levels is not None:
-                cluster_model_levels.pop(composition)
-        else:
-            if len(self.clusters[composition]) == 2:
-                self.multi_model_clusters.remove(composition)
-            self.clusters[composition].remove(model)
-            # model may not be at end of cluster structure
-            if cluster_model_levels is not None:
-                for i in range(1, len(cluster_model_levels[composition]) + 1):
-                    if model in cluster_model_levels[composition][-i]:
-                        if len(cluster_model_levels[composition][-i]) == 1:
-                            cluster_model_levels[composition].pop(-i)
-                            if i != 1:
-                                update_levels = True
-                        else:
-                            cluster_model_levels[composition][-i].remove(model)
-                            if i != 1:
-                                update_levels = True
-                        break
-
-        return self.clusters, self.multi_model_clusters, update_levels
-
-    def update_clustering(self, model_add, model_remove,
-                          cluster_model_levels=None):
-        '''
-        Function to update the clustering by both adding and removing
-        models.
-
-        For args, see append_model and remove_model.
-        '''
-        self.append_model(model_add)
-        self.clusters, self.multi_model_clusters, update_levels = \
-            self.remove_model(model_remove, cluster_model_levels)
-        return self.clusters, self.multi_model_clusters, update_levels

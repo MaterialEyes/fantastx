@@ -5,7 +5,7 @@ from fx19 import energy
 from fx19 import experimental_simulation
 from fx19 import selection, epsilonSelection, clusteredSelection
 from fx19 import structure_operations
-from fx19.clustering import hierarchical_clusterer, compositional_clusterer
+from fx19.clustering import HierarchicalClusterer, CompositionalClusterer
 from fx19.fingerprinting import Comparator
 
 import os
@@ -244,7 +244,7 @@ def make_objects(i_dict):
                 if i_dict['cluster_params']['distance_calculation'] == \
                         'xsim' or 'fingerprint_params' not in i_dict:
                     if 'exp_sim_1' in i_dict:
-                        cluster_obj = hierarchical_clusterer(
+                        cluster_obj = HierarchicalClusterer(
                             i_dict['cluster_params'], xsim=Xsim_1)
                         if 'fingerprint_params' not in i_dict:
                             print("Tried to use fingerprinting for "
@@ -258,14 +258,14 @@ def make_objects(i_dict):
                             print("Neither Xsim or fingerprinting provided."
                                   " Cannot perform clustering.")
                         else:
-                            cluster_obj = hierarchical_clusterer(
+                            cluster_obj = HierarchicalClusterer(
                                 i_dict['cluster_params'],
                                 comparator_obj=all_objects['comparator_obj'])
                             print("Tried to use Xsim as distance"
                                   "calculation, but Xsim not provided. "
                                   "Using fingerprinting instead.")
                 else:
-                    cluster_obj = hierarchical_clusterer(
+                    cluster_obj = HierarchicalClusterer(
                         i_dict['cluster_params'],
                         comparator_obj=all_objects['comparator_obj'])
             else:
@@ -274,21 +274,21 @@ def make_objects(i_dict):
                 if 'fingerprint_params' not in i_dict:
                     i_dict["cluster_params"]['distance_calculation'] =\
                         'xsim'
-                    cluster_obj = hierarchical_clusterer(
+                    cluster_obj = HierarchicalClusterer(
                         i_dict['cluster_params'], xsim=Xsim_1)
                     print("Fingerprint_params not found, using "
                           "xsim as distance_calculator for clustering.")
                 else:
                     i_dict["cluster_params"]['distance_calculation'] =\
                         'fingerprint'
-                    cluster_obj = hierarchical_clusterer(
+                    cluster_obj = HierarchicalClusterer(
                         i_dict['cluster_params'],
                         comparator_obj=all_objects['comparator_obj'])
                     print("Fingerprint_params found, using "
                           "fingerprinting as distance_calculator "
                           "for clustering.")
         elif i_dict['cluster_params']['type'] == 'compositional':
-            cluster_obj = compositional_clusterer()
+            cluster_obj = CompositionalClusterer()
         else:
             print("Please provide a valid type of cluster object.")
             cluster_obj = None

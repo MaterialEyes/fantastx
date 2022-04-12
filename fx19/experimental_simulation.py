@@ -1251,16 +1251,17 @@ class gb_ingrained(object):
 
         sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
 
-        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+        np.save(self.main_path + '/whole_exp.npy', exp_patch)
+        np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
         # Temporarily "hard-coded" exp interface region for VASP runs
         # Load prev_whole_exp.npy that is from the LAMMPS runs
-        # exp_prev = np.load('prev_whole_exp.npy')
+        exp_prev = np.load('prev_whole_exp.npy')
         # in y & x directions # TODO: remove hard-coded values
-        exp_patch_for_vasp = exp_img[459:584,
-                                     249:374]  # exp_prev[152:279, 12:]
-        # exp_patch_for_vasp = exp_prev
+        # exp_patch_for_vasp = exp_img[459:584,
+        #                              249:374]  # exp_prev[152:279, 12:]
+
+        exp_patch_for_vasp = exp_prev
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
