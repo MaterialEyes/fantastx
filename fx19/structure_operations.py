@@ -998,6 +998,9 @@ class gb_ops(object):
         self.species_dict = str_constraints['species_dict']
         self.element_syms = str_constraints['element_syms']
         self.iface_latt = str_constraints['iface_latt']
+        # Selective dynamics range from input file if provided
+        self.sd_true_above = str_constraints['sd_true_above']
+        self.sd_true_below = str_constraints['sd_true_below']
 
         # hollow gb structure
         copy_g = self.init_gb_astr.copy()
@@ -1683,6 +1686,8 @@ class gb_ops(object):
         gb_model = structure_record.model(gb_iface, reg_id)
         gb_model.inheritance = 'random'
         gb_model.made_by = 'random'
+        gb_model.sd_true_above = self.sd_true_above
+        gb_model.sd_true_below = self.sd_true_below
 
         return gb_model
 
@@ -1746,6 +1751,8 @@ class gb_ops(object):
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
         new_model.made_by = maker
+        new_model.sd_true_above = self.sd_true_above
+        new_model.sd_true_below = self.sd_true_below
 
         print(
             f"New model {new_model.label} inheritance is: "
@@ -1843,6 +1850,8 @@ class gb_ops(object):
         new_model.inheritance = inheritance
         pool.update_parent_selection(inheritance)
         new_model.made_by = operator
+        new_model.sd_true_above = self.sd_true_above
+        new_model.sd_true_below = self.sd_true_below
 
         print(
             f"New model {new_model.label} inheritance is: "
