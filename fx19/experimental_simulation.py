@@ -59,7 +59,7 @@ class pdf_of_model(object):
         self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
         self.qdamp = 0.043
-        self.fit_coords = False
+        self.fit_coords = True
         # default bounds_dict
         lb_ub_dict = {}
         lb_ub_dict['Uiso_val'] = [0.00001, 0.11]
@@ -121,6 +121,11 @@ class pdf_of_model(object):
             for a_key in vbs.keys():
                 self.var_bounds[a_key] = vbs[a_key]
 
+        # tolerance to relax each x/y/z coordinate of an atom coordinates
+        self.coord_tol = 0.1
+        if 'coord_tol' in pdf_params:
+            self.coord_tol = pdf_params['coord_tol']
+
     def write_temp_cif(self, model):
         """
         Writes temp.cif file in the pdf simulation directory from model.astr
@@ -158,14 +163,12 @@ class pdf_of_model(object):
 
         return PDF
 
-    def fit_variables_recipe(self, PDF, cif_file):
+    def fit_variables_recipe(self, PDF, cif_file, fitted_params=None):
         """
         Performs optimization of PDF variables like qdamp, delta2, scale and
         ADP (Uisos) using diffpy.srfit.fitbase.FitRecipe object.
 
-        This function call should be preceeded by get_PDF_obj function. The PDF
-        object should contain a structure that is optimized previously using
-        fit_coords_recipe()
+        This function call should be preceeded by get_PDF_obj function.
 
         (NOTE: made PDF and Fit two separate functions for convenience)
 
@@ -178,10 +181,17 @@ class pdf_of_model(object):
         symbols = self.symbols
         Fit = FitRecipe()
         Fit.addContribution(PDF)
+
+        # if fitted_params is given, use it
+        if fitted_params is not None:
+            init_Uiso_val, init_scale, init_delta2, init_qdamp = fitted_params
+        else:
+            init_Uiso_val, init_scale, init_delta2, init_qdamp = \
+                        self.Uiso_val, self.scale, self.delta2, self.qdamp
         Uisos = []
         for sym in symbols:
             Uisos.append('Uiso{}'.format(sym))
-            Fit.newVar('Uiso{}'.format(sym), value=self.Uiso_val, fixed=False)
+            Fit.newVar('Uiso{}'.format(sym), value=init_Uiso_val, fixed=False)
 
         for atom in PDF.generator.phase.atoms:
             for sym in symbols:
@@ -194,33 +204,15 @@ class pdf_of_model(object):
         #    fit_param.setValue(self.Uiso_val)
 
         # add existing PDF variables as Fit parameters and setValue
-        Fit.addVar(PDF.generator.scale, self.scale, fixed=False)
-        Fit.addVar(PDF.generator.delta2, self.delta2, fixed=False)
-        Fit.addVar(PDF.qdamp, self.qdamp, fixed=False)
+        Fit.addVar(PDF.generator.scale, init_scale, fixed=False)
+        Fit.addVar(PDF.generator.delta2, init_delta2, fixed=False)
+        Fit.addVar(PDF.qdamp, init_qdamp, fixed=False)
 
-        bounds=[self.var_bounds['Uiso_val'],
-                self.var_bounds['scale'],
-                self.var_bounds['delta2'],
-                self.var_bounds['qdamp']]
-
-        # Add coordinates as fixed variables
-        pymat_str = Structure.from_file(cif_file)
-        cc = pymat_str.cart_coords
-        center = [(cc[:, 0].max() + cc[:, 0].min())/2,
-                  (cc[:, 1].max() + cc[:, 1].min())/2,
-                  (cc[:, 2].max() + cc[:, 2].min())/2]
-        dists = [dc.dist(c, center) for c in cc]
-        center_ind = np.argmin(dists)
-
-        # Fix central atom coords and optimize all other atom coords
-        for i, pdf_atom in enumerate(PDF.generator.phase.atoms):
-            for cc in ['x', 'y', 'z']:
-                vname = cc + '_' + pdf_atom.name
-                cc_var = pdf_atom.get(cc)
-                if int(i) == int(center_ind):
-                    Fit.addVar(cc_var, name=vname, tag='xyz', fixed=True)
-                else:
-                    Fit.addVar(cc_var, name=vname, tag='xyz', fixed=True)
+        # Set lower and upper bounds for variables
+        Fit.UisoAu.bounds = self.var_bounds['Uiso_val']
+        Fit.scale.bounds = self.var_bounds['scale']
+        Fit.delta2.bounds = self.var_bounds['delta2']
+        Fit.qdamp.bounds = self.var_bounds['qdamp']
 
         # Turn all bounded parameters into restraints with uncertainty sigma
         Fit.boundsToRestraints(sig=0.01)
@@ -232,47 +224,22 @@ class pdf_of_model(object):
                                          Fit.getValues(),
                                          method=self.minimize_method,
                                          tol=1e-3,
-                                         bounds=bounds,
                                          options={'maxiter': 100000})
         # get residue from the fitted params
         fitted_params = result.x
         residual = Fit.scalarResidual(fitted_params)
 
-        # write the pdf comparison data to a file
-        r = Fit.nanocluster.profile.x
-        g_obs = Fit.nanocluster.profile.y
-        g_calc = Fit.nanocluster.evaluate()
-        g_diff = g_obs - g_calc
+        return fitted_params, residual, Fit
 
-        diffzero = -0.8 * max(g_obs) * np.ones_like(g_obs)
-        diff = g_obs - g_calc + diffzero
-
-        with open(self.pdf_sim_dir + '/pdf_data.txt', 'w') as f:
-            f.write('radius \tg_exp \tg_calc \tg_diff \n')
-            for i, item in enumerate(r):
-                f.write(str(r[i])[:4] + '\t ' + str(g_obs[i])[:6] + '\t '
-                        + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6]
-                        + ' \n')
-
-        plt.plot(r, g_obs, 'bo', label="G(r) Target")
-        plt.plot(r, g_calc, 'r-', label="G(r) Fit")
-        plt.plot(r, diff, 'g-', label="G(r) diff")
-        plt.plot(r, diffzero, 'k-')
-        plt.xlabel(r"$r (\AA)$")
-        plt.ylabel(r"$G (\AA^{-2})$")
-        plt.legend(loc=1)
-
-        plt.savefig(fname=self.pdf_sim_dir + '/pdf_fit.png')
-        plt.close()
-
-        return fitted_params, residual
-
-    def fit_coords_recipe(self, PDF):
+    def fit_coords_recipe(self, PDF, fitted_params):
         """
         Performs optimization ofatomic coordiantes of a structure. This does
         not try to optimize the PDF related variables. Take the energy_code
         relaxed structure, and create a PDF object. Then perform
         fit_variables_recipe() using the resulting fitted coordinates from this.
+
+        The PDF object should contain the optimum variables for the main four
+        variables obtained from fit_variables_recipe()
 
         Returns nothing. (Writes temp_opt.cif to the pdf_sim_dir)
 
@@ -286,12 +253,13 @@ class pdf_of_model(object):
         Uisos = []
         for sym in symbols:
             Uisos.append('Uiso{}'.format(sym))
-            Fit.newVar('Uiso{}'.format(sym), value=self.Uiso_val, fixed=True)
+            Fit.newVar('Uiso{}'.format(sym),
+                        value=fitted_params[0], fixed=False)
 
-        for atom in PDF.generator.phase.atoms:
-            for sym in symbols:
-                if atom.element == sym:
-                    Fit.constrain(atom.Uiso, 'Uiso{}'.format(sym))
+        #for atom in PDF.generator.phase.atoms:
+        #    for sym in symbols:
+        #        if atom.element == sym:
+        #            Fit.constrain(atom.Uiso, 'Uiso{}'.format(sym))
 
         # Set all Uiso values to provided or default Uiso_val
         #for p in Uisos:
@@ -299,12 +267,15 @@ class pdf_of_model(object):
         #    fit_param.setValue(self.Uiso_val)
 
         # add existing PDF variables as Fit parameters and setValue
-        Fit.addVar(PDF.generator.scale, self.scale, fixed=True)
-        Fit.addVar(PDF.generator.delta2, self.delta2, fixed=True)
-        Fit.addVar(PDF.qdamp, self.qdamp, fixed=True)
+        Fit.addVar(PDF.generator.scale, fitted_params[1], fixed=False)
+        Fit.addVar(PDF.generator.delta2, fitted_params[2], fixed=False)
+        Fit.addVar(PDF.qdamp, fitted_params[3], fixed=False)
 
-        # We 'fixed' all variables defined so far. So no bounds needed for them
-        bounds=[]
+        # Set lower and upper bounds for variables
+        Fit.UisoAu.bounds = self.var_bounds['Uiso_val']
+        Fit.scale.bounds = self.var_bounds['scale']
+        Fit.delta2.bounds = self.var_bounds['delta2']
+        Fit.qdamp.bounds = self.var_bounds['qdamp']
 
         # Add coordinates as variables and then optimize
         temp_init = self.pdf_sim_dir + '/temp_init.cif'
@@ -325,10 +296,11 @@ class pdf_of_model(object):
                     Fit.addVar(cc_var, name=vname, tag='xyz', fixed=True)
                 else:
                     Fit.addVar(cc_var, name=vname, tag='xyz', fixed=False)
+
+
         # add bounds for new variables of atom coords
-        fc = np.delete(pymat_str.frac_coords, center_ind, 0)
-        for i in fc.flatten():
-            bounds.append([i-0.05, i+0.05])
+        for par in Fit.iterPars(r"x_|y_|z_"):
+            par.bounds = [par.value-self.coord_tol, par.value+self.coord_tol]
 
         # Turn all bounded parameters into restraints with uncertainty sigma
         Fit.boundsToRestraints(sig=0.001)
@@ -340,24 +312,57 @@ class pdf_of_model(object):
                                          Fit.getValues(),
                                          method=self.minimize_method,
                                          tol=1e-3,
-                                         bounds=bounds,
                                          options={'maxiter': 100000})
         # get residue from the fitted params
         fitted_params = result.x
         residual = Fit.scalarResidual(fitted_params)
 
         # Write output structure with new coordinates
-        fcs = result.x
+        fcs = result.x[4:]
         fcs_new = np.insert(fcs, center_ind,
                             pymat_str.frac_coords[center_ind], axis=0)
         #fcs_new = np.concatenate((pymat_str.frac_coords[center_ind], fcs))
-        fcs_new = fcs_new.reshape(14, 3)
+        fcs_new = fcs_new.reshape(len(pymat_str), 3)
         astr_varied = Structure(pymat_str.lattice, pymat_str.species,
                                 fcs_new, coords_are_cartesian=False)
         opt_cif = self.pdf_sim_dir + '/temp_opt.cif'
         opt_pos = self.pdf_sim_dir + '/POSCAR_opt_pdf'
         astr_varied.to(filename=opt_cif)
         astr_varied.to(filename=opt_pos)
+
+        return fitted_params[:4], residual, Fit
+
+    def plot_pdf(self, Fit, name):
+        """
+        """
+        # Plotting pdf
+        r = Fit.nanocluster.profile.x
+        g_obs = Fit.nanocluster.profile.y
+        g_calc = Fit.nanocluster.evaluate()
+        g_diff = g_obs - g_calc
+
+        diffzero = -0.8 * max(g_obs) * np.ones_like(g_obs)
+        diff = g_obs - g_calc + diffzero
+
+        pdf_data_name = name + '_pdf_data.txt'
+        with open(self.pdf_sim_dir + '/' + pdf_data_name, 'w') as f:
+            f.write('radius \tg_exp \tg_calc \tg_diff \n')
+            for i, item in enumerate(r):
+                f.write(str(r[i])[:4] + '\t ' + str(g_obs[i])[:6] + '\t '
+                        + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6]
+                        + ' \n')
+
+        plt.plot(r, g_obs, 'bo', label="G(r) Target")
+        plt.plot(r, g_calc, 'r-', label="G(r) Fit")
+        plt.plot(r, diff, 'g-', label="G(r) diff")
+        plt.plot(r, diffzero, 'k-')
+        plt.xlabel(r"$r (\AA)$")
+        plt.ylabel(r"$G (\AA^{-2})$")
+        plt.legend(loc=1)
+
+        pdf_plot_name = name + '_pdf_plot.png'
+        plt.savefig(fname=self.pdf_sim_dir + '/' + pdf_plot_name)
+        plt.close()
 
     def evaluate_obj(self, model):
         """
@@ -383,15 +388,37 @@ class pdf_of_model(object):
         cif_file = pdf_sim + '/temp_init.cif'
         PDF = self.get_PDF_obj(cif_file)
 
+        # NOTE: First fit the main four variables only. Second fit main four +
+        # coords as variables. This is to get best solution wrt main variables.
+        # Then some local solution with second fitting..
+
+        fitted_params, residual, Fit = self.fit_variables_recipe(PDF, cif_file)
+        # CK Debug
+        v1, v2, v3, v4 = fitted_params
+        print ('Initial fitted variables: {} {} {} {}'.format(v1, v2, v3, v4))
+        print ('Initial residual: ', residual)
+        self.plot_pdf(Fit, 'initial')
+
         if self.fit_coords is True:
             # fit the atomic coordinates using Diffpy
-            self.fit_coords_recipe(PDF)
+            fitted_params, residual, Fit = self.fit_coords_recipe(
+                                                        PDF, fitted_params)
+            # CK Debug
+            v1, v2, v3, v4 = fitted_params
+            print ('Final fitted variables: {} {} {} {}'.format(
+                                                            v1, v2, v3, v4))
+            print ('Final residual: ', residual)
+            self.plot_pdf(Fit, 'final')
             # use the new cif file created with optimized coords
             cif_file = pdf_sim + '/temp_opt.cif'
             PDF = self.get_PDF_obj(cif_file)
 
         # fit the PDF variables
-        fitted_params, residual = self.fit_variables_recipe(PDF, cif_file)
+        # fitted_params, residual, Fit = self.fit_variables_recipe(PDF,
+        #                            cif_file, fitted_params=fitted_params)
+        # CK Debug
+        # print ('step 4: \n', fitted_params)
+        # self.plot_pdf(Fit, 'step_4')
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
