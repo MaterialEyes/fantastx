@@ -91,6 +91,9 @@ class model(object):
         # 2. all atoms above sd_true_above are set to True for slab models
         self.sd_true_above = None 
         self.sd_true_below = None
+        # fingerprinting information
+        self.fingerprint = {}
+        self.features = None
 
 
 class structure_constraints(object):

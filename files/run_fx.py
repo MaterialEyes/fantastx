@@ -14,7 +14,6 @@ from fx19.clustering import hierarchical_clusterer, compositional_clusterer
 import multiprocessing as mp
 import traceback
 
-import time
 import numpy as np
 from time import sleep
 
@@ -29,7 +28,7 @@ dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('new_input.yaml') as ifile:
+with open('epsilon_selection.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
@@ -94,10 +93,12 @@ evald_futures, simd_futures = [], []
 
 workers = i_dict['workers']
 max_workers = workers['max_workers']
-
+#job_script = '/home/dunruh/sample_job_script.txt'
+#jobfile = open(job_script, "w+")
 if workers['cluster'] == 'SLURM':
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
+                               processes=workers['processes'],
                                project=workers['project_name'],
                                queue=workers['submit_queue'],
                                interface=workers['node_type'],
@@ -106,6 +107,8 @@ if workers['cluster'] == 'SLURM':
                                header_skip=workers['header_skip'])
     print ("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
+    jobfile.write(cluster_job.job_script())
+    jobfile.close()
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
@@ -212,6 +215,7 @@ working_jobs = get_working_jobs(evald_futures)
 
 start_time = time.time()
 # Make random models & evolved models
+pool_status_update = 10 # number of models before current pool status is printed
 while models_evald < total_models_needed:
     working_jobs = get_working_jobs(evald_futures)
     # In some cases (lammps based), working_jobs always < max_workers
@@ -226,6 +230,7 @@ while models_evald < total_models_needed:
             new_model, select = make_model(random_model_obj, evolve, select,
                                            pool, reg_id, model_type='evolved')
 
+
         # relax the model in dask-workers
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
@@ -236,6 +241,26 @@ while models_evald < total_models_needed:
                                                                 sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
+        if models_evald % pool_status_update == 0 and models_evald >= i_dict['population_limits']['pool']:
+            # print statements which output visualization information
+            if "selection_algorithm" in i_dict["select_params"]:
+                if i_dict["select_params"]["selection_algorithm"] == "distance_from_pareto":
+                    good_pool = pool.good_pool
+                    good_pool_labels = [model.label for model in good_pool]
+                    print(f"Current good_pool population models: {good_pool_labels}.")
+                elif i_dict["select_params"]["selection_algorithm"] == "epsilon_moea":
+                    pop_labels = [model.label for model in pool.population.models]
+                    archive_labels = [model.label for model in pool.archive.models]
+                    print(f"Current pool population models: {pop_labels}")
+                    print(f"Current pool archive models: {archive_labels}")
+                elif i_dict["select_params"]["selection_algorithm"] == "clustered_selection":
+                    nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
+                    print(f"Current pool population non-dominated models: {nd_pop_labels}")
+            else:
+                good_pool = pool.good_pool
+                good_pool_labels = [model.label for model in good_pool]
+                print(f"Current good_pool population models: {good_pool_labels}.")
+
 # process extra calculations running in last batch
 while len(evald_futures) > 0:
     evald_futures, models_evald, pool, select = update_pool(evald_futures,
@@ -244,18 +269,25 @@ while len(evald_futures) > 0:
                                                             data_file, sim_ids)
 
 # print statements which output visualization information
-good_pool = pool.good_pool
-good_pool_labels = [model.label for model in good_pool]
-print(f"Current good_pool population models: {good_pool_labels}.")
-# non_dominated_pop_models = select.return_nd_pop_models(pool)
-#nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
-# pop_labels = [model.label for model in pool.population.models]
-# archive_labels = [model.label for model in pool.archive.models]
-# print(f"Current pool population models: {pop_labels}")
-# print(f"Current pool population non-dominated models: {nd_pop_labels}")
-# print(f"Current pool archive models: {archive_labels}")
-# print(f"Current operator probabilities: {select.operator_frequencies}")
+if "selection_algorithm" in i_dict["select_params"]:
+    if i_dict["select_params"]["selection_algorithm"] == "distance_from_pareto":
+        good_pool = pool.good_pool
+        good_pool_labels = [model.label for model in good_pool]
+        print(f"Current good_pool population models: {good_pool_labels}.")
+    elif i_dict["select_params"]["selection_algorithm"] == "epsilon_moea":
+        pop_labels = [model.label for model in pool.population.models]
+        archive_labels = [model.label for model in pool.archive.models]
+        print(f"Current pool population models: {pop_labels}")
+        print(f"Current pool archive models: {archive_labels}")
+    elif i_dict["select_params"]["selection_algorithm"] == "clustered_selection":
+        nd_pop_labels = [model.label for model in pool.population.non_dominated_models]
+        print(f"Current pool population non-dominated models: {nd_pop_labels}")
+else:
+    good_pool = pool.good_pool
+    good_pool_labels = [model.label for model in good_pool]
+    print(f"Current good_pool population models: {good_pool_labels}.")
 
+print(f"Current operator probabilities: {select.operator_frequencies}")
 print('Done!')
 print('Total time: ', time.time() - start_time)
 

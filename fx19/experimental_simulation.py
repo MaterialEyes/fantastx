@@ -478,8 +478,7 @@ class gb_ingrained(object):
         # Prepare experimental image
         # (make sure this procedure matches the procedure in 'run.py')
         image_data = iop.image_open(self.dm3_path)
-        exp_img = iop.apply_rotation(
-            image_data['Pixels'], 1)[271-10:783+10, 0:520]
+        exp_img = iop.apply_rotation(image_data['Pixels'], 1)
         exp_img = iop.scale_pixels(exp_img, mode='rescale')
         exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
         exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
@@ -501,21 +500,21 @@ class gb_ingrained(object):
             self.opt_params[1] = 0
         else:
             xfit = self.opt_params.copy()
-
+        xfit[1] = 0
         sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
             congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
 
         sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
 
-        np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+        #np.save(self.main_path + '/whole_exp.npy', exp_patch)
+        #np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
         # Temporarily "hard-coded" exp interface region for VASP runs
         # Load prev_whole_exp.npy that is from the LAMMPS runs
-        exp_prev = np.load('prev_whole_exp.npy')
+        # exp_prev = np.load('prev_whole_exp.npy')
         # in y & x directions # TODO: remove hard-coded values
-        # exp_patch_for_vasp = exp_prev[152:279, 12:]
-        exp_patch_for_vasp = exp_prev
+        exp_patch_for_vasp = exp_img[459:584, 249:374] #exp_prev[152:279, 12:]
+        #exp_patch_for_vasp = exp_prev
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))

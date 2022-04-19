@@ -34,16 +34,19 @@ def write_data(model, data_file):
 
     data_file (str) - path to the data_file
     """
-    with open(data_file, 'a') as f:
-        if model.obj1_val:
-            line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
-                            model.label, str(model.inheritance), model.tot_en,
-                            model.obj0_val, model.obj1_val, model.made_by)
-        else:
-            line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4}\n'.format(
-                            model.label, str(model.inheritance), model.tot_en,
-                            model.obj0_val, model.made_by)
-        f.write(line)
+    try: 
+        with open(data_file, 'a') as f:
+            if model.obj1_val:
+                line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
+                                model.label, str(model.inheritance), model.tot_en,
+                                model.obj0_val, model.obj1_val, model.made_by)
+            else:
+                line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4}\n'.format(
+                                model.label, str(model.inheritance), model.tot_en,
+                                model.obj0_val, model.made_by)
+            f.write(line)
+    except:
+        print(f"Couldn't find data_file {data_file}")
 
 # Temporary selection probs based on overall_value
 def temp_selection_probs(pool):
@@ -75,7 +78,7 @@ def relax(model, reg_id, energy_code):
     """
     try:
         energy_code.relax(model, reg_id)
-    except FileExistsError:
+    except:
         print('Duplicate label in parallel processes. Skipping..')
         return None
     resubmitted = 2
@@ -134,7 +137,7 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
             if new_model is None:
                 continue
             # check redundancy of the new model with all previous models
-            model_is_unique = pool.comparator.check_uniqueness(new_model,
+            model_is_unique = pool.comparator.check_model_uniqueness(new_model,
                                                 pool.all_models, exact=False)
         # add the new_model inheritance to select.all_parent_labels
         select.all_parent_labels += new_model.inheritance
@@ -228,13 +231,6 @@ def update_pool(evald_futures, models_evald, pool, select,
         # Add to either good_pool or bad_pool
         # Selection_probs are also updated
         if model is not None:
-            # check if the relaxed structure is unique
-            model_is_unique = pool.comparator.check_uniqueness(model,
-                                                pool.all_models, exact=False)
-            if not model_is_unique:
-                print ('Model {} is removed as it is not '
-                       'unique'.format(model.label))
-                continue
             select = pool.add_to_pool(model, select, sim_ids=sim_ids)
             # write data to file
             write_data(model, data_file)
