@@ -367,10 +367,12 @@ The later two options are only available if clustering is included via the clust
     - **num_required_above_50**: Number of models in the good pool which are required to have a selection probability of 50% or higher. 
     - **num_models_before_pareto**: Number of models that are required to be in the good pool before the *distance_from_pareto* algorithm is used. Until then, selection probabilities are determined purely from normalized objective function values.
 - *epsilon_moea*:
-    - **epsilons**: parameters for binning the objective function space into the 'epsilon grid'. Should be in the same order as the objectives. Currently only supports two objectives.
+    - **epsilons**: parameters for binning the objective function space into the 'epsilon grid'. Should be in the same order as the objectives. Used for both `epsilon_dominance` and (optionally) `pareto_dominance`, binning the latter case for structural comparisons.
 - *clustered_selection*:
     - **epsilons**: parameters for binning the objective function space into the 'epsilon grid'. Not necessary if using simple pareto_dominance for clustered selection. Should be in the same order as the objectives. Currently only supports two objectives.
     - **cluster_params**: not a *select_params* input, but is mandatory to include elsewhere in the input YAML file if performing *clustered_selection*.
+    - **dominance_algorithm**: `pareto_dominance` or `epsilon_dominance`. Either algorithm will perform structural comparison if a comparator is provided, and
+    will perform the comparison only within an epsilon box if epsilons are provided.
 
 ```YAML
 select_params:

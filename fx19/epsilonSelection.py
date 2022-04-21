@@ -1,3 +1,32 @@
+"""
+This module contains functions to conduct multi-objective search.
+It contains a pool of structures which contains `Population` and
+`Archive` sub-groups. The `Population` group is the primary breeding
+pool for genetic operations. The `Archive` group is an elite population
+which ensures that the structure search is always conducting genetic
+operations with at least one structure on the Pareto front. The
+algorithm is steady-state, adding one child structure at a time.
+
+The primary multi-objective search algorithm is epsilon-MOEA.
+Citation:
+[Deb K, Mohan M, Mishra S. Evol Comput. 2005 Winter;13(4):501-25]
+However, until the `Population` sub-group has reached the steady-state
+capacity, the `Archive` remains uninitialized, and a linear
+selection protocol is used instead. In this protocol, every child
+structure is added to the `Population` and is assigned a selection
+probability which corresponds to its distance to the minimums of each
+objective function. Parents for genetic operations are then chosen
+randomly.
+
+Once the `Population` has reached steady-state capacity, full epsilon-MOEA
+is employed. For a thorough explanation, see the citation above.
+
+!!! note
+
+    Single-objective search is also supported, using the original method
+    of V.S.C. Kolluru.
+"""
+
 from __future__ import division, unicode_literals, print_function
 import numpy as np
 import random
@@ -6,33 +35,6 @@ import itertools
 from sklearn.preprocessing import MinMaxScaler
 from scipy.optimize import minimize
 from fx19.fingerprinting import Comparator
-
-"""
-This module contains functions to conduct multi-objective search.
-It contains a pool of structures which contains "Population" and
-"Archive" sub-groups. The "Population" group is the primary breeding
-pool for genetic operations. The "Archive" group is an elite population
-which ensures that the structure search is always conducting genetic
-operations with at least one structure on the Pareto front. The
-algorithm is steady-state, adding one child structure at a time.
-
-The primary multi-objective search algorithm is epsilon-MOEA.
-Citation:
-[Deb K, Mohan M, Mishra S. Evol Comput. 2005 Winter;13(4):501-25]
-However, until the "Population" sub-group has reached the steady-state
-capacity, the "Archive" remains uninitialized, and a linear
-selection protocol is used instead. In this protocol, every child
-structure is added to the "Population" and is assigned a selection
-probability which corresponds to its distance to the minimums of each
-objective function. Parents for genetic operations are then chosen
-randomly.
-
-Once the "Population" has reached steady-state capacity, full epsilon-MOEA
-is employed. For a thorough explanation, see the citation above.
-
-Note: single-objective search is also supported, using the original method
-of V.S.C. Kolluru.
-"""
 
 
 class ParetoDominance(object):
@@ -48,18 +50,20 @@ class ParetoDominance(object):
 
     def get_nondominated_solutions(self, population):
         """
-        Source: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
-        /general/pareto_efficiency.py
+        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
+        peter/artemis/general/pareto_efficiency.py)
 
-        Return all non-dominated solutions (the Pareto front) from
+        Determines all non-dominated solutions (the Pareto front) from
         a set of models.
 
-        Returns the list of non-dominated models.
+        Arguments:
 
-        Args:
+            population (obj): the population from which the
+             non-dominated solutions are being obtained.
 
-        population (obj): the population from which the
-        non-dominated solutions are being obtained.
+        Returns:
+
+            list: all non-dominated models
         """
         is_efficient = np.ones(population.size, dtype=bool)
         # Iterate once through the population to assemble
@@ -82,19 +86,21 @@ class ParetoDominance(object):
 
     def alt_nondominance(self, population):
         """
-        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
-        /general/pareto_efficiency.py
+        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
+        peter/artemis/general/pareto_efficiency.py)
 
         An alternative non-dominance calculator which uses the self
         calculated comparison flags between models to determine
         non-dominance.
 
-        Returns the list of non-dominated models.
+        Arguments:
 
-        Args:
+            population (obj): the population from which the
+             non-dominated solutions are being obtained.
 
-        population (obj): the population from which the
-        non-dominated solutions are being obtained.
+        Returns:
+
+            list: all non-dominated models
         """
         is_efficient = np.ones(population.size, dtype=bool)
         for index, model in enumerate(population.models):
@@ -112,17 +118,17 @@ class ParetoDominance(object):
 
     def compare(self, test_model, ref_model):
         '''
-        Function which performs comparison between models
+        Function which performs comparison between models. It returns:
 
-        Returns -1 if test_model dominates the ref_model
-        Returns 0 if both non-dominated
-        Returns +1 if test_model dominated by the ref_model
+        - -1 if test_model dominates the ref_model
+        - 0 if both non-dominated
+        - +1 if test_model dominated by the ref_model
 
-        Args:
+        Arguments:
 
-        test_model (obj): structure_record.model() A for the comparison
+            test_model (obj): `structure_record.model()` A for the comparison
 
-        ref_model (obj): structure_record.model() B for the comparison
+            ref_model (obj): `structure_record.model()` B for the comparison
         '''
 
         dominate_test = False
@@ -162,11 +168,11 @@ class ParetoDominance(object):
         which dominates the other. If the two models are
         non-dominated, returns one at random.
 
-        Args:
+        Arguments:
 
-        model1 (obj): structure_record.model() A for the comparison
+            model1 (obj): `structure_record.model()` A for the comparison
 
-        model2 (obj): structure_record.model() B for the comparison
+            model2 (obj): `structure_record.model()` B for the comparison
         '''
         dominate1 = False
         dominate2 = False
@@ -211,23 +217,24 @@ class ParetoDominance(object):
 class EpsilonDominance(object):
     '''
     Class which performs non-dominance calculations. Compared to
-    ParetoDominance, here non-dominance is determined based on an
+    `ParetoDominance`, here non-dominance is determined based on an
     additional factor. Rather than a normal non-dominance check,
-    non-dominance here is calculated based on an "epsilon" grid
+    non-dominance here is calculated based on an $\epsilon$ grid
     which discretizes the objective function space. If two models
-    occupy the same grid square (with side lengths of epsilon_a
-    and epsilon_b), then the model which is closest to the corner
+    occupy the same grid square (with side lengths of $\epsilon_a$
+    and $\epsilon_b$), then the model which is closest to the corner
     of the square is considered to dominate the other model.
     '''
 
     def __init__(self, epsilons=None):
         '''
-        Args:
+        Arguments:
 
-        epsilons (list of floats): the grid size of the multiobjective
-        space. Should be the same length as the number of objectives,
-        and should be in the same order as the objectives are assigned
-        to the models.
+            epsilons (list of floats): the grid size of the multiobjective
+             space. Should be the same length as the number of objectives,
+             and should be in the same order as the objectives are assigned
+             to the models. E.g. if you have two objectives, should be:
+             $[\epsilon_1$, $\epsilon_2$]
         '''
         # Assign default epsilons if none are provided
         if epsilons is None:
@@ -237,16 +244,20 @@ class EpsilonDominance(object):
 
     def get_nondominated_solutions(self, population):
         """
-        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
-        /general/pareto_efficiency.py
+        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
+        peter/artemis/general/pareto_efficiency.py)
 
-        Returns the list of non-dominated models, based on comparison
+        Determines the list of non-dominated models, based on comparison
         function flags.
 
-        Args:
+        Arguments:
 
-        population (obj): the population for whom non-domination
-        will be determined.
+            population (obj): the population from which the
+             non-dominated solutions are being obtained.
+
+        Returns:
+
+            list: all non-dominated models
         """
         is_efficient = np.ones(population.size, dtype=bool)
         for index, model in enumerate(population.models):
@@ -264,17 +275,17 @@ class EpsilonDominance(object):
 
     def compare(self, test_model, ref_model):
         '''
-        Function which performs comparison between models
+        Function which performs comparison between models. It returns:
 
-        Returns -1 if test_model dominates the ref_model
-        Returns 0 if both non-dominated
-        Returns +1 if test_model dominated by the ref_model
+        - -1 if test_model dominates the ref_model
+        - 0 if both non-dominated
+        - +1 if test_model dominated by the ref_model
 
-        Args:
+        Arguments:
 
-        test_model (obj): structure_record.model() A for the comparison
+            test_model (obj): `structure_record.model()` A for the comparison
 
-        ref_model (obj): structure_record.model() B for the comparison
+            ref_model (obj): `structure_record.model()` B for the comparison
         '''
 
         dominate_test = False
@@ -342,11 +353,11 @@ class EpsilonDominance(object):
 class StructuralEpsilonDominance(object):
     '''
     Class which performs non-dominance calculations. Compared to
-    ParetoDominance, here non-dominance is determined based on two
+    `ParetoDominance`, here non-dominance is determined based on two
     additional factors. First, non-dominance is calculated based on
     a grid which discretizes the objective function space. If two
     models occupy the same grid square (with side lengths of
-    epsilon_a and epsilon_b), then the model which is closest to the
+    $\epsilon_a$ and $\epsilon_b$), then the model which is closest to the
     corner of the square is considered to dominate the other model.
     HOWEVER, if the two models are structurally similar, then a flag
     is thrown. This has the advantage of only performing structural
@@ -357,15 +368,16 @@ class StructuralEpsilonDominance(object):
 
     def __init__(self, comparator=Comparator(), epsilons=None):
         '''
-        Args:
+        Arguments:
 
-        comparator (obj): instance of the comparator class
-        which will perform all structural similarity checks
+            comparator (obj): instance of the Comparator class
+             which will perform all structural similarity checks
 
-        epsilons (list of floats): the grid size of the multiobjective
-        space. Should be the same length as the number of objectives,
-        and should be in the same order as the objectives are assigned
-        to the models.
+            epsilons (list of floats): the grid size of the multiobjective
+             space. Should be the same length as the number of objectives,
+             and should be in the same order as the objectives are assigned
+             to the models. E.g. if two objectives, would be:
+             [$\epsilon_1$, $\epsilon_2$]
         '''
         # Assign default epsilons if none are provided
         if epsilons is None:
@@ -378,16 +390,20 @@ class StructuralEpsilonDominance(object):
 
     def get_nondominated_solutions(self, population):
         """
-        Inspired by: https://github.com/QUVA-Lab/artemis/blob/peter/artemis
-        /general/pareto_efficiency.py
+        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
+        peter/artemis/general/pareto_efficiency.py)
 
-        Returns the list of non-dominated models, based on comparison
+        Determines the list of non-dominated models, based on comparison
         function flags.
 
-        Args:
+        Arguments:
 
-        population (obj): the population for which non-domination will be
-        determined.
+            population (obj): the population from which the
+             non-dominated solutions are being obtained.
+
+        Returns:
+
+            list: all non-dominated models
         """
         is_efficient = np.ones(population.size, dtype=bool)
         for index, model in enumerate(population.models):
@@ -405,24 +421,24 @@ class StructuralEpsilonDominance(object):
 
     def compare(self, test_model, ref_model):
         '''
-        Function which performs comparison between models
+        Function which performs comparison between models. It returns:
 
-        Returns -1 if test_model dominates the ref_model
-        Returns 0 if both non-dominated
-        Returns +1 if test_model dominated by the ref_model
+        - -1 if test_model dominates the ref_model
+        - 0 if both non-dominated
+        - +1 if test_model dominated by the ref_model
 
         If the models are similar, then standard epsilon
         non-domination is used. If the models are exactly the
         same, then only the model already in the population
-        is kept (the ref_model). Otherwise, models within the
+        is kept (the `ref_model`). Otherwise, models within the
         same epsilon box are considered to be non-dominated
         with respect to each other.
 
-        Args:
+        Arguments:
 
-        test_model (obj): structure_record.model() A for the comparison
+            test_model (obj): `structure_record.model()` A for the comparison
 
-        ref_model (obj): structure_record.model() B for the comparison
+            ref_model (obj): `structure_record.model()` B for the comparison
         '''
 
         dominate_test = False
@@ -519,9 +535,11 @@ class Pool(object):
     A pool of structures which are used for genetic crossing.
 
     Maintain two lists:
-    Population - Diverse selection of models
-    Archive - Non-dominated models contained within the population.
-            - Separated on the Pareto front by epsilon boxes
+    `Population`
+     - Diverse selection of models
+    `Archive` 
+     - Non-dominated models contained within the population.
+     - Separated on the Pareto front by $\epsilon$ boxes
 
     The initial population is created by descending along the gradient
     in both objective functions if possible. Then epsilon-MOEA is
@@ -531,21 +549,19 @@ class Pool(object):
 
     def __init__(self, pool_params):
         """
-        Args:
+        Initializes a pool with the following parameters set from i_dict:
 
-        Initialize a pool with the following parameters set from i_dict:
+        - Capacity (int): the steady-state population size for epsilon-MOEA
 
-        Capacity (int): the steady-state population size for epsilon-MOEA
-
-        Weights (list): the weights of the objective functions for linear
+        - Weights (list): the weights of the objective functions for linear
         selection protocol.
 
-        Epsilons (list): the epsilon values defining the grid for epsilon
+        - Epsilons (list): the epsilon values defining the grid for epsilon
         dominance. Used for the "Archive" only.
 
-        Here the "Population" and "Archive" objects are also initialized.
-        The "Population" uses ParetoDominance and a zero-tolerance comparator,
-        and the "Archive" uses EpsilonDominance and the i_dict tolerances.
+        Here the `Population` and `Archive` objects are also initialized.
+        The `Population` uses ParetoDominance and a zero-tolerance comparator,
+        and the `Archive` uses EpsilonDominance and the i_dict tolerances.
         """
         energy_pkg = pool_params['energy_pkg']
 
@@ -623,14 +639,18 @@ class Pool(object):
         steady-state capacity, add model to the population using the full
         procedure.
 
-        Args:
+        Arguments:
 
-        model (obj): structure_record.model() to add to the pool
+            model (obj): `structure_record.model()` to add to the pool
 
-        select (obj): instance of Select which will be updated by
-        model addition.
+            select (obj): instance of `Select` which will be updated by
+             model addition.
 
-        sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+            sim_ids (list of integers): simulation ids Eg: [1] for one Xsim
+
+        Returns:
+
+            Select: updated instance of `Select`
         """
         # If global fingerprint comparison is going to be made, calculate
         # fingerprint for model
@@ -727,15 +747,19 @@ class Pool(object):
         '''
         Provide parent models for mating operations. If archive
         has not been created, then provide both parents from the
-        population. Otherwise, provide the first parent from the
-        archive, and subsequent parents from the population.
+        `Population`. Otherwise, provide the first parent from the
+        `Archive`, and subsequent parents from the `Population`.
 
-        Args:
+        Arguments:
 
-        select (obj): the instance of select which is used to select
-        the parents.
+            select (obj): the instance of `Select` which is used to select
+             the parents.
 
-        num_parents (int): the number of parents to choose.
+            num_parents (int): the number of parents to choose.
+
+        Returns:
+
+            list: selected parent models
         '''
         return select.get_parents(self, num_parents)
 
@@ -745,11 +769,10 @@ class Pool(object):
         'times_chosen_as_parent' attribute after a child structure is created
         using a model as a parent.
 
-        Returns nothing
+        Arguments:
 
-        Args:
-
-        inheritance (list): list of one or two integers that are parent labels
+            inheritance (list): list of one or two integers that are parent
+             labels
         """
         for m in self.population.models:
             if m.label in inheritance:
@@ -784,18 +807,20 @@ class Select(object):
 
     def __init__(self, select_obj_params):
         '''
-        Args:
+        Arguments:
 
-        select_obj_params (dictionary): all params which are needed to
-        create the object. All parameters have default values which are
-        assigned if they are not found in the dictionary.
+            select_obj_params (dict): all params which are needed to
+            create the object. All parameters have default values which are
+            assigned if they are not found in the dictionary.
 
-        Some functionality is not included if not listed in the params
-        dictionary. Namely, auto-adaptive operator selection (where the
-        relative frequency of each operator in the evolutionary process
-        will be updated based on the operators which were used to create
-        the non-dominated [or otherwise elite] solutions) can be used
-        if listed in the dictionary, but will not be used otherwise.
+        !!! Important
+
+            Some functionality is not included if not listed in the params
+            dictionary. Namely, auto-adaptive operator selection (where the
+            relative frequency of each operator in the evolutionary process
+            will be updated based on the operators which were used to create
+            the non-dominated [or otherwise elite] solutions) can be used
+            if listed in the dictionary, but will not be used otherwise.
         '''
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
@@ -855,14 +880,19 @@ class Select(object):
         the "good pool" of models, which are the top models up to a
         number determined by the good_pool_capacity.
 
-        Args:
+        Arguments:
 
-        all_models (list): of all models evaluated so far
+            all_models (list): of all models evaluated so far
 
-        good_pool_capacity (int): maximum number of models in good pool
+            good_pool_capacity (int): maximum number of models in good pool
 
-        sim_ids (list of ints): indices which specifies how many exp sim
-        objective functions are used.
+            sim_ids (list of ints): indices which specifies how many exp sim
+            objective functions are used.
+
+        Returns:
+
+            list: `good_pool` of models which are able to be selected for
+             mating operations.
         '''
         # Call a function to get probs based only on obj0_val (single obj)
         if self.type == 'single':
@@ -928,13 +958,18 @@ class Select(object):
         For a search with only one objective function, updates selection
         probabliites based on an exponential function.
 
-        Args:
+        Arguments:
 
-        all_models (list): all models evaluated so far
+            all_models (list): all models evaluated so far
 
-        good_pool_capacity (int): maximum number of models in good pool
+            good_pool_capacity (int): maximum number of models in good pool
 
-        update_cutoff_only (bool): Returns only cutoff value when True
+            update_cutoff_only (bool): Returns only cutoff value when True
+
+        Returns:
+
+            list: `good_pool` of models which are able to be selected for
+             mating operations.
         """
         # Get all models obj0_val
         model_labels, all_v0 = [], []
@@ -1006,13 +1041,20 @@ class Select(object):
         A scalar function to minimize the exponential constant to give
         required number of models with probability above 0.5 (or 50%).
 
-        Args:
+        Arguments:
 
-        k: (a list or an array) of the variable for
-        minimize function (Eg: [-1])
+            k (iterable): of the variable for
+             minimize function (Eg: [-1])
 
-        scaled_good_pool_values: (1D array or list) The objective function
-        values of models in good pool scaled between 0 and 1.
+            scaled_good_pool_values (iterable): The objective function
+             values of models in good pool scaled between 0 and 1.
+
+        Returns:
+
+            float: squared difference between number of models required to
+             have a selection probability above 50%, and the number of
+             models which actually do have a selection probability above
+             50%. 
         """
         # Get probs based on constant k
         exponential_probs = [math.exp(k[0]*i) for i in scaled_good_pool_values]
@@ -1028,23 +1070,27 @@ class Select(object):
         the population. Otherwise, alternate providing one parent from
         the population, and one parent from the archive.
 
-        Args:
+        Arguments:
 
-        pool (obj): the pool from which parents will be selected.
-        Contains both the archive and the population.
+            pool (obj): the pool from which parents will be selected.
+             Contains both the archive and the population.
 
-        num_parents (int): how many parents to draw.
+            num_parents (int): how many parents to draw.
 
-        same_cluster (bool): If performing clustering, whether to choose
-        the 2nd parent from the same cluster as the initial parent, or a
-        different cluster than the initial parent.
+            same_cluster (bool): If performing clustering, whether to choose
+             the 2nd parent from the same cluster as the initial parent, or a
+             different cluster than the initial parent.
 
-        same_ab (bool): If num_parents > 1, specifies whether all parents
-        should have same a, b lattice vectors
+            same_ab (bool): If num_parents > 1, specifies whether all parents
+             should have same a, b lattice vectors
 
-        abs_tol (float): If num_parents > 1, specifies the the maximum value
-        for the sum of the absolute difference between the "ab" of two
-        lattice vectors
+            abs_tol (float): If num_parents > 1, specifies the the maximum
+             value for the sum of the absolute difference between the "ab"
+             of two lattice vectors
+
+        Returns:
+
+            list: chosen parent models.
         '''
         if pool.archive.size == 0 or self.type == "single":
             parents = []
@@ -1110,14 +1156,18 @@ class Select(object):
 
     def get_a_parent(self, pool):
         '''
-        Function to draw a single parent from the pool's archive, using
-        the archive's "produce_model" function. If the archive has not
+        Function to draw a single parent from the pool's `Archive`, using
+        the `Archive`'s `produce_model` function. If the `Archive` has not
         been initialized, the model is instead draw from the pool's
-        population, using the population's "produce_model" function.
+        `Population`, using the `Population`'s `produce_model` function.
 
-        Args:
+        Arguments:
 
-        pool (obj): the pool whose population is being drawn from.
+            pool (obj): the pool whose population is being drawn from.
+
+        Return:
+
+            structure_record.model(): chosen parent model
         '''
         # produce a parent model from the archive if it exists, otherwise from
         # the population
@@ -1142,17 +1192,17 @@ class Select(object):
         """
         When the pool's capacity is below the steady-state capacity, model
         selection probabilities are assigned based on the distance from
-        the lowest possible objective function values. Roulette selection
+        the lowest possible objective function values. **Roulette selection**
         is used, where a model is chosen at random, and then a 2nd random
         is drawn to determine if the model is selected for mating. If
         rejected, a different random model is chosen. Unlike the function
-        "get_a_parent", here the model is drawn from the populations
-        "good_pool" or entire set of models instead of from the
+        `get_a_parent`, here the model is drawn from the populations
+        `good_pool` or entire set of models instead of from the
         non-dominated set.
 
-        Args:
+        Arguments:
 
-        pool (obj): the pool from which the model is being drawn.
+            pool (obj): the pool from which the model is being drawn.
         """
         done = False
         models = pool.population.models
@@ -1170,12 +1220,12 @@ class Select(object):
     def return_nd_pop_models(self, pool):
         '''
         Function which calculates and returns the non-dominated
-        members of the pool's population.
+        members of the pool's `Population`.
 
-        Args:
+        Arguments:
 
-        pool (obj): the pool for which non-domination is being
-        determined.
+            pool (obj): the pool for which non-domination is being
+            determined.
         '''
         population = pool.population
         return ParetoDominance().alt_nondominance(population)
@@ -1191,24 +1241,25 @@ class Population(object):
     def __init__(self, capacity, dominance=ParetoDominance(),
                  weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
         """
-        Args:
+        Arguments:
 
-        capacity (int): the number of models which are held in the
-        population when it has reached the steady-state level.
+            capacity (int): the number of models which are held in the
+             population when it has reached the steady-state level.
 
-        dominance (Dominance object): the dominance class instance
-        which computes all pareto quantities, including ranking the models.
+            dominance (Dominance object): the dominance class instance
+             which computes all pareto quantities, including ranking the
+             models.
 
-        weights (list of floats): the weights of each objective function.
-        Only used for linear selection.
+            weights (list of floats): the weights of each objective function.
+             Only used for linear selection.
 
-        comparator (Comparator object): the comparator class instance
-        which handles all model similarity checks.
+            comparator (Comparator object): the comparator class instance
+             which handles all model similarity checks.
 
-        cluster_obj (Clustering object): the cluster class instance
-        which handles the clustering of all models. If not included, then
-        no clustering will be conducted. Supports both hierarchical and
-        compositional clustering.
+            cluster_obj (Clustering object): the cluster class instance
+             which handles the clustering of all models. If not included, then
+             no clustering will be conducted. Supports both hierarchical and
+             compositional clustering.
         """
         self.capacity = capacity
         self.models = []
@@ -1238,9 +1289,9 @@ class Population(object):
         '''
         Add a model to the population.
 
-        Args:
+        Arguments:
 
-        model (obj): the structure_record.model() which is being added.
+            model (obj): the `structure_record.model()` which is being added.
         '''
         self.models.append(model)
         self.size += 1
@@ -1249,9 +1300,10 @@ class Population(object):
         """
         Removes a model from the population
 
-        Args:
+        Arguments:
 
-        model (obj): model to be removed from population
+            model (obj): the `structure_record.model()` to be removed from
+             the population
         """
         try:
             self.models.remove(model)
@@ -1284,16 +1336,16 @@ class Population(object):
         all objective functions. Only used when the population has
         not yet reached its steady state capacity.
 
-        Args:
+        Arguments:
 
-        model (obj): the structure_record.model() being added to the
-        population.
+            model (obj): the `structure_record.model()` being added to the
+             population.
 
-        select (obj): the select instance which is being used to
-        assign selection probabilities to the models.
+            select (obj): the select instance which is being used to
+             assign selection probabilities to the models.
 
-        sim_ids (list of ints): indices which specifies how many exp sim
-        objective functions are used.
+            sim_ids (list of ints): indices which specifies how many exp sim
+             objective functions are used.
         '''
         self.extend(model)
 
@@ -1380,22 +1432,28 @@ class Population(object):
         Test the addition of the model to the population
 
         Criteria:
-        If model dominates a population member, replace
-        If model is dominated by a population member, reject
-        If neither, then replace a population member at random
-        Note: it is possible for the model to simultaneously dominate pop
-        member (a) and be dominated by pop member (b). This is possible
-        due to the fact that the initial population members are
-        not checked for domination. Over time, these dominated population
-        members will be bred out of the population.
 
-        Returns (bool) indicating whether the model was added to the
-        population (True), or if it was rejected (False)
+        - If model dominates a population member, replace
+        - If model is dominated by a population member, reject
+        - If neither, then replace a population member at random
 
-        Args:
+        !!! note
 
-        model (obj): structure_record.model() for which addition
-            is being tested.
+            It is possible for the model to simultaneously dominate pop
+            member (a) and be dominated by pop member (b). This is possible
+            due to the fact that the initial population members are
+            not checked for domination. Over time, these dominated population
+            members will be bred out of the population.
+
+        Arguments:
+
+            model (obj): 1structure_record.model()` for which addition
+                is being tested.
+
+        Returns:
+
+            bool: `True` if the model was added to the population, `False` if
+             it was rejected
         '''
         dominates = []
         dominated = False
@@ -1453,17 +1511,19 @@ class Population(object):
         non-dominated model. If both are non-dominated, then return one
         randomly.
 
-        Returns selected model object.
+        Arguments:
 
-        Args:
+            cluster (int or string): id of the cluster to which the first
+             parent model belonged. Necessary if requiring that the model
+             comes from either the same cluster or a different cluster.
 
-        cluster (int or string): id of the cluster to which the first
-        parent model belonged. Necessary if requiring that the model comes
-        from either the same cluster or a different cluster.
+            same (bool): whether the model needs to belong to the same
+             cluster (True) as the first parent model, or a different
+             cluster (False).
 
-        same (bool): whether the model needs to belong to the same
-        cluster (True) as the first parent model, or a different cluster
-        (False).
+        Returns:
+
+            structure_record.model(): selected model object
         '''
         if len(self.models) >= 2:
             if cluster is None:
@@ -1525,16 +1585,17 @@ class Archive(object):
         epsilons=[1, 1]
     )):
         """
-        Args:
+        Arguments:
 
-        dominance (Dominance object): the dominance class instance
-        which computes all pareto quantities, including ranking the models.
+            dominance (Dominance object): the dominance class instance
+             which computes all pareto quantities, including ranking the
+             models.
 
-        comparator (Comparator object): the comparator class instance
-        which handles all model similarity checks.
+            comparator (Comparator object): the comparator class instance
+             which handles all model similarity checks.
 
-        epsilons (list of floats): the epsilon values which will
-        discretize the archive objective function space.
+            epsilons (list of floats): the epsilon values which will
+             discretize the archive objective function space.
         """
 
         self.models = []
@@ -1547,10 +1608,10 @@ class Archive(object):
         Seed the archive with the initial set of non-dominated models,
         according to the archive dominance criteria.
 
-        Args:
+        Arguments:
 
-        population (obj): the population from which the
-        non-dominated models will be obtained.
+            population (obj): the `Population` from which the
+             non-dominated models will be obtained.
         '''
         self.models = self._dominance.get_nondominated_solutions(population)
         self.size = len(self.models)
@@ -1558,13 +1619,13 @@ class Archive(object):
 
     def initialize_models(self, non_dominated_models):
         '''
-        Unlike seed_archive, initialize the archive with a specific set
+        Unlike `seed_archive`, initialize the archive with a specific set
         of non-dominated models, not from a population object
 
-        Args:
+        Arguments:
 
-        non_dominated_models (list of model objs): the non-dominated models
-        (structure_record.model()) which are seeding the archive.
+            non_dominated_models (list of model objs): the non-dominated
+             `structure_record.model()`s which are seeding the archive.
         '''
         self.models = non_dominated_models
         self.operator_inheritance = [
@@ -1576,16 +1637,19 @@ class Archive(object):
         Test the addition of the model to the population
 
         Criteria:
-        If model dominates an archive member, replace
-        If model is dominated by an archive member, reject
-        If neither, then add the model to the archive
 
-        Returns a boolean which indicates if the model was successfully
-        added (True), or if it was rejected (False)
+        - If model dominates an archive member, *replace*
+        - If model is dominated by an archive member, *reject*
+        - If neither, then *add* the model to the archive
 
-        Args:
-        model (obj): the structure_record.model() for which addition
-        is being tested.
+        Arguments:
+
+            model (obj): the `structure_record.model()` for which addition
+             is being tested.
+
+        Returns:
+
+            bool: `True` if the model was added, `False` if it was rejected.
         '''
 
         flags = [self._dominance.compare(model, m) for m in self.models]
@@ -1614,9 +1678,9 @@ class Archive(object):
         """
         Removes a model from the archive
 
-        Args:
+        Arguments:
 
-        model (obj): model to be removed from archive
+            model (obj): `structure_record.model() to be removed from archive
         """
         try:
             self.models.remove(model)

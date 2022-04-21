@@ -24,7 +24,7 @@
 # Clustered Selection
 
 ::: fx19.clusteredSelection.ParetoDominance
-::: fx19.clusteredSelection.StructuralEpsilonDominance
+::: fx19.clusteredSelection.EpsilonDominance
 ::: fx19.clusteredSelection.Pool
 ::: fx19.clusteredSelection.Select
 ::: fx19.clusteredSelection.Population
@@ -41,8 +41,8 @@
 
 # Clustering
 
-::: fx19.clustering.hierarchical_clusterer
-::: fx19.clustering.compositional_clusterer
+::: fx19.clustering.CompositionalClusterer
+::: fx19.clustering.HierarchicalClusterer
 
 # Distance Check
 

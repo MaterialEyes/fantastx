@@ -72,6 +72,7 @@ class model(object):
         self.obj2_val = 0
         self.obj3_val = 0
         self.obj4_val = 0
+        self.num_of_obj = 1
         # (single or multi objective function) overall value
         self.overall_val = None
         # selection probability based on overall_val

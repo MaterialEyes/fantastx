@@ -17,12 +17,14 @@ def make_objects(i_dict):
     provided in the input file. Assumes defaults for optional parameters that
     are not provided.
 
-    Returns a dictionary with all created objects
+    Arguments:
 
-    Args:
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+    Returns:
+
+        dict: dictionary storing all created objects
     """
     all_objects = {}
     # register_id object to id the models
@@ -119,16 +121,14 @@ def make_objects(i_dict):
                               'provide epsilon values. Using '
                               'distance_from_pareto.')
                 if algorithm == "clustered_selection":
-                    if 'epsilons' in i_dict['select_params'] and\
-                            'cluster_params' in i_dict:
+                    if 'cluster_params' in i_dict:
                         selection_mod = clusteredSelection
                         mod_str = 'clusteredSelection.py'
                         cl_bool = True
                     else:
                         print('Error. Chose clustered_selection, but either '
-                              'did not provide epsilons, or did not provide '
-                              'clustering parameters. Using '
-                              'distance_from_pareto.')
+                              'did not provide clustering parameters. '
+                              'Using distance_from_pareto')
         else:
             print("Selection algorithm not provided."
                   "Using distance_from_pareto.")
@@ -159,6 +159,18 @@ def make_objects(i_dict):
     pool_params['energy_pkg'] = energy_pkg
     if 'epsilons' in i_dict['select_params']:
         pool_params['epsilons'] = i_dict['select_params']['epsilons']
+        if cl_bool:
+            if 'dominance_algorithm' in i_dict['select_params']:
+                da = i_dict['select_params']['dominance_algorithm']
+                if da not in ['pareto_dominance', 'epsilon_dominance']:
+                    print("Error! ClusteredSelection dominance_algorithm not"
+                          "a valid choice. Please choose either"
+                          "pareto_dominance or epsilon_dominance. By default,"
+                          " pareto_dominance has been chosen.")
+                else:
+                    pool_params['dominance_algorithm'] =\
+                        i_dict['select_params']['dominance_algorithm']
+
     if 'fingerprint_params' in i_dict:
         fp_params = i_dict['fingerprint_params']
         fp_label = fp_params['label']
@@ -365,13 +377,17 @@ def make_objects(i_dict):
 
 def get_energy_params(i_dict):
     """
-    Returns a dictionary with all the parameters, mandatory and optional, to be
+    Determines all the parameters, mandatory and optional, to be
     used to make energy object for each calculation.
 
-    Args:
+    Arguments:
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
+
+    Returns:
+
+        dict: all the determined parameters
     """
     energy_params = {}
     # add main_path, i.e., where the search started to energy_params
@@ -432,19 +448,25 @@ def get_energy_params(i_dict):
 def get_pdf_params(i_dict, exp_sim_params_id):
     """
     Reads the i_dict and returns pdf_params for experimental simulation method
-    that is used in search (if provided)
-    Does not mention defaults if not provided in input file. That happens in
+    that is used in search (if provided). Does not mention defaults if not
+    provided in input file. That happens in
     experimental_simulation module
 
-    Args:
+    Arguments:
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
 
-    exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-    simulation method.
+        exp_sim_params_id (str): `'exp_sim_1_params'` if only one experimetnal
+         simulation method.
 
-    #TODO: add 'exp_sim_2_params' if 2 sim methods are used
+    Returns:
+
+        dict: all the determined parameters
+
+    !!! TODO
+
+        Add `'exp_sim_2_params'` if 2 sim methods are used
     """
     pdf_params = i_dict[exp_sim_params_id]
     # add main_path, i.e., where the search started to energy_params
@@ -458,17 +480,23 @@ def get_xanes_params(i_dict, exp_sim_params_id):
     Reads the i_dict and returns xanes_params for experimental simulation
     method that is used in search (if provided).
     Does not mention defaults if not provided in input file. That happens in
-    experimental_simulation module
+    experimental_simulation module.
 
-    Args:
+    Arguments:
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
 
-    exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-    simulation method.
+        exp_sim_params_id (str): `'exp_sim_1_params'` if only one experimetnal
+         simulation method.
 
-    #TODO: add 'exp_sim_2_params' if 2 sim methods are used
+    Returns:
+
+        dict: all the determined parameters
+
+    !!! TODO
+
+        Add `'exp_sim_2_params'` if 2 sim methods are used
     """
     xanes_params = i_dict[exp_sim_params_id]
     xanes_params['main_path'] = i_dict['main_path']
@@ -482,15 +510,21 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
     other defualts (if not user-provided) to be used by mating class. Throws
     error when mandatory parameters are not provided by the user.
 
-    Args:
+    Arguments:
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
 
-    exp_sim_params_id - (str) 'exp_sim_1_params' if only one experimetnal
-    simulation method.
+        exp_sim_params_id (str): `'exp_sim_1_params'` if only one experimetnal
+         simulation method.
 
-    #TODO: add 'exp_sim_2_params' if 2 sim methods are used
+    Returns:
+
+        dict: all the determined parameters
+
+    !!! TODO
+
+        Add `'exp_sim_2_params'` if 2 sim methods are used
     """
     gb_ingrained_params = i_dict[exp_sim_params_id]
     gb_ingrained_params['main_path'] = i_dict['main_path']
@@ -512,13 +546,17 @@ def get_mating_params(i_dict, str_constraints):
     Function to conveniently combine different parameters provided by user and
     other defualts (if not user-provided) to be used by mating class.
 
-    Args:
+    Arguments:
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
 
-    str_constraints - (dict) dictionary of all the constraints for making
-    random models
+        str_constraints (dict): dictionary of all the constraints for making
+         random models
+
+    Returns:
+
+        dict: all the determined parameters
     """
     # NOTE: There aren't any mandatory params for mating.
     # If there are not any in input_file.yaml, assume all defaults and proceed
@@ -553,15 +591,19 @@ def get_mating_params(i_dict, str_constraints):
 
 def get_evolve_params(i_dict, str_constraints):
     """
-    Returns parameters to be used for the 'evolve' class
+    Determines parameters to be used for the `'evolve'` class
 
     Args:
 
-    i_dict - (dict) dictionary of all the user-provided input parameters read
-    from yaml file
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
 
-    str_constraints - (dict) dictionary of all the constraints for making
-    random models
+        str_constraints (dict): dictionary of all the constraints for making
+         random models
+
+    Returns:
+
+        dict: all the determined parameters
     """
     evolve_params = {}
     evolve_params['num_species'] = str_constraints['num_species']

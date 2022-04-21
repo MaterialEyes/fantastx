@@ -28,12 +28,15 @@ class lammps_code(object):
         """
         energy_params: dictionary of all the parameters
 
-            Eg: {'main_path': <path to directory in which fantastx is ran>,
-                 'shape': 'gb',
-                 'energy_files_path': <path_to_input_files>,
-                 'energy_exec_cmd': 'lmp_mpi -in in.min',
-                 'sym_mu_dict': {'Al': -3.35958515625, 'O': -6.76069604253},
-                 'atom_style': 'charge'}
+        Eg: 
+        ```python
+        {'main_path': <path to directory in which fantastx is ran>,
+        'shape': 'gb',
+        'energy_files_path': <path_to_input_files>,
+        'energy_exec_cmd': 'lmp_mpi -in in.min',
+        'sym_mu_dict': {'Al': -3.35958515625, 'O': -6.76069604253},
+        'atom_style': 'charge'}
+        ```
         """
         self.main_path = energy_params['main_path']
         self.shape = energy_params['shape']
@@ -66,20 +69,19 @@ class lammps_code(object):
 
     def prep_job_folder(self, model, reg_id):
         """
-        Function to
-        - check the provided input files (if any)
-        - copy the input files to the model calc directory (relax_path)
+        Function to:
 
-        The input files for lammps: in.min and potential file
+        - Check the provided input files (if any)
+        - Copy the input files to the model calc directory (relax_path)
+            - The input files for lammps: **in.min** and **potential** file
 
-        Does not return anything
+        Arguments:
 
-        Args:
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
 
-        model (obj): structure_record.model() object for which energy
-                     evaluation will be done
-
-        reg_id (obj): structure_record.register_id() object for bookkeeping
+            reg_id (obj): `structure_record.register_id()` object for
+             bookkeeping
         """
         main_path = self.main_path
         # create folders for model and relaxation
@@ -139,13 +141,13 @@ class lammps_code(object):
         Starts the lammps relaxation in the calcs/<model label> path. Assigns
         the evaluated total energy and obj0_val to model attributes.
 
-        Does not return anything
+        Arguments:
 
-        args:
-        model (obj): structure_record.model() object for which energy
-                         evaluation will be done
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
 
-        reg_id (obj): structure_record.register_id() object for bookkeeping
+            reg_id (obj): `structure_record.register_id()` object for
+             bookkeeping
         """
         print(f"Prepping the job folder of model {model.label}.")
         # prepare the folder to start energy calc
@@ -233,16 +235,19 @@ class lammps_code(object):
         (written by Benjamin Revard)
 
         Parses the relaxed cell from the rlx.str file.
-        Returns the relaxed cell as a pymatgen structure object.
 
-        Args:
+        Arguments:
 
-        rlx_astr (str): the path (as a string) to the rlx.str file
+            rlx_astr (str): the path (as a string) to the rlx.str file
 
-        data_in_path (str): the path (as a string) to the in.data file
+            data_in_path (str): the path (as a string) to the in.data file
 
-        element_symbols (tuple): a tuple containing the set of chemical symbols
-        of all the elements in the compositions space
+            element_symbols (tuple): a tuple containing the set of chemical
+             symbols of all the elements in the compositions space
+
+        Returns:
+
+            Structure: relaxed cell as a pymatgen `Structure` object
         """
 
         # read the dump.atom file as a list of strings
@@ -333,11 +338,9 @@ class lammps_code(object):
         For a given structure object, move all sites within the unit cell.
         Eg: [-0.1, 0.4, 1.2] --> [0.9, 0.4, 0.2]
 
-        Does not return anything
+        Arguments:
 
-        Args:
-
-        astr (obj): pymatgen Structure object
+            astr (obj): pymatgen `Structure` object
         """
         species = astr.species
         fc = astr.frac_coords
@@ -408,14 +411,18 @@ class vasp_code(object):
 
     def __init__(self, energy_params):
         """
-        energy_params: dictionary of all the parameters
+        Takes as input `energy_params`, the `dictionary` of all the
+        parameters, taken from the input yaml file.
 
-            Eg: {'main_path': <path to direcctory in which fantastx is ran>,
-                 'shape': 'gb',
-                 'energy_files_path': <path_to_input_files>,
-                 'energy_exec_cmd': 'srun <path_to_vasp_binary>',
-                 'sym_mu_dict': {'Al': -3.35958515625, 'O': -6.76069604253},
-                 'atom_style': 'charge'}
+        Eg: 
+        ```python
+        {'main_path': <path to direcctory in which fantastx is ran>,
+        'shape': 'gb',
+        'energy_files_path': <path_to_input_files>,
+        'energy_exec_cmd': 'srun <path_to_vasp_binary>',
+        'sym_mu_dict': {'Al': -3.35958515625, 'O': -6.76069604253},
+        'atom_style': 'charge'}
+        ```
         """
         self.main_path = energy_params['main_path']
         self.shape = energy_params['shape']
@@ -467,20 +474,18 @@ class vasp_code(object):
 
     def prep_job_folder(self, model, reg_id):
         """
-        Function to
+        Function to:
+
         - check the provided input files (if any)
         - copy the input files to the model calc directory (relax_path)
+            - The input files for vasp: INCAR, KPOINTS, POTCAR & POSCAR from model
 
-        The input files for vasp: INCAR, KPOINTS, POTCAR & POSCAR from model
+        Arguments:
 
-        Does not return anything
+            model (obj): structure_record.model() object for which energy
+             evaluation will be done
 
-        Args:
-
-        model (obj): structure_record.model() object for which energy
-        evaluation will be done
-
-        reg_id (obj): structure_record.register_id() object for bookkeeping
+            reg_id (obj): structure_record.register_id() object for bookkeeping
         """
         main_path = self.main_path
         # create folders for model and relaxation
@@ -555,12 +560,12 @@ class vasp_code(object):
 
         Does not return anything
 
-        args:
+        Arguments:
 
-        model (obj): structure_record.model() object for which energy
-                         evaluation will be done
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
 
-        reg_id (obj): structure_record.register_id() object for bookkeeping
+            reg_id (obj): `structure_record.register_id()` object for bookkeeping
         """
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
@@ -569,10 +574,9 @@ class vasp_code(object):
 
     def re_relax(self, model):
         """
-        Deprecated
-
-        checks if converged, resubmits if resubmit > 0
-        save output files fo previous run with _resubmited_number
+        !!! Deprecated
+            Checks if converged, resubmits if resubmit > 0
+            save output files fo previous run with _resubmited_number
         """
         if not model.converged and self.resubmit != 0:
             relax_path = self.main_path + '/calcs/' + \
@@ -592,10 +596,10 @@ class vasp_code(object):
         and resubmits if necessary. Saves energy and objective function
         value to model object.
 
-        Args:
+        Arguments:
 
-        model (obj): structure_record.model() object for which energy
-        evaluation will be done
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
         """
         vasp_exec = self.energy_exec_cmd.split()
         log_file = open(model.relax_path + '/job.log', 'w')
@@ -668,11 +672,9 @@ class vasp_code(object):
         For a given structure object, move all sites within the unit cell.
         Eg: [-0.1, 0.4, 1.2] --> [0.9, 0.4, 0.2]
 
-        Does not return anything
+        Arguments:
 
-        Args:
-
-        astr (obj): pymatgen Structure object
+            astr (obj): pymatgen `Structure` object
         """
         species = astr.species
         fc = astr.frac_coords
@@ -691,12 +693,13 @@ class vasp_code(object):
         [T,T,T] and others would have [F,F,F]. Then writes the POSCAR file in
         relax_path.
 
-        Args:
+        Arguments:
 
-        model (obj): structure_record.model() object for which energy
-        evaluation will be done
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
 
-        file_name (str): the file name of the structure to be written as POSCAR
+            file_name (str): the file name of the structure to be written as
+             POSCAR
         """
         frac_zmin, frac_zmax = self.hollow_botz, self.hollow_topz
         frac_zs = model.astr.frac_coords[:, 2]
@@ -713,25 +716,26 @@ class vasp_code(object):
     def write_surface_poscar(self, model, file_name, sd_cut_off=None,
                              sd_no_z=False):
         """
-        For a newly created model in 'surface' geometry, set sd_flags
+        For a newly created model in `'surface'` geometry, set `sd_flags`
         to each site according to its z-coordinate. Assigns [T, T, T]
-        to atoms above sd_cut_ff if provided, else uses the substrate
-        thickness as sd_cut_off. Sets [T, T, F] for atoms if sd_no_z
-        is True.
+        to atoms above `sd_cut_ff` if provided, else uses the substrate
+        thickness as `sd_cut_off`. Sets [T, T, F] for atoms if `sd_no_z`
+        is `True`.
 
-        Args:
+        Arguments:
 
-        model (obj): structure_record.model() object for which energy
-        evaluation will be done
+            model (obj): structure_record.model() object for which energy
+             evaluation will be done
 
-        file_name (str): the file name of the structure to be written
-        as POSCAR
+            file_name (str): the file name of the structure to be written
+             as POSCAR
 
-        sd_cut_off (float): the cut off distance from bottom of the slab.
-        The atoms below it will be frozen. Default is substrate thickness.
+            sd_cut_off (float): the cut off distance from bottom of the slab.
+             The atoms below it will be frozen. Default is substrate
+             thickness.
 
-        sd_no_z (bool): set to True to allow the atoms to relax
-        in z-direction
+            sd_no_z (bool): set to True to allow the atoms to relax
+             in z-direction
         """
         if not sd_cut_off:  # automatically freeze substrate
             sd_cut_off = self.substrate_thickness

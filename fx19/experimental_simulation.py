@@ -40,9 +40,24 @@ import re
 
 class xanes_of_model(object):
     """
-    This class contains functions to calculate the XANES, compare it against
-    the previously computed [Fe(CN)6]-4 spectra, and compare the difference
-    spectra against the experimental difference spectra.
+    This class contains functions to calculate XANES spectra, either the
+    raw spectra or the difference spectra (essential for XTA analysis, and
+    useful for raw XANES analysis as well). 
+
+    Three different XANES simulation codes are currently supported:
+
+    - FDMNES
+
+    - FEFF
+
+    - VASP
+
+    This class also performs post-simulation smoothing and convolution.
+    Smoothing is performed with either a cubic or univariate spline, and
+    convolution can be performed with either a Gaussian or Lorentzian. For
+    the Gaussian, the FWHM must be provided in units of eV. For the
+    Lorentzian, the width is energy dependent, and more parameters must be
+    provided. For a reference, refer to [this](../xanes) page.
 
     Arguments:
 
@@ -163,7 +178,7 @@ class xanes_of_model(object):
 
         Returns:
 
-            (float): the gaussian sigma
+            float: the gaussian sigma
         '''
         return fwhm / np.sqrt(8 * np.log(2))
 
@@ -193,7 +208,7 @@ class xanes_of_model(object):
 
         Returns:
 
-            (float): the energy dependent broadening parameter
+            float: the energy dependent broadening parameter
         '''
         eps = (E - E_f)/E_cent
         return g_ch + g_m*(0.5 +
@@ -206,10 +221,15 @@ class xanes_of_model(object):
         maximum intensity point where the first derivative is zero. The
         spectra is first fitted with a spline, so as to correspond with
         the final mesh which will be used.
+
         The first derivative is then calculated numerically as:
-        f'(x) = f(x+h) - f(x-h)/(2*h)
+
+        $f'(x) = f(x+h) - \dfrac{f(x-h)}{2*h}$
+
         The second derivative is then calculated numerically as:
-        f''(x) = (f(x+h) - 2*f(x) + f(x-h))/(h**2)
+
+        $f''(x) = \dfrac{f(x+h) - 2*f(x) + f(x-h)}{h^2}$
+
         The zero-crossing of the first derivative is then estimated
         by approximating the second-derivative as constant in this
         narrow mesh interval.
@@ -222,7 +242,7 @@ class xanes_of_model(object):
 
         Returns:
 
-            (float): the estimated x-coordinate of the peak
+            float: the estimated x-coordinate of the peak
         '''
         spline_y = self.fit_spline(x_array, y_array, "cubic")
         max_indice = np.argmax(spline_y)
@@ -314,7 +334,7 @@ class xanes_of_model(object):
 
         Returns:
 
-            (array): the convolved absorption profile
+            array: the convolved absorption profile
         '''
         n_points = len(y_array)
         finite_kernel, kernel_n_below_0 = self.create_gaussian_kernel(fwhm)
@@ -346,7 +366,7 @@ class xanes_of_model(object):
 
         Returns:
 
-            (array): the convolved absorption profile
+            array: the convolved absorption profile
         '''
         n_points = len(y_array)
         finite_kernel, kernel_n_below_0 = self.create_lorentzian_kernel(
@@ -373,7 +393,7 @@ class xanes_of_model(object):
 
         Returns:
 
-            (array): the spline points on self.spline_mesh
+            array: the spline points on self.spline_mesh
         '''
         if type not in ["cubic", "univariate"]:
             print("Error. Tried to fit spline with a keyword that was"
@@ -807,10 +827,10 @@ class pdf_of_model(object):
     This class contains functions to calculate the PDF and fit it to the
     experimental pdf. Uses the residual to calculate objective function.
 
-    Args:
+    Arguments:
 
-    pdf_params (dict): A dictionary of parameters used for fitting PDF using
-    Diffpy.
+        pdf_params (dict): A dictionary of parameters used for fitting PDF
+         using **Diffpy**.
     """
 
     def __init__(self, pdf_params):
@@ -896,10 +916,10 @@ class pdf_of_model(object):
         """
         Writes temp.cif file in the pdf simulation directory from model.astr
 
-        Args:
+        Arguments:
 
-        model (obj): structure_record.model() object for which PDF simulation
-        will be done
+            model (obj): structure_record.model() object for which the PDF
+            simulation will be done
         """
         # use the relaxed structure from energy calculation
         astr = model.astr
@@ -938,13 +958,19 @@ class pdf_of_model(object):
         object should contain a structure that is optimized previously using
         fit_coords_recipe()
 
-        (NOTE: made PDF and Fit two separate functions for convenience)
+        !!! note
 
-        Returns fitted_params after PDF fit and the residual
+            Made PDF and Fit two separate functions for convenience
 
         Args:
 
-        PDF (PDFContribution) - PDF object from get_PDF_obj
+            PDF (PDFContribution) - PDF object from get_PDF_obj
+
+        Returns:
+
+            tuple:
+            - fitted_params after PDF fit
+            - residual
         """
         symbols = self.symbols
         Fit = FitRecipe()
@@ -1048,9 +1074,9 @@ class pdf_of_model(object):
 
         Returns nothing. (Writes temp_opt.cif to the pdf_sim_dir)
 
-        Args:
+        Arguments:
 
-        PDF (PDFContribution) - PDF object from get_PDF_obj
+            PDF (PDFContribution) - PDF object from get_PDF_obj
         """
         symbols = self.symbols
         Fit = FitRecipe()
@@ -1137,12 +1163,16 @@ class pdf_of_model(object):
         Residual as the objective function value for pdf. Objective function
         value is added to model attributes obj1_val.
 
-        Returns model, fitted_params
+        Arguments:
 
-        Args:
+            model (obj): structure_record.model() object for which energy
+             evaluation will be done
 
-        model (obj): structure_record.model() object for which energy
-                     evaluation will be done
+        Returns:
+
+            tuple:
+            - model
+            - fitted_params after PDF fit
         """
         main_path = self.main_path
         pdf_sim = main_path + '/calcs/' + str(model.label) + '/pdf_sim'
@@ -1276,12 +1306,16 @@ class gb_ingrained(object):
         This function is a part of the API for all classes in
         experimental_simulation module.
 
-        Returns model object
+        Arguments:
 
-        Args:
+            model (obj): structure_record.model() object for which TEM
+             simulation is obtained and a mismatch score is assigned
 
-        model (obj): structure_record.model() object for which TEM simulation
-                     is obtained and a mismatch score is assigned
+        Returns:
+
+            (structure_record.model(), float):
+            - The model object being evaluated
+            - the SSIM score which is the objective
         """
         relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
         # Initialize a Bicrystal object from relaxed structure
@@ -1321,9 +1355,15 @@ class gb_ingrained(object):
 
         Returns the SSIM score.
 
-        Args:
+        Arguments:
 
-        model_one and model_two (model objs): models which are being compared.
+            model_one (structure_record.model()): first model being compared
+
+            model_two (structure_record.model()): second model being compared
+
+        Returns:
+
+            float: the SSIM score which is the objective
         '''
         relax_path_one = self.main_path + '/calcs/' + \
             str(model_one.label) + '/relax'
@@ -1352,21 +1392,22 @@ class gb_ingrained(object):
 
     def crop_dims(self, img, ref):
         """
-        This function is used to adjust the 'shape' of the simulated image or
+        This function is used to adjust the `shape` of the simulated image or
         the target image to have them both equal. The dimensions in x, y are
         altered such that minimum number of pixels are lost overall.
 
-        NOTE: Since, the lattice in POSCAR is maintained same across all models
-        (ISIF=2), the simulated image should be same (or only different by
-        couple of pixels in each dimension)
+        !!! note
+            Since, the lattice in POSCAR is maintained same across all models
+            (ISIF=2), the simulated image should be same (or only different by
+            couple of pixels in each dimension)
 
         Returns the simulated image and target image with equal dimensions
 
-        Args:
+        Arguments:
 
-        img (2D arr): the simulated TEM image
+            img (2D arr): the simulated TEM image
 
-        ref (2D arr): the target experimental TEM image
+            ref (2D arr): the target experimental TEM image
         """
         diff_pix_x = img.shape[0] - ref.shape[0]
         diff_pix_y = img.shape[1] - ref.shape[1]
