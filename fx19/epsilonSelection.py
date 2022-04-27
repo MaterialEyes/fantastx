@@ -35,499 +35,7 @@ import itertools
 from sklearn.preprocessing import MinMaxScaler
 from scipy.optimize import minimize
 from fx19.fingerprinting import Comparator
-
-
-class ParetoDominance(object):
-    '''
-    Class which performs non-dominance calculations. Non-dominance is
-    determined simply based on the relation between objective function
-    values of two models. If all objective function values for model A
-    are better (lower) than those of model B, then model A dominates
-    model B. If at least one (but not all) model B objective function
-    value is better than that of model A, then the models are
-    non-dominated.
-    '''
-
-    def get_nondominated_solutions(self, population):
-        """
-        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
-        peter/artemis/general/pareto_efficiency.py)
-
-        Determines all non-dominated solutions (the Pareto front) from
-        a set of models.
-
-        Arguments:
-
-            population (obj): the population from which the
-             non-dominated solutions are being obtained.
-
-        Returns:
-
-            list: all non-dominated models
-        """
-        is_efficient = np.ones(population.size, dtype=bool)
-        # Iterate once through the population to assemble
-        # the array of objective values
-        objectives = []
-        for model in population.models:
-            # TODO: make flexible with number of objectives
-            objectives.append([model.obj0_val, model.obj1_val])
-
-        obj_array = np.array(objectives)
-
-        for index, objs in enumerate(obj_array):
-            if is_efficient[index]:
-                # Keep any point with a lower cost
-                is_efficient[is_efficient] = np.any(
-                    obj_array[is_efficient] < objs, axis=1)
-                is_efficient[index] = True  # And keep self
-
-        return list(itertools.compress(population.models, is_efficient))
-
-    def alt_nondominance(self, population):
-        """
-        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
-        peter/artemis/general/pareto_efficiency.py)
-
-        An alternative non-dominance calculator which uses the self
-        calculated comparison flags between models to determine
-        non-dominance.
-
-        Arguments:
-
-            population (obj): the population from which the
-             non-dominated solutions are being obtained.
-
-        Returns:
-
-            list: all non-dominated models
-        """
-        is_efficient = np.ones(population.size, dtype=bool)
-        for index, model in enumerate(population.models):
-            if is_efficient[index]:
-                flags = [
-                    self.compare(m, model) for m in list(itertools.compress(
-                        population.models, is_efficient))]
-                # keep any point which either dominated the model
-                # or was non-dominated
-                equal_or_better = [x < 0 or x == 0 for x in flags]
-                is_efficient[is_efficient] = equal_or_better
-                is_efficient[index] = True  # and keep self
-
-        return list(itertools.compress(population.models, is_efficient))
-
-    def compare(self, test_model, ref_model):
-        '''
-        Function which performs comparison between models. It returns:
-
-        - -1 if test_model dominates the ref_model
-        - 0 if both non-dominated
-        - +1 if test_model dominated by the ref_model
-
-        Arguments:
-
-            test_model (obj): `structure_record.model()` A for the comparison
-
-            ref_model (obj): `structure_record.model()` B for the comparison
-        '''
-
-        dominate_test = False
-        dominate_ref = False
-
-        # TODO: make flexible with number of objectives
-        for n in range(2):
-
-            if n == 0:
-                test_obj = test_model.obj0_val
-                ref_obj = ref_model.obj0_val
-            elif n == 1:
-                test_obj = test_model.obj1_val
-                ref_obj = ref_model.obj1_val
-
-            if test_obj < ref_obj:
-                dominate_test = True
-                # Check for non-domination
-                if dominate_ref:
-                    return 0
-
-            elif test_obj > ref_obj:
-                dominate_ref = True
-                # Check for non-domination
-                if dominate_test:
-                    return 0
-
-        # Otherwise one dominates the other, return the appropriate value
-        if dominate_test:
-            return -1
-        else:
-            return 1
-
-    def choose_non_dominated(self, model1, model2):
-        '''
-        Function which compares two models and returns the model
-        which dominates the other. If the two models are
-        non-dominated, returns one at random.
-
-        Arguments:
-
-            model1 (obj): `structure_record.model()` A for the comparison
-
-            model2 (obj): `structure_record.model()` B for the comparison
-        '''
-        dominate1 = False
-        dominate2 = False
-
-        # TODO: make flexible with number of objectives
-        for n in range(2):
-
-            if n == 0:
-                model1_obj = model1.obj0_val
-                model2_obj = model2.obj0_val
-            elif n == 1:
-                model1_obj = model1.obj1_val
-                model2_obj = model2.obj1_val
-
-            if model1_obj < model2_obj:
-                dominate1 = True
-                # Check for non-domination
-                if dominate2:
-                    model_num = np.random.randint(1, 3)
-                    if model_num == 1:
-                        return model1
-                    elif model_num == 2:
-                        return model2
-
-            elif model1_obj > model2_obj:
-                dominate2 = True
-                # Check for non-domination
-                if dominate1:
-                    model_num = np.random.randint(1, 3)
-                    if model_num == 1:
-                        return model1
-                    elif model_num == 2:
-                        return model2
-
-        # Otherwise one dominates the other, return the appropriate value
-        if dominate1:
-            return model1
-        else:
-            return model2
-
-
-class EpsilonDominance(object):
-    '''
-    Class which performs non-dominance calculations. Compared to
-    `ParetoDominance`, here non-dominance is determined based on an
-    additional factor. Rather than a normal non-dominance check,
-    non-dominance here is calculated based on an $\epsilon$ grid
-    which discretizes the objective function space. If two models
-    occupy the same grid square (with side lengths of $\epsilon_a$
-    and $\epsilon_b$), then the model which is closest to the corner
-    of the square is considered to dominate the other model.
-    '''
-
-    def __init__(self, epsilons=None):
-        '''
-        Arguments:
-
-            epsilons (list of floats): the grid size of the multiobjective
-             space. Should be the same length as the number of objectives,
-             and should be in the same order as the objectives are assigned
-             to the models. E.g. if you have two objectives, should be:
-             $[\epsilon_1$, $\epsilon_2$]
-        '''
-        # Assign default epsilons if none are provided
-        if epsilons is None:
-            self.epsilons = [.1, .1]
-        else:
-            self.epsilons = epsilons
-
-    def get_nondominated_solutions(self, population):
-        """
-        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
-        peter/artemis/general/pareto_efficiency.py)
-
-        Determines the list of non-dominated models, based on comparison
-        function flags.
-
-        Arguments:
-
-            population (obj): the population from which the
-             non-dominated solutions are being obtained.
-
-        Returns:
-
-            list: all non-dominated models
-        """
-        is_efficient = np.ones(population.size, dtype=bool)
-        for index, model in enumerate(population.models):
-            if is_efficient[index]:
-                flags = [
-                    self.compare(m, model) for m in list(itertools.compress(
-                        population.models, is_efficient))]
-                # keep any point which either dominated the model
-                # or was non-dominated
-                equal_or_better = [x < 0 or x == 0 for x in flags]
-                is_efficient[is_efficient] = equal_or_better
-                is_efficient[index] = True  # and keep self
-
-        return list(itertools.compress(population.models, is_efficient))
-
-    def compare(self, test_model, ref_model):
-        '''
-        Function which performs comparison between models. It returns:
-
-        - -1 if test_model dominates the ref_model
-        - 0 if both non-dominated
-        - +1 if test_model dominated by the ref_model
-
-        Arguments:
-
-            test_model (obj): `structure_record.model()` A for the comparison
-
-            ref_model (obj): `structure_record.model()` B for the comparison
-        '''
-
-        dominate_test = False
-        dominate_ref = False
-
-        # TODO: make flexible with number of objectives
-
-        for n in range(2):
-            epsilon = float(self.epsilons[n % len(self.epsilons)])
-
-            if n == 0:
-                test_val = math.floor(test_model.obj0_val / epsilon)
-                ref_val = math.floor(ref_model.obj0_val / epsilon)
-            elif n == 1:
-                test_val = math.floor(test_model.obj1_val / epsilon)
-                ref_val = math.floor(ref_model.obj1_val / epsilon)
-
-            if test_val < ref_val:
-                dominate_test = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_ref:
-                    return 0
-
-            elif test_val > ref_val:
-                dominate_ref = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_test:
-                    return 0
-
-        # If neither one is better than the other at all,
-        # they are in the same box
-        if not dominate_ref and not dominate_test:
-            # Check for distance to box corner
-            d_test = 0.0
-            d_ref = 0.0
-
-            # TODO: make flexible with number of objectives
-            for n in range(2):
-                epsilon = float(self.epsilons[n % len(self.epsilons)])
-                if n == 0:
-                    test_obj = test_model.obj0_val
-                    ref_obj = ref_model.obj0_val
-                elif n == 1:
-                    test_obj = test_model.obj1_val
-                    ref_obj = ref_model.obj1_val
-
-                test_eps_val = math.floor(test_obj / epsilon)
-                ref_eps_val = math.floor(ref_obj / epsilon)
-
-                d_test += (test_obj - test_eps_val*epsilon)**2
-                d_ref += (ref_obj - ref_eps_val*epsilon)**2
-
-            if d_test < d_ref:
-                return -1
-            else:
-                return 1
-
-        # Otherwise one dominates the other, return the appropriate value
-        elif dominate_test:
-            return -1
-        else:
-            return 1
-
-
-class StructuralEpsilonDominance(object):
-    '''
-    Class which performs non-dominance calculations. Compared to
-    `ParetoDominance`, here non-dominance is determined based on two
-    additional factors. First, non-dominance is calculated based on
-    a grid which discretizes the objective function space. If two
-    models occupy the same grid square (with side lengths of
-    $\epsilon_a$ and $\epsilon_b$), then the model which is closest to the
-    corner of the square is considered to dominate the other model.
-    HOWEVER, if the two models are structurally similar, then a flag
-    is thrown. This has the advantage of only performing structural
-    similarity checks for models which lie within the same grid box,
-    which may save large amounts of computational expense depending
-    on which fingerprinting method is used.
-    '''
-
-    def __init__(self, comparator=Comparator(), epsilons=None):
-        '''
-        Arguments:
-
-            comparator (obj): instance of the Comparator class
-             which will perform all structural similarity checks
-
-            epsilons (list of floats): the grid size of the multiobjective
-             space. Should be the same length as the number of objectives,
-             and should be in the same order as the objectives are assigned
-             to the models. E.g. if two objectives, would be:
-             [$\epsilon_1$, $\epsilon_2$]
-        '''
-        # Assign default epsilons if none are provided
-        if epsilons is None:
-            self.epsilons = [.1, .1]
-        else:
-            self.epsilons = epsilons
-
-        # store comparator object
-        self.comparator = comparator
-
-    def get_nondominated_solutions(self, population):
-        """
-        Inspired by this [page](https://github.com/QUVA-Lab/artemis/blob/
-        peter/artemis/general/pareto_efficiency.py)
-
-        Determines the list of non-dominated models, based on comparison
-        function flags.
-
-        Arguments:
-
-            population (obj): the population from which the
-             non-dominated solutions are being obtained.
-
-        Returns:
-
-            list: all non-dominated models
-        """
-        is_efficient = np.ones(population.size, dtype=bool)
-        for index, model in enumerate(population.models):
-            if is_efficient[index]:
-                flags = [
-                    self.compare(m, model) for m in list(itertools.compress(
-                        population.models, is_efficient))]
-                # keep any point which either dominated the model
-                # or was non-dominated
-                equal_or_better = [x < 0 or x == 0 for x in flags]
-                is_efficient[is_efficient] = equal_or_better
-                is_efficient[index] = True  # and keep self
-
-        return list(itertools.compress(population.models, is_efficient))
-
-    def compare(self, test_model, ref_model):
-        '''
-        Function which performs comparison between models. It returns:
-
-        - -1 if test_model dominates the ref_model
-        - 0 if both non-dominated
-        - +1 if test_model dominated by the ref_model
-
-        If the models are similar, then standard epsilon
-        non-domination is used. If the models are exactly the
-        same, then only the model already in the population
-        is kept (the `ref_model`). Otherwise, models within the
-        same epsilon box are considered to be non-dominated
-        with respect to each other.
-
-        Arguments:
-
-            test_model (obj): `structure_record.model()` A for the comparison
-
-            ref_model (obj): `structure_record.model()` B for the comparison
-        '''
-
-        dominate_test = False
-        dominate_ref = False
-
-        # TODO: make flexible with number of objectives
-
-        for n in range(2):
-            epsilon = float(self.epsilons[n % len(self.epsilons)])
-
-            if n == 0:
-                test_val = math.floor(test_model.obj0_val / epsilon)
-                ref_val = math.floor(ref_model.obj0_val / epsilon)
-            elif n == 1:
-                test_val = math.floor(test_model.obj1_val / epsilon)
-                ref_val = math.floor(ref_model.obj1_val / epsilon)
-
-            if test_val < ref_val:
-                dominate_test = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_ref:
-                    return 0
-
-            elif test_val > ref_val:
-                dominate_ref = True
-                # Check for non-domination (but not same epsilon box)
-                if dominate_test:
-                    return 0
-
-        # If neither one is better than the other at all,
-        # they are in the same box
-        if not dominate_ref and not dominate_test:
-            # Check for structural similarity.
-            # Note: if the model was exactly the same
-            # as a population member, it was already ruled out.
-            # If models fall within similarity tolerance, then keep model
-            # which is closest to the corner of the epsilon box
-            # Otherwise, keep both models
-            similarity = self.comparator.assess_models_similarity(
-                test_model, ref_model)
-            if similarity > 0:
-                print(
-                    f"Models {test_model.label} and {ref_model.label} are \
-                        similar within tolerance. Checking proximity to \
-                            epsilon box corner.")
-                d_test = 0.0
-                d_ref = 0.0
-
-                # TODO: make flexible with number of objectives
-                for n in range(2):
-                    epsilon = float(self.epsilons[n % len(self.epsilons)])
-                    if n == 0:
-                        test_obj = test_model.obj0_val
-                        ref_obj = ref_model.obj0_val
-                    elif n == 1:
-                        test_obj = test_model.obj1_val
-                        ref_obj = ref_model.obj1_val
-
-                    print(
-                        f"Non-floored objective values are: {test_obj} \
-                            and {ref_obj}")
-
-                    test_eps_val = math.floor(test_obj / epsilon)
-                    ref_eps_val = math.floor(ref_obj / epsilon)
-
-                    print(
-                        f"Floored objective values are : {test_eps_val} \
-                            and {ref_eps_val}.")
-
-                    d_test += (test_obj / epsilon - test_eps_val)**2
-                    d_ref += (ref_obj / epsilon - ref_eps_val)**2
-
-                    print(f"Distances are: {d_test} and {d_ref}")
-
-                if d_test < d_ref or np.isclose(d_test, d_ref, atol=1e-5):
-                    return -1
-                else:
-                    return 1
-            elif similarity == 0:
-                # models are identical, only keep the old model
-                return 1
-            else:
-                return 0
-
-        # Otherwise one dominates the other, return the appropriate value
-        elif dominate_test:
-            return -1
-        else:
-            return 1
+from fx19.dominance import ParetoDominance, EpsilonDominance
 
 
 class Pool(object):
@@ -535,9 +43,13 @@ class Pool(object):
     A pool of structures which are used for genetic crossing.
 
     Maintain two lists:
+
     `Population`
+
      - Diverse selection of models
+
     `Archive` 
+
      - Non-dominated models contained within the population.
      - Separated on the Pareto front by $\epsilon$ boxes
 
@@ -614,12 +126,12 @@ class Pool(object):
                 self.epsilons))
         else:
             self.population = Population(
-                self.capacity, ParetoDominance(), self.weights,
-                self.comparator, self.cluster_obj
+                self.capacity, ParetoDominance(),
+                self.weights, self.cluster_obj
             )
             self.archive = Archive(
-                StructuralEpsilonDominance(
-                    self.comparator, self.epsilons)
+                EpsilonDominance(
+                    self.epsilons, self.comparator)
             )
 
     def add_to_pool(self, model, select, sim_ids=None):
@@ -1239,7 +751,7 @@ class Population(object):
     """
 
     def __init__(self, capacity, dominance=ParetoDominance(),
-                 weights=[1, 1, 1, 1, 1], comparator=None, cluster_obj=None):
+                 weights=[1, 1, 1, 1, 1], cluster_obj=None):
         """
         Arguments:
 
@@ -1275,7 +787,6 @@ class Population(object):
 
         # "Good pool" for linear portion of multi-objective search
         self.good_pool = []
-        self.comparator = comparator
 
         # cluster_obj for clustering models
         self.cluster_obj = cluster_obj
@@ -1580,10 +1091,7 @@ class Archive(object):
     while the population contains the entire set of breeding models.
     """
 
-    def __init__(self, dominance=StructuralEpsilonDominance(
-        comparator=Comparator(),
-        epsilons=[1, 1]
-    )):
+    def __init__(self, dominance=EpsilonDominance(epsilons=[1, 1])):
         """
         Arguments:
 
@@ -1613,7 +1121,8 @@ class Archive(object):
             population (obj): the `Population` from which the
              non-dominated models will be obtained.
         '''
-        self.models = self._dominance.get_nondominated_solutions(population)
+        self.models, _ = self._dominance.get_nondominated_solutions(
+            population.models)
         self.size = len(self.models)
         self.operator_inheritance = [model.made_by for model in self.models]
 

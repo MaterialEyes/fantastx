@@ -1,6 +1,8 @@
 
 from __future__ import division, unicode_literals, print_function
 
+from sympy import N
+
 from fx19 import distance_check as dc
 from scipy import optimize as scipy_optimize
 from pymatgen.core.structure import Structure
@@ -136,8 +138,9 @@ class xanes_of_model(object):
             self.convolution_type = 'lorentzian'
             self.convolution_params = [1.33, 15., 23.5, 23.5, -8]
             self.extract_cutting_energy = True
-        self.cutting_energy_correction = -11.
+        self.cutting_energy_correction = -6.
         self.refine_alignment_using_difference_spectra = False
+        self.comparison_window = [7110., 7147.]
 
         # Gather experimental data
         self.exp_base_arrays, self.exp_base_maxes =\
@@ -486,15 +489,22 @@ class xanes_of_model(object):
         if self.convolution_type == "lorentzian":
             if self.extract_cutting_energy:
                 # Grab the fermi level to cut with
-                pattern = re.compile("Cycle  19")
-                bav_file = file_path[:-9] + "bav.txt"
-                lines = open(bav_file, "r").read().splitlines()
-                for line in lines:
-                    match = re.search(pattern, line)
-                    if match is not None:
-                        fermi_energy = float(line.split()[5])
-                        fermi_energy += self.cutting_energy_correction
-                        self.convolution_params[4] = fermi_energy
+                match = None
+                cycle_index = 19
+                while match is None:
+                    pattern = re.compile(f"Cycle  {cycle_index}")
+                    bav_file = file_path[:-9] + "bav.txt"
+                    lines = open(bav_file, "r").read().splitlines()
+                    for line in lines:
+                        match = re.search(pattern, line)
+                        if match is not None:
+                            fermi_energy = float(line.split()[5])
+                            fermi_energy += self.cutting_energy_correction
+                            self.convolution_params[4] = fermi_energy
+                            break
+                    cycle_index -= 1
+                    if cycle_index == 10:
+                        fermi_energy = self.cutting_energy_correction
                         break
             smoothed_y = self.convolve_with_lorentzian(
                 y_array, *self.convolution_params)
@@ -754,8 +764,8 @@ class xanes_of_model(object):
 
         print("Read in calculated spectra.")
 
-        compare_indices = (self.spline_mesh <= 7135) & (
-            self.spline_mesh >= 7110)
+        compare_indices = (self.spline_mesh <= self.comparison_window[1]) & (
+            self.spline_mesh >= self.comparison_window[0])
         lowest_spectra_distance = np.inf
         lowest_spline = None
         if self.comparison_spectra_type == "difference":
@@ -806,6 +816,23 @@ class xanes_of_model(object):
         # print(lowest_spline)
         print(f"RMS score: {float((lowest_spectra_distance)*100)}")
         np.save(model.relax_path + "/model_sim_spectra.npy", lowest_spline)
+
+        fig, axes = plt.subplots(1, 1)
+        fig.set_size_inches(10, 10)
+        axes.plot(self.spline_mesh, self.comp_base_spline, marker=".",
+                  linestyle="-", label="Experiment")
+        axes.plot(self.spline_mesh, lowest_spline, marker=".",
+                  linestyle="--", label="FDMNES")
+        axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
+        axes.set_xlabel(
+            "Energy (eV)", fontsize=24)
+        axes.set_xlim((self.spline_mesh[0], self.spline_mesh[-1]))
+        axes.set_ylim((0, 2.0))
+        axes.legend(bbox_to_anchor=(0.48, 0.85), loc="lower left", fontsize=20)
+        plt.setp(axes.get_xticklabels(), fontsize=20)
+        plt.setp(axes.get_yticklabels(), fontsize=16)
+        filename = model.relax_path + "/" + "experiment_vs_sim_spectra.png"
+        plt.savefig(filename, format="png", dpi=300)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
@@ -1246,54 +1273,83 @@ class gb_ingrained(object):
             print('Provide ingrained optimization progress as progress_file'
                   ' or sim params of optimized solution')
 
-        self.dm3_path = gb_ingrained_params['dm3_path']
-        if not self.dm3_path:
-            print('Provide path (dm3_path) to experimental image')
+        # self.dm3_path = gb_ingrained_params['dm3_path']
+        # if not self.dm3_path:
+        #     print('Provide path (dm3_path) to experimental image')
 
-        # Prepare experimental image
-        # (make sure this procedure matches the procedure in 'run.py')
-        image_data = iop.image_open(self.dm3_path)
-        exp_img = iop.apply_rotation(image_data['Pixels'], 1)
-        exp_img = iop.scale_pixels(exp_img, mode='rescale')
-        exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
-        exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
+        # # Prepare experimental image
+        # # (make sure this procedure matches the procedure in 'run.py')
+        # image_data = iop.image_open(self.dm3_path)
+        # exp_img = iop.apply_rotation(image_data['Pixels'], 1)
+        # exp_img = iop.scale_pixels(exp_img, mode='rescale')
+        # exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
+        # exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
 
-        bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
-        congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
+        # bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
+        # congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
 
         # Get solutions from text file
-        if self.progress_file:
-            progress = np.genfromtxt(self.progress_file, delimiter=',')
-            best_idx = int(np.argmin(progress[:, -1]))
-            x = progress[best_idx]
-            xfit = x[1:-1]
-            xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
+        # if self.progress_file:
+        #     progress = np.genfromtxt(self.progress_file, delimiter=',')
+        #     best_idx = int(np.argmin(progress[:, -1]))
+        #     x = progress[best_idx]
+        #     xfit = x[1:-1]
+        #     xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
 
         # TODO: Find why we set self.opt_params[1] = 0
-        if not self.opt_params:
-            self.opt_params = xfit.copy()
-            self.opt_params[1] = 0
-        else:
-            xfit = self.opt_params.copy()
-        xfit[1] = 0
-        sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
-            congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+        # if not self.opt_params:
+        #     self.opt_params = xfit.copy()
+        #     self.opt_params[1] = 0
+        # else:
+        #     xfit = self.opt_params.copy()
+        # xfit[1] = 0
+        # sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
+        #     congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
 
-        sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
+        # sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
 
-        np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
+        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
         # Temporarily "hard-coded" exp interface region for VASP runs
         # Load prev_whole_exp.npy that is from the LAMMPS runs
-        exp_prev = np.load('prev_whole_exp.npy')
+        exp_prev = np.load('inputs/whole_exp.npy')
+        if exp_prev.ndim == 3:
+            exp_prev = np.mean(exp_prev, axis=2)
+            self.im_ref = exp_prev[:, :-1]
+        else:
+            self.im_ref = exp_prev
+
         # in y & x directions # TODO: remove hard-coded values
         # exp_patch_for_vasp = exp_img[459:584,
         #                              249:374]  # exp_prev[152:279, 12:]
 
-        exp_patch_for_vasp = exp_prev
-        self.im_ref = exp_patch_for_vasp
-        match_ssim = iop.score_ssim(sim_img, self.im_ref)
+        self.do_scell = True   # Set to False if using a 1x3 supercell
+        # Make sim TEM from init_gb
+        if self.do_scell:
+            # ss = Structure.from_file(self.init_gb_path)
+            # ss.make_supercell((1, 3, 1))
+            # temp_file = self.main_path + '/inputs/POSCAR_temp_scell'
+            # self.temp_file = temp_file
+            # ss.to(filename=temp_file)
+            bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
+            bicrys_model.structure.make_supercell((1, 3, 1))
+        else:
+            bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
+        sim_img, __ = bicrys_model._get_image_cell(
+            defocus=self.opt_params[2],
+            interface_width=self.opt_params[1],
+            pix_size=self.opt_params[0],
+            view=False)
+        sim_img = sim_img[32:132]
+
+        try:
+            match_ssim = iop.score_ssim(sim_img, self.im_ref)
+        except ValueError:
+            sim_img, im_ref = self.crop_dims(sim_img, self.im_ref)
+            match_ssim = iop.score_ssim(sim_img, im_ref)
+            print('Adjusted image dimensions for initial model')
+        # match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
 
     def evaluate_obj(self, model):
@@ -1318,10 +1374,21 @@ class gb_ingrained(object):
             - the SSIM score which is the objective
         """
         relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
-        # Initialize a Bicrystal object from relaxed structure
-        bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+        if self.do_scell is True:
+            bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+            bicrys_model.structure.make_supercell((1, 3, 1))
+        else:
+            bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
         # Simulate an image
-        im_model, __ = bicrys_model.simulate_image(sim_params=self.opt_params)
+        # Initialize a Bicrystal object from relaxed structure
+        # bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+        # Simulate an image
+        im_model, __ = bicrys_model._get_image_cell(
+            defocus=self.opt_params[2],
+            interface_width=self.opt_params[1],
+            pix_size=self.opt_params[0],
+            view=False)
+        im_model = im_model[32:132]
         np.save(relax_path + '/model_sim.npy', im_model)
 
         # im_model = im_model[132:300] # TODO: remove hard-coded values

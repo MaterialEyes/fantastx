@@ -1,4 +1,5 @@
 # Fingerprinting
 
-::: fx19.fingerprinting.DistanceCalculator
-::: fx19.fingerprinting.Comparator
+---
+
+::: fx19.fingerprinting

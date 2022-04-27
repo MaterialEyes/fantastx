@@ -1,14 +1,36 @@
+"""
+This module contains classes which handle all genetic structure
+operations for FANTASTX. Four basic types of mutations have been
+included:
+
+1. **Basin-hopping**: Perturb a fraction of atoms in a structure, each
+ by a random distance in a random direction. Atoms cannot overlap, and
+ the distance of perturbation cannot exceed a pre-determined threshhold.
+2. **Cut-and-splice**: Take 2 structures, cut each structure along a plane,
+ and create a child structure by splicing the left piece of structure A
+ with the right piece of structure B.
+3. **Composition mutation**: Perturb the composition of a structure by
+ either adding or removing atoms. The number of atoms added or removed will
+ either be random (up to 3 atoms per species), or will correspond to a set
+ composition (e.g. AlO4).
+4. **Mating by swap**: Take 2 structures and mate them by randomly combining
+ sites from each parent.
+
+All basin-hopping mutations are handled by the basinhopping class.
+Other mutations are handled differently depending on the class of the
+parent structure. Currently, these parent structures can be:
+
+1. **Clusters** (handled by `Evolve`)
+2. **Grain Boundaries** (handled by `gb_ops`)
+3. **Surfaces** (handled by `surface_ops`)
+
+!!! important
+    **Molecules** are also supported in a limited fashion, as a sub-class
+    of clusters. The only structural operation currently implemented
+    for molecules is basin-hopping.
+"""
+
 from __future__ import division, unicode_literals, print_function
-
-"""
-This module only contains the different funcitons to mutate the structure,
-mate two given structures, change composition from a given structure.
-
-Structure constraints
-Geometry of search
-Mating_probability and no. of parents
-Mutation probability, mutation fractions (% atoms and magnitude)
-"""
 from pymatgen.core.structure import Structure, Lattice
 from pymatgen.core.composition import Composition
 from pymatgen.transformations.standard_transformations import \
@@ -663,12 +685,18 @@ class basinhopping(object):
             parent = copy.deepcopy(parent_model)
             inheritance = [parent.label]
         else:
+            inheritance = None
             for model in all_models:
                 # for model in pool.good_pool:
                 if model.label == model_id:
                     parent = copy.deepcopy(model)
                     inheritance = [parent.label]
                     break
+            if inheritance is None:
+                parent_model = select.get_a_parent(pool)
+                # make a copy
+                parent = copy.deepcopy(parent_model)
+                inheritance = [parent.label]
 
         # Get the cart_coords to be perturbed
         cart_coords = parent.astr.cart_coords
@@ -1037,31 +1065,7 @@ class gb_ops(object):
         self.iface_latt = str_constraints['iface_latt']
 
         # hollow gb structure
-        copy_g = self.init_gb_astr.copy()
-
-        # Get coords and species
-        g_sites = copy_g.sites
-        sor_sites = sorted(g_sites, key=lambda x: x.coords[2])
-
-        half_zrange = (self.iface_thickness /
-                       (self.init_gb_astr.lattice.c * 2))
-        min_z_t = self.iface_z_mid + half_zrange
-        max_z_b = self.iface_z_mid - half_zrange
-        self.hollow_botz = max_z_b
-        self.hollow_topz = min_z_t
-        top_i, bot_i = None, None
-        for i, site in enumerate(sor_sites):
-            if site.c >= max_z_b and not bot_i:
-                bot_i = i
-            if site.c >= min_z_t and not top_i:
-                top_i = i
-                break
-        mids = sor_sites[bot_i: top_i]
-        rem_i = []
-        for i, site in enumerate(copy_g.sites):
-            if site in mids:
-                rem_i.append(i)
-        copy_g.remove_sites(rem_i)
+        copy_g = self.get_hollow_gb()
         copy_g.sort()
         self.hollow_init_gb = copy.deepcopy(copy_g)
 
@@ -1101,6 +1105,8 @@ class gb_ops(object):
         sorted_sites = sorted(gb_sites, key=lambda x: x.coords[2])
         min_z_top = iface_z_mid + (iface_thickness / (gb_c * 2))
         max_z_bot = iface_z_mid - (iface_thickness / (gb_c * 2))
+        self.hollow_botz = max_z_bot
+        self.hollow_topz = min_z_top
 
         top_ind, bot_ind = None, None
         for i, site in enumerate(sorted_sites):

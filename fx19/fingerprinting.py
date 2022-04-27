@@ -1,3 +1,40 @@
+"""
+This module handles all fingerprinting functions for FANTASTX.
+Functionality is implemented in two classes:
+    
+- `DistanceCalculator`
+- `Comparator`
+
+The `DistanceCalculator` class contains methods to assess the
+distance between two fingerprint vectors. It is essentially
+a wrapper for the sklearn distance metrics. Currently, it is used
+for the following fingerprints:
+
+- Many-Body Tensor Representation (`mbtr`)
+- Ewald Sum Matrix (`ewald-sum-matrix`)
+- Sine Matrix (`sine-matrix`)
+
+!!! Important "Take Notice"
+    
+    The `DistanceCalculator` class is not useful for fingerprints which
+    need more sophisticated or otherwise specialized methods of distance
+    comparison. These are:
+
+    - Bag of Bonds (`bag-of-bonds`)
+    - SOAP (`rematch-soap` and `average-soap`)
+    - Valle-Oganaov (`valle-oganov`)
+
+The `Comparator` class contains methods to create fingerprints for
+structures, calculate the distance between the fingerprints of
+different structures, and return appropriate flags to selection
+algorithms. At a later date, functionality will also be added to
+interface with a separate package which handles the calculation
+of on-the-fly machine learning force fields.
+
+---
+
+"""
+
 try:
     from dscribe.kernels import REMatchKernel, AverageKernel
     from dscribe.descriptors import SOAP, SineMatrix
@@ -24,7 +61,33 @@ def cutoff(dist, dist_cut):
 
 
 class DistanceCalculator(object):
+    """
+    This class acts as a convenient wrapper for sklearn distance metrics.
+    It is used to calculate the distance between two fingerprint vectors
+    which are in the form of 1-D iterables.
+
+    !!! note
+
+        Any fingerprint fed into an instance of `DistanceCalculator` MUST
+        be flattened! No dimensionality higher than 1-D is allowed.
+    """
+
     def __init__(self, metric):
+        """
+        Each instance of `DistanceCalculator` is assigned a distance metric
+        that it will be used to make comparisons with. The valid metrics are:
+
+        - `manhattan`: the manhattan distance (the 1-norm)
+        - `euclidean`: the euclidean distance (the 2-norm)
+        - `cosine`: 1 - the cosine kernel similarity (basically the dot
+         product)
+        - `laplacian`: 1 - the laplacian kernel similarity
+        - `gaussian`: 1 - the gaussian kernel similarity
+        - `mae`: the mean absolute error
+        - `mse`: the mean squared error
+        - `rmse`: the root mean squared error
+        - `r2_score`: the r^2 score
+        """
         valid_metrics = ["manhattan", "euclidean", "cosine", "laplacian",
                          "gaussian", "mae", "mse", "rmse", "r2_score"]
         if metric not in valid_metrics:
@@ -36,6 +99,18 @@ class DistanceCalculator(object):
             self.metric = metric
 
     def create(self, fingerprint1, fingerprint2):
+        """
+        Method to calculate the distance between two fingerprints.
+
+        Arguments:
+
+            fingerprint1 (array): first fingerprint
+            fingerprint2 (array): second fingerprint
+
+        Returns:
+
+            float: the distance between the two fingerprints
+        """
         if self.metric == "euclidean":
             return pairwise_distances(fingerprint1,
                                       fingerprint2,
@@ -76,6 +151,16 @@ class Comparator(object):
     Class which handles all structural fingerprinting. Contains functions
     to create fingerprints, compare fingerprint, and compare models
     based on their fingerprints (whether local or global).
+
+    For fingerprints which are not able to use the `DistanceCalculator` class
+    to perform structural comparisons (i.e. local atomic fingerprints such
+    as SOAP fingerprints), this class also contains functions to create their
+    corresponding unique kernels for distance comparison. For `soap`
+    fingerprints this can be either an *average* kernel or a *REMatch* kernel.
+    For the `valle-oganov` fingerprints this is the kernel implemented in the
+    ASE package. For the `bag-of-bonds` kernel, it is a specialized non-vector
+    comparison. For details, refer to this `bag-of-bonds` [paper](https://pubs
+    .acs.org/doi/10.1021/acs.jctc.6b01119).
     '''
 
     def __init__(self, label='bag-of-bonds', tolerances=None):
@@ -103,15 +188,15 @@ class Comparator(object):
 
     def set_soap_descriptor(self, _species, soap_values=None):
         '''
-        Creates the class SOAP descriptor object.
+        Creates the class `soap` descriptor object.
 
         Arguments:
 
-        _species: (string array) containing the element names of
-        all atomic species handled by the descriptor.
+            _species (array of strs): containing the element names of
+             all atomic species handled by the descriptor.
 
-        soap_values: (dictionary) containing user-defined
-        values for some or all SOAP descriptor parameters.
+            soap_values (dict): containing user-defined
+             values for some or all SOAP descriptor parameters.
         '''
         if soap_values is None:
             self.desc = SOAP(species=_species, rcut=5.0, nmax=9, lmax=6,
@@ -137,15 +222,15 @@ class Comparator(object):
 
     def set_mbtr_descriptor(self, _species, mbtr_values=None):
         '''
-        Creates the class MBTR descriptor object.
+        Creates the class `mbtr` descriptor object.
 
         Arguments:
 
-        _species: (string array) containing the element names of
-        all atomic species handled by the descriptor.
+            _species (array of strs) containing the element names of
+             all atomic species handled by the descriptor.
 
-        mbtr_values: (dictionary) containing user-defined
-        values for some or all MBTR descriptor parameters.
+            mbtr_values (dict): containing user-defined
+             values for some or all MBTR descriptor parameters.
         '''
         if mbtr_values is None:
             self.desc = MBTR(
@@ -237,12 +322,12 @@ class Comparator(object):
 
     def set_sine_matrix_descriptor(self, sm_values=None):
         '''
-        Creates the class Sine Matrix descriptor object.
+        Creates the class `sine-matrix` descriptor object.
 
         Arguments:
 
-        sm_values: (dictionary) containing user-defined
-        values for some or all Sine Matrix descriptor parameters.
+            sm_values (dict): containing user-defined
+            values for some or all Sine Matrix descriptor parameters.
         '''
         if sm_values is None:
             self.desc = SineMatrix(
@@ -266,12 +351,12 @@ class Comparator(object):
 
     def set_ewald_sum_matrix_descriptor(self, esm_values=None):
         '''
-        Creates the class Ewald Sum Matrix descriptor object.
+        Creates the class `ewald-sum-matrix` descriptor object.
 
         Arguments:
 
-        sm_values: (dictionary) containing user-defined
-        values for some or all Ewald Sum Matrix descriptor parameters.
+            sm_values (dict): containing user-defined
+            values for some or all Ewald Sum Matrix descriptor parameters.
         '''
         if esm_values is None:
             self.desc = EwaldSumMatrix(
@@ -295,12 +380,12 @@ class Comparator(object):
 
     def set_valle_oganov_comparator(self, comp_values=None):
         '''
-        Creates the class valle-oganov comparator object.
+        Creates the class `valle-oganov` comparator object.
 
         Arguments:
 
-        comp_values: (dictionary) containing user-defined
-        values for some or all valle-oganov comparator parameters.
+            comp_values (dict): containing user-defined
+            values for some or all valle-oganov comparator parameters.
         '''
         if comp_values is None:
             self.comp = OFPComparator(n_top=None, dE=None,
@@ -344,13 +429,35 @@ class Comparator(object):
 
     def set_kernel_generator(self, kg_values=None):
         '''
-        Creates the class SOAP kernel generator object, to map
-        local SOAP descriptors to a global descriptor.
+        Creates the class `soap` kernel generator object, to map
+        local `soap` descriptors to a global descriptor. This kernel
+        can be either an `average` or a `REMatch` kernel, depending
+        on whether the user provides `average-soap` or `rematch-soap`
+        as the fingerprint of choice. The difference between these kernels
+        is as follows:
+
+        - The `average` kernel assigns the global distance between
+            two structures as the average of all possible local structural
+            comparisons between the two structures. For instance, if there
+            are 10 environments in structure B, then any local environment
+            from structure A will be compared to all 10 environments in
+            structure B, repeated for every local enviroment in structure
+            A.
+
+        - The `REMatch` kernel is an interpolation between a `best-match`
+            comparison between structures, and an `average` comparison
+            between structures. The `best-match` approach attempts to
+            determine the best possible pairing of each local enviroment, and
+            then use those distances as the global distance. It fails for
+            structures which do not have the same number of enviroments, and
+            the `REMatch` kernel corrects this problem using regularized
+            entropy matching. For details, refer to this [paper](https://pubs
+            .rsc.org/en/content/articlelanding/2016/CP/C6CP00415F).
 
         Arguments:
 
-        kg_values: (dictionary) containing user-defined values for
-        some or all REMatch or Average kernel generator parameters.
+            kg_values (dict): containing user-defined values for
+            some or all REMatch or Average kernel generator parameters.
         '''
         if kg_values is None:
             if self.label == "average-soap":
@@ -379,11 +486,12 @@ class Comparator(object):
 
     def set_distance_calculator(self, distance_metric=None):
         '''
-        Creates the DistanceCalculator object which will calculate the
+        Creates the `DistanceCalculator` object which will calculate the
         distance between models for the following fingerprints:
-          "Ewald Sum Matrix"
-          "Sine Matrix"
-          "Many Body Tensor Representation"
+
+        - "Ewald Sum Matrix" (`ewald-sum-matrix`)
+        - "Sine Matrix" (`sine-matrix`)
+        - "Many Body Tensor Representation" (`mbtr`)
         '''
         if distance_metric is None:
             self.distance_calculator = DistanceCalculator("euclidean")
@@ -394,29 +502,34 @@ class Comparator(object):
         '''
         Compare the fingerprints between two structures. Each model
         contains a fingerprint dictionary, assigned using the
-        create_fingerprint function, which has all the relevant
+        `create_fingerprint` function, which has all the relevant
         information for the appropriate fingerprint. In the case of the
         Valle-Oganov fingerprint, this information is contained within
         an ASE Atoms structure. In the case of the bag-of-bonds
         fingerprint, this information is contained within a pair_cor
-        dictionary. In the case of the REMatch SOAP kernel, this
-        information is contained within a set of normalized soap
+        dictionary. In the case of the REMatch or Average SOAP kernels,
+        this information is contained within a set of normalized soap
         descriptors called normed_features.
 
         Returns a tuple of length 2, quantifying the fingerprint
-        similarity. Only the bag-of-bonds comparison completely
+        similarity. Only the `bag-of-bonds` comparison completely
         fills the tuple, all other comparisons only result in one
         similarity or distance metric.
 
-        Note: the order of the test_model and ref_models are irrelevant,
-        the function will return the same value if models A and B are
-        swapped.
+        !!! note
+            The order of the test_model and ref_models are irrelevant,
+            the function will return the same value if models A and B are
+            swapped.
 
-        Args:
+        Arguments:
 
-        test_model (obj): structure_record.model() A for the comparison
+            test_model (obj): `structure_record.model()` A for the comparison
 
-        ref_model (obj): structure_record.model() B for the comparison.
+            ref_model (obj): `structure_record.model()` B for the comparison.
+
+        Returns:
+
+            (tuple): length 2 tuple which quantifies fingerprint similarity.
         '''
         if self.label == "valle-oganov":
             comp = self.comp
@@ -492,18 +605,26 @@ class Comparator(object):
         Runs comparison of models, utilizing the appropriate tolerance
         parameters depending on the global fingerprint used.
 
-        Returns 0 if the models are exactly same, 1 if the models are
-        the same within tolerance, and -1 if they are not within
-        tolerance of each other.
+        Return values:
 
-        Note: test_model and ref_model are interchangeable, the same
-        comparison result will be yielded if models A and B are swapped.
+        - 0 if the models are exactly same
+        - 1 if the models are the same within tolerance
+        - -1 if they are not within tolerance of each other.
 
-        Args:
+        !!! note
 
-        test_model (obj): structure_record.model() A for the comparison.
+            Test_model and ref_model are interchangeable, the same
+            comparison result will be yielded if models A and B are swapped.
 
-        ref_model (obj): structure_record.model() B for the comparison.
+        Arguments:
+
+            test_model (obj): structure_record.model() A for the comparison.
+
+            ref_model (obj): structure_record.model() B for the comparison.
+
+        Returns:
+
+            (int): see above.
         '''
         try:
             comparison = self.compare_fingerprints(test_model, ref_model)
@@ -530,14 +651,20 @@ class Comparator(object):
     def create_fingerprint(self, model):
         '''
         Create the fingerprint for the model object. Automatically
-        trims the model down to the active region if desired,
-        to save computational expense and make similarity checks
-        more effective.
+        trims the model down to the active region if desired (according
+        to `self.zbounds`), to save computational expense and make
+        similarity checks more effective.
 
-        Args:
+        Does not return anything. Instead, adds the fingerprint to the
+        model's fingerprint dictionary. Currently, each model only ever
+        has one fingerprint. However, it is possible to create every
+        possible fingerprint for a given model, and run comparisons
+        with every fingerprint.
 
-        model (obj): structure_record.model() which will be assigned a
-        fingerprint.
+        Arguments:
+
+            model (obj): `structure_record.model()` which will be assigned a
+            fingerprint.
         '''
         #
         model_astr = copy.deepcopy(model.astr)
@@ -662,18 +789,20 @@ class Comparator(object):
         '''
         Check whether a model is unique.
 
-        Returns True if the model is unique, returns False if the model
-        is the same (or "similar" if exact is False) as another model.
+        Arguments:
 
-        Args:
+            model (obj): the `structure_record.model()` for which uniqueness
+             is being tested.
 
-        model (obj): the structure_record.model() for which uniqueness
-        is being tested.
+            exact (boolean): if `True`, models are considered unique if they
+             are not exactly the same as another model. If `False`, models
+             are considered unique if they are not the same as another model
+             within tolerance limits.
 
-        exact (boolean): if True, models are considered unique if they
-        are not exactly the same as another model. If False, models are
-        considered unique if they are not the same as another model
-        within tolerance limits.
+        Returns:
+
+            boolean: True if the model is unique, False if the model is
+             the same (or "similar" if `exact` is False) as another model
         '''
         # create a new fingerprint got the model
         # either before (new_model) or after relaxation (relaxed_astr)
@@ -696,7 +825,7 @@ class Comparator(object):
 
         Args:
 
-        astr (obj): Pymatgen structure object
+            astr (obj): Pymatgen structure object
         """
         xcarts, ycarts, zcarts = astr.cart_coords.T
         xthick = xcarts.max() - xcarts.min()

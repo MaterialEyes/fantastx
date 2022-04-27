@@ -1,10 +1,19 @@
+"""
+This module contains classes to make the initial models that FANTASTX
+will seed the evolutionary algorithm with. Two types of initial models
+are supported:
+
+1. Models that use user-provided structures
+2. Models that use random structures. It should be noted that this
+ method of random model generation is only useful for clusters and bulk
+ geometries. Grain boundaries and surfaces have their own unique methods
+ of creating random structures, which can be found in the
+ [`structure_operations`](../structure_operations-reference/) class.
+
+ ---
+"""
 
 from __future__ import division, unicode_literals, print_function
-
-"""
-This module contains classes to make models from user provided structures (if
-any) and then remaining as random models for initial population.
-"""
 from pymatgen.core.structure import Structure
 from pymatgen.core.lattice import Lattice
 
@@ -20,15 +29,15 @@ class make_model_from_input(object):
 
     def __init__(self, model_files_path):
         """
-        Creates models from the input structure files provided by the user. The
-        input structuure files must be of wither 'POSCAR' or 'cif' format. And,
-        the structure file names should either start with the string 'POSCAR'
-        or end with the string '.cif' to be considered.
+        Creates models from the input structure files provided by the user.
+        The input structuure files must be of either `POSCAR` or `cif` format.
+        And, the structure file names should either start with the string
+        `POSCAR` or end with the string `.cif` to be considered.
 
-        Args:
+        Arguments:
 
-        model_files_path (str): path to the directory with all the input
-                                structures
+            model_files_path (str): path to the directory with all the input
+             structures
         """
         self.model_files_path = model_files_path
         all_files = os.listdir(model_files_path)
@@ -37,21 +46,25 @@ class make_model_from_input(object):
         poscars = [i for i in all_files if i.startswith('POSCAR')]
         cifs = [i for i in all_files if i.endswith('.cif')]
         if len(poscars) + len(cifs) == 0:
-            print('Provied files path do not have files in either poscar or'
-                  ' cif format. Other formats are not supported currently.')
+            print('Provided files path does not have files in either poscar'
+                  'or cif format. Other formats are not supported currently.')
         self.all_files = poscars + cifs
 
     def read_structure(self, reg_id):
         """
-        Returns structure object from the input structure file (cif or poscar)
+        Reads the structure object from the input structure file (cif or
+        poscar).
 
-        Returns None if pymatgen structure object failed to create from file
+        If there is a structure to be read in, it will return the structure
+        object. Otherwise:
 
-        Returns 0 if all input files are completed
+        - If it fails, then it will return None.
+        - If there are no more structures to be read in, it will return 0.
 
-        Args:
+        Arguments:
 
-        reg_id (obj): structure_record.register_id() object for bookkeeping
+            reg_id (obj): `structure_record.register_id()` object for
+             book-keeping
         """
         if len(self.all_files) > 0:
             s = self.model_files_path + '/' + self.all_files.pop()
@@ -72,13 +85,13 @@ class make_random_model(object):
     def __init__(self, str_constraints):
         """
         Makes random models for sampling the search space. This class is used
-        only for 'cluster' or 'bulk' geometries. (The initial population for
-        'gb' and 'surface' are within gb_ops and surface_ops classes.)
+        only for `cluster` or `bulk` geometries. (The initial population for
+        `gb` and `surface` are within gb_ops and surface_ops classes.)
 
-        Args:
+        Arguments:
 
-        str_constraints (dict) - dictionary of all the constraints for making
-                                 random models
+            str_constraints (dict) - all the constraints for making
+             random models
         """
         # dictionary of min_dist for different bonds
         self.min_dist_dict = str_constraints['min_dist_dict']
@@ -137,11 +150,17 @@ class make_random_model(object):
     def get_cluster_in_box(self):
         """
         Creates a new model for the initial population with a random structure
-        of cluster geometry (with vacuum in all directions)
+        of cluster geometry (with vacuum in all directions). The steps that it
+        follows are:
 
-        - Makes lattice with maximum diameter cube
-        - Get the random cooridnates
-        - Add vacuum in all three directions
+        1. Makes lattice with maximum diameter cube
+        2. Get the random cooridnates
+        3. Add vacuum in all three directions
+
+        Returns:
+
+            `structure`: the pymatgen structure object corresponding to the
+             cluster.
         """
         max_dia = self.max_dia
         min_dist_dict = self.min_dist_dict
@@ -185,11 +204,16 @@ class make_random_model(object):
 
     def random_model(self, reg_id):
         """
-        Use the random structure created and make it into a Model object
+        Creates a random structure and make it into a `Model` object
 
-        Args:
+        Arguments:
 
-        reg_id: the reg_id object which assigns the model its unique label.
+            reg_id: the `reg_id` object which assigns the model its unique
+             label
+
+        Returns:
+
+            `model`: the random `model` object
         """
         astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
@@ -199,10 +223,12 @@ class make_random_model(object):
 
     def get_n_species(self):
         """
-        Function to get a list of species which satisfy the compositon based on
-        min num and max num atoms for each species.
+        Function to get a list of species which satisfy the composition based
+        on min num and max num atoms for each species.
 
-        Returns list of species, cumulative sum of each species count
+        Returns:
+            (list, list): lists of the species, and the cumulative sum
+             of each species count
         """
         species = []
         count = []
@@ -234,11 +260,15 @@ class make_random_model(object):
         Determines thickness based on the minimum and maximum of cartesian
         coordinates along the axis
 
-        Args:
+        Arguments:
 
-        astr (obj): pymatgen structure object
+            astr (obj): pymatgen structure object
 
-        axis (int): 0, 1, 2 for x, y, and z axes respectively
+            axis (int): 0, 1, 2 for x, y, and z axes respectively
+
+        Returns:
+
+            float: the thickness of the structure along the given axis
         """
         cart_coords = astr.cart_coords
         axis_coords = cart_coords[:, axis]
@@ -248,17 +278,19 @@ class make_random_model(object):
 
     def add_vac(self, astr, cluster_thickness, axis=0):
         """
-        For a given structure, adds vacuum in the provided axis
+        For a given structure, adds vacuum on the provided axis.
 
-        Returns the modified structure object
+        Arguments:
 
-        Args:
+            astr (obj): pymatgen structure object
 
-        astr (obj) - pymatgen structure object
+            cluster_thickness (float): thickness of the structure in the axis
 
-        cluster_thickness (float) - thickness of the structure in the axis
+            axis (int): axis in which to add vacuum. Must be one of 0, 1, or 2
 
-        axis (int 0/1/2) - axis in which to add vacuum
+        Returns:
+
+            `structure`: the modified pymatgen `structure` object
         """
 
         # get required input data
@@ -303,13 +335,15 @@ class make_random_model(object):
         coordinates in a chain like fashion connected to the previous added
         atom which satisfies distance constraints with other atoms present.
 
-        Returns a list of cartesian coordinates
+        Arguments:
 
-        Args:
+            num_atoms (int) - number of atoms needed in the structure
 
-        num_atoms (int) - number of atoms needed in the structure
+            max_dia (float) - maximum diameter of the cluster
 
-        max_dia (float) - maximum diameter of the cluster
+        Returns:
+
+            list: the cartesian coordinates
         """
         # start from origin
         old_point = np.array([0, 0, 0])
@@ -361,11 +395,15 @@ class make_random_model(object):
 
     def get_point_on_sphere(self, r):
         """
-        Get a random point on a sphere of radius r
+        Get a random point on a sphere of radius *r*
 
-        Args:
+        Arguments:
 
-        r (float) - radius of the sphere
+            r (float) - radius of the sphere
+
+        Returns:
+
+            (array): the random cartesian coordinates on the sphere
         """
 
         # get random point (x, y, z) using normal distribution
