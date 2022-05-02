@@ -1601,14 +1601,24 @@ class gb_ops(object):
             mold_ax_bounds.append(p)
 
         random_blocks = []
+        i = 0
         while len(random_blocks) < len(mold_ax_bounds):
             # choose blocks from parents alternatively
-            block = random.choice(blocks_dict['p1'])
-            if block not in random_blocks:
+            # NOTE: Do not shuffle the list of blocks when choosing
+            # NOTE: Raises IndexError due to less blocks when there 
+            # are no sites in some blocks (in fraction_slice). Let it be.
+            # Do not resolve it as such child models are not good.
+            if i % 2 == 0:
+                block = blocks_dict['p1'][i]
+                if len(block) == 0:
+                    block = blocks_dict['p2'][i]
                 random_blocks.append(block)
-            block = random.choice(blocks_dict['p2'])
-            if block not in random_blocks:
+            if i % 2 == 1:
+                block = blocks_dict['p2'][i]
+                if len(block) == 0:
+                    block = blocks_dict['p1'][i]
                 random_blocks.append(block)
+            i += 1
 
         species, coords = [], []
         for ax_bnds, block in zip(mold_ax_bounds, random_blocks):
@@ -1651,6 +1661,9 @@ class gb_ops(object):
         # get the slice blocks two lists from two parents
         _, blocks_1 = self.fraction_slice(parent1.gb_iface, axis)
         _, blocks_2 = self.fraction_slice(parent2.gb_iface, axis)
+        # check if we have same number of blocks in both parents
+        if len(blocks_1) != len(blocks_2):
+            return None, None
         # make it to a dict
         blocks_dict = {}
         blocks_dict['p1'] = blocks_1
@@ -1661,7 +1674,8 @@ class gb_ops(object):
         # move all coords inside the lattice
         self.move_coords_inside(child)
         # maintain composition of the child structure
-        child.merge_sites(tol=1, mode='delete')
+        if child.num_sites > 1:
+            child.merge_sites(tol=1, mode='delete')
         # Add this ga_child to init_gb_astr
         child_gb_astr = self.grain_implant(child)
 
