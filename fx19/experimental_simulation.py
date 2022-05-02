@@ -56,9 +56,9 @@ class pdf_of_model(object):
         # default structure scale factor
         self.scale = 1.0
         # quadratic term related to sharpness of first peak (from pdfgui manual)
-        self.delta2 = 3.87
+        self.delta2 = 3.87 
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
-        self.qdamp = 0.043
+        self.qdamp = 0.043 # G(r) intensity decereases with r
         self.fit_coords = True
         # default bounds_dict
         lb_ub_dict = {}
@@ -75,9 +75,9 @@ class pdf_of_model(object):
         self.xmin = 1.5
         self.xmax = 7.5
         self.dx = 0.01
-        # PDF Qmin and Qmax (y-axis)
-        self.Qmin = 1.0
-        self.Qmax = 50.0
+        # PDF Qmin and Qmax
+        self.Qmin = 0.0 # G(r) goes below zero for Qmin > 0
+        self.Qmax = 50.0 # G(r) gets wavy for smaller Qmax 
         # elemental symbols of species as a list
         self.symbols = None
 
@@ -113,6 +113,8 @@ class pdf_of_model(object):
 
         # set Qmin and Qmax from Pdf_params
         if 'Qmin' in pdf_params:
+            self.Qmin = pdf_params['Qmin']
+        if 'Qmax' in pdf_params:
             self.Qmax = pdf_params['Qmax']
 
         # set lower and upper bounds for fitting variables
@@ -353,12 +355,15 @@ class pdf_of_model(object):
                         + ' \n')
 
         plt.plot(r, g_obs, 'bo', label="G(r) Target")
-        plt.plot(r, g_calc, 'r-', label="G(r) Fit")
-        plt.plot(r, diff, 'g-', label="G(r) diff")
-        plt.plot(r, diffzero, 'k-')
-        plt.xlabel(r"$r (\AA)$")
-        plt.ylabel(r"$G (\AA^{-2})$")
-        plt.legend(loc=1)
+        plt.plot(r, g_calc, 'r-', label="G(r) Fit", linewidth=3)
+        plt.plot(r, diff, 'c-', label="G(r) diff", linewidth=3)
+        plt.plot(r, diffzero, 'k-', linewidth=1)
+        plt.xlabel(r"$r (\AA)$", fontsize=20)
+        plt.ylabel(r"$G (\AA^{-2})$", fontsize=20)
+        plt.xticks(fontsize=15)
+        plt.yticks(fontsize=15)
+        plt.legend(loc=1, fontsize=15)
+        plt.tight_layout() 
 
         pdf_plot_name = name + '_pdf_plot.png'
         plt.savefig(fname=self.pdf_sim_dir + '/' + pdf_plot_name)
