@@ -381,6 +381,18 @@ class structure_constraints(object):
                       'Using default setting of [].')
                 self.fixed_species = []
 
+            if 'fragments' in str_record['molecule']:
+                self.fragments = str_record['molecule']['fragments']
+            else:
+                print('No fragments provided. No random molecule generation'
+                      'will be possible')
+            if 'fragments_directory' in str_record['molecule']:
+                self.fragments_directory =\
+                    str_record['molecule']['fragments_directory']
+            else:
+                print('No fragment directory provided. No random molecule'
+                      ' generation will be possible')
+
     def get_constraints(self):
         """
         Returns a dictionary of all the constraints stored in the object.

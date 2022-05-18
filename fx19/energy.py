@@ -469,6 +469,8 @@ class vasp_code(object):
         for key, value in energy_params['element_syms'].items():
             self.sym_mu_dict[value] = energy_params['mu'][key]
 
+        self.count_hydrogen = True
+
         # default parameters for INCAR (only if necessary)
         # Or directly use the input files the user provided.
 
@@ -548,7 +550,17 @@ class vasp_code(object):
 
         shutil.copy(new_poscar, poscar)
         # copy INCAR, KPOINTS to the relax path
-        shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
+        if self.count_hydrogen:
+            # get amount of hydrogen in poscar and copy correct INCAR
+            poscar = Poscar.from_file(poscar_filename)
+            num_H = poscar.structure.composition.as_dict()["H"]
+            if num_H = 0:
+                shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
+            else:
+                shutil.copy(files_path + '/INCAR' + '_' + str(num_H) + 'H',
+                            relax_path + '/INCAR')
+        else:
+            shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
         print('Job prep finished. Submitting...')

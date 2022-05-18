@@ -54,9 +54,11 @@ nav:
       - epsilonSelection: epsilonSelection-reference.md
       - clusteredSelection: clusteredSelection-reference.md
       - selection: selection-reference.md
+      - dominance: dominance-reference.md
       - fingerprinting: fingerprinting-reference.md
       - clustering: clustering-reference.md
       - distance_check: distance_check-reference.md
       - structure_operations: structure_operations-reference.md
       - structure_record: structure_record-reference.md
       - experimental_simulation: experimental_simulation-reference.md
+      - initial_population: initial_population-reference.md

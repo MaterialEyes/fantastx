@@ -174,6 +174,7 @@ def full_eval(model):
             # if relaxed structure exists
             model.Xsim1 = Xsim_1.name
             model, Xsim_val = Xsim_1.evaluate_obj(model)
+            model.num_of_obj += 1
             return model
     else:
         return model

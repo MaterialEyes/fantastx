@@ -128,6 +128,7 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
     # make new random model
     if model_type == 'random':
         new_model = random_model_obj.random_model(reg_id)
+        print("Made random model!")
 
     # make new model from parents
     if model_type == 'evolved':

@@ -735,11 +735,11 @@ class xanes_of_model(object):
         # Prepare FDMNES input file and run simulation
         self.prepare_fdmnes(model, self.code_folder)
 
-        fdmnes_exec = self.fdmnes_exec_cmd.split()
+        exec_cmd = self.exec_cmd.split()
         with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
                   'w') as log_file:
             fdmnes_job = sp.Popen(
-                fdmnes_exec,
+                exec_cmd,
                 stdout=sp.PIPE,
                 stderr=sp.STDOUT,
                 cwd=model.relax_path)
@@ -807,7 +807,8 @@ class xanes_of_model(object):
                 fdmnes_compare_spline, (-1, 1)
             )
             lowest_spectra_distance = self.distance_calculator.create(
-                fdmnes_compare_array, self.exp_base_reshaped_spline
+                fdmnes_compare_array,
+                self.exp_base_reshaped_spline[compare_indices]
             )
             lowest_spline = self.model_comp_spline
 
@@ -819,7 +820,7 @@ class xanes_of_model(object):
 
         fig, axes = plt.subplots(1, 1)
         fig.set_size_inches(10, 10)
-        axes.plot(self.spline_mesh, self.comp_base_spline, marker=".",
+        axes.plot(self.spline_mesh, self.exp_base_spline, marker=".",
                   linestyle="-", label="Experiment")
         axes.plot(self.spline_mesh, lowest_spline, marker=".",
                   linestyle="--", label="FDMNES")

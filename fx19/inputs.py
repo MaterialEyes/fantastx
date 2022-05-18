@@ -48,11 +48,15 @@ def make_objects(i_dict):
     all_objects['input_model_obj'] = input_model_obj
 
     # For cluster, initial population module is used for random models
-    if str_constraints['shape'] == 'cluster' or\
-            str_constraints['shape'] == 'molecule':
+    if str_constraints['shape'] == 'cluster':
         # make_random_model object from initial_population
         random_model_obj = initial_population.make_random_model(
             str_constraints)
+        all_objects['random_model_obj'] = random_model_obj
+    if str_constraints['shape'] == 'molecule':
+        random_model_obj = initial_population.make_random_molecule_model(
+            str_constraints
+        )
         all_objects['random_model_obj'] = random_model_obj
 
     # make energy_code object
