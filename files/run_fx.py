@@ -107,8 +107,8 @@ if workers['cluster'] == 'SLURM':
                                header_skip=workers['header_skip'])
     print ("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
-    jobfile.write(cluster_job.job_script())
-    jobfile.close()
+    #jobfile.write(cluster_job.job_script())
+    #jobfile.close()
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
