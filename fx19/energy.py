@@ -439,6 +439,7 @@ class vasp_code(object):
         self.sd_cut_off = None
         self.sd_no_z = None
 
+
         # This will be used to make potcars
         all_pots = [i for i in os.listdir(self.energy_files_path) if
                     i.startswith('POTCAR')]
@@ -699,6 +700,11 @@ class vasp_code(object):
         file_name (str): the file name of the structure to be written as POSCAR
         """
         frac_zmin, frac_zmax = self.hollow_botz, self.hollow_topz
+        if model.sd_true_above is not None:
+            frac_zmin = model.sd_true_above # smaller z-coordinate
+        if model.sd_true_below is not None:
+            frac_zmax = model.sd_true_below # larger z-coordinate
+
         frac_zs = model.astr.frac_coords[:, 2]
         bs = []
         for z in frac_zs:

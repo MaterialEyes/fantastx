@@ -82,6 +82,10 @@ class make_random_model(object):
         """
         # dictionary of min_dist for different bonds
         self.min_dist_dict = str_constraints['min_dist_dict']
+        self.max_dist_dict = str_constraints['max_dist_dict']
+        self.species_dict = str_constraints['species_dict']
+        self.element_syms = str_constraints['element_syms']
+        self.inv_syms = {v: 'sp' + str(k) for k, v in self.element_syms.items()}
         self.shape = str_constraints['shape']
 
         if 'box_abc' in str_constraints:
@@ -89,12 +93,8 @@ class make_random_model(object):
 
         # defaults
         self.max_dia = 8
-        self.max_bond_dist = 3
-
         if 'max_dia' in str_constraints:
             self.max_dia = str_constraints['max_dia']
-        if 'max_bond_dist' in str_constraints:
-            self.max_bond_dist = str_constraints['max_bond_dist']
 
         self.num_species = str_constraints['num_species']
         # save species1 data
@@ -145,15 +145,16 @@ class make_random_model(object):
         """
         max_dia = self.max_dia
         min_dist_dict = self.min_dist_dict
-        max_bond_dist = self.max_bond_dist
+        max_dist_dict = self.max_dist_dict
+        max_bond_dist = max(max_dist_dict.values())
         # get species
         species, cum_sum = self.get_n_species()
-        num_atoms = len(species)
+        #num_atoms = len(species)
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
 
         atoms_too_close = True
         while atoms_too_close is True:
-            cart_coords = self.get_n_coords_linear(num_atoms, max_dia)
+            cart_coords = self.get_n_coords_linear(species, max_dia)
             if cart_coords is None:
                 continue
             cluster = Structure(latt, species, cart_coords,
@@ -297,7 +298,7 @@ class make_random_model(object):
 
         return astr
 
-    def get_n_coords_linear(self, num_atoms, max_dia):
+    def get_n_coords_linear(self, species, max_dia):
         """
         Given maximum allowed diamter of a cluster, this function adds random
         coordinates in a chain like fashion connected to the previous added
@@ -311,14 +312,25 @@ class make_random_model(object):
 
         max_dia (float) - maximum diameter of the cluster
         """
+        num_atoms = len(species)
+        inv_syms = self.inv_syms
+        box_latt = [[self.box_abc[0], 0, 0], 
+                    [0, self.box_abc[1], 0], 
+                    [0, 0, self.box_abc[2]]]
+        dc_astr = Structure(box_latt, [species[0]], [[0, 0, 0]])
         # start from origin
+        old_sps = species[0]
         old_point = np.array([0, 0, 0])
         coords = []
-        coords_added = 0
+        coords_added = 0 # considering the [0,0,0]
         new_point_attempt = 0
         while coords_added < num_atoms:
-            min_bond_dist = min(self.min_dist_dict.values())
-            max_bond_dist = self.max_bond_dist
+            new_sps = species[coords_added]
+            dist_key = inv_syms[old_sps] + '_' + inv_syms[new_sps]
+            if inv_syms[old_sps] > inv_syms[new_sps]:
+                dist_key = inv_syms[new_sps] + '_' + inv_syms[old_sps]
+            min_bond_dist = self.min_dist_dict[dist_key]
+            max_bond_dist = self.max_dist_dict[dist_key]
             radius = unif(min_bond_dist, max_bond_dist)
             new_point = self.get_point_on_sphere(radius)
 
@@ -339,12 +351,18 @@ class make_random_model(object):
             # check distances with all previous points
             # using max of min_dists for initial population
             max_of_min_dists = max(self.min_dist_dict.values())
-            if not dc.one_to_many_distances(new_point, coords,
-                                            max_of_min_dists):
+            if not dc.satisfies_all_dists(new_point, dc_astr, self.element_syms,
+                                      self.min_dist_dict,
+                                      new_carts_species=new_sps):
                 continue
+
+            #if not dc.one_to_many_distances(new_point, coords,
+            #                                max_of_min_dists):
+            #    continue
 
             # add the new_point and reset the no. of attempts
             coords.append(new_point)
+            dc_astr.append(new_sps, new_point)
             new_point_attempt = 0
             old_point = new_point
             coords_added += 1

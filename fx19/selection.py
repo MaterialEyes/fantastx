@@ -200,8 +200,7 @@ class Pool(object):
 
             opt_k = select.optimum_k
             # Update probabilities by min max exponential function using opt_k
-            exponential_probs = [(exp(opt_k * i) - exp(opt_k)) /
-                                 (1 - exp(opt_k)) for i in scaled_values]
+            exponential_probs = [exp(opt_k * i) for i in scaled_values]
             # Assign probabilities to the models
             for m, prob in zip(self.good_pool, exponential_probs):
                 m.selection_prob = prob
@@ -221,8 +220,10 @@ class Pool(object):
             if len(self.good_pool) == 0 or select.type == 'single':
                 # if update fails due to too few points for convex hull
                 print('New Model {} made by {} added to good pool'.format(
-                    model.label, model.made_by))
-                self.good_pool = self.all_models
+                                                model.label, model.made_by))
+                self.good_pool = [m for m in self.all_models if m.overall_val is not None]
+                self.good_pool.append(model)
+                return select
             else:
                 print('New Model {} made by {} is pareto efficient!'.format(
                     model.label, model.made_by))
@@ -382,6 +383,8 @@ class Select(object):
                 - if distance from hull <= cutoff value
                         > to_good_pool is True (i.e., add model to good_pool)
 
+        Sets overall_val for all models. This overall_val gets updated in later steps
+
         Args:
 
         model (obj): structure_record.model() object
@@ -412,6 +415,10 @@ class Select(object):
         model_obj1 = model_obj1 / self.weights[1]
 
         if self.is_point_on_pareto((model_obj0, model_obj1)):
+            # if model is on pareto, set overall value to be 0
+            # Because overall_val remains None after added to pool 
+            # if model is non-dominated on both axis
+            model.overall_val = 0
             return None, model
 
         # Assuming 2D pareto front from here
@@ -493,13 +500,12 @@ class Select(object):
                            method='Nelder-Mead', options={'maxiter': 100})
             opt_k = res.x[0]
             self.optimum_k = opt_k
-            # Get probabilities by min max exponential function
-            # using the opt_k
-            exponential_probs = [(exp(opt_k * i) - exp(opt_k)) /
-                                 (1 - exp(opt_k)) for i in good_pool_vals]
+            # Get probabilities by exponential function
+            # NOTE: opt_k should be always negative
+            exponential_probs = [exp(opt_k * i) for i in good_pool_vals]
         else:
             opt_k = initial_k[0]
-            # Get probabilities by simple exponential function
+            # Get probabilities by exponential function
             # using opt_k = -1
             exponential_probs = [exp(opt_k * i) for i in good_pool_vals]
         selection_probs = exponential_probs
@@ -714,8 +720,7 @@ class Select(object):
                 self.optimum_k = opt_k
                 # Get probabilities by min max exponential function
                 # using the opt_k
-                exponential_probs = [(exp(opt_k * i) - exp(opt_k)) /
-                                     (1 - exp(opt_k)) for i in
+                exponential_probs = [exp(opt_k * i) for i in
                                      scaled_good_pool_values]
             else:
                 opt_k = initial_k[0]
