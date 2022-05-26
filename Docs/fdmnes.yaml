@@ -1,0 +1,41 @@
+#######################################################################################
+# To include a FDMNES card which only consists of a key,                              #
+#   use the word "include" as the value.                                              #
+#                                                                                     #
+# To include a FDMNES card which consists of both a key and a value,                  #
+#   make the value the same as what would appear in the FDMNES input file.            #
+#   EXCEPTIONS:                                                                       #
+#       Atom_conf: use the format of {"Z": orbital description}                       #
+#           This means do NOT include the number of sites, or their ids.              #
+#       Atom: use a dictionary as input                                               #
+#                                                                                     #
+# To not include a FDMNES card, please use None as the value. It is convenient        #
+#   to leave all possible cards in the file so that they remain for future context.   #
+#                                                                                     #
+# NOTE: Convolution is performed within FANTASTX, using the same procedure as FDMNES. #
+#       Define the convolution params inside the main yaml file.                      #
+#######################################################################################
+
+# General XANES information which will be converted into cards internally. This section
+# is the same for all XANES yamls.
+cluster_radius: 5.0
+structure_type: "molecule" # Molecule or Crystal
+core_hole_site_element: "Fe"
+core_hole_site_id: 1 # which target element site is the center of the calculation (1 .. n_element)
+edge: "K"
+
+# Direct FDMNES cards
+fdmnes_cards:
+    Atom: None
+    Atom_conf: {"26": "3 3 2 5.0 4 0 2. 4 1 1.", "6": "2 2 0 2 2 1 2.", "7": "2 2 0 2 2 1 3."}
+    Green: None
+    Range: "-5 0.2 7 0.8 50.0"
+    Screening: "3 2 0.55"
+    Multipolar: "Quadrupole"
+    SCF: "include"
+    Hubbard: "5.3 0.0 0.0"
+    Self_abs: None
+    Double_cor: None
+    TDDFT: "include"
+    Perdew: None
+    Chfree: "include"

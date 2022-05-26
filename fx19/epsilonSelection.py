@@ -34,6 +34,7 @@ Note: single-objective search is also supported, using the original method
 of V.S.C. Kolluru.
 """
 
+
 class ParetoDominance(object):
     '''
     Class which performs non-dominance calculations. Non-dominance is
@@ -460,7 +461,8 @@ class StructuralEpsilonDominance(object):
             # If models fall within similarity tolerance, then keep model
             # which is closest to the corner of the epsilon box
             # Otherwise, keep both models
-            similarity = self.comparator.assess_models_similarity(test_model, ref_model)
+            similarity = self.comparator.assess_models_similarity(
+                test_model, ref_model)
             if similarity > 0:
                 print(
                     f"Models {test_model.label} and {ref_model.label} are \
@@ -641,7 +643,8 @@ class Pool(object):
         # the model is unique.
         unique = True
         if self.population.size >= 1 and self.comparator is not None:
-            unique = self.comparator.check_model_uniqueness(model, self.population.models)
+            unique = self.comparator.check_model_uniqueness(
+                model, self.population.models)
         if unique:
             print(f"Current population size: {self.population.size}")
             # If population size is less than 10, add any models created
@@ -660,7 +663,7 @@ class Pool(object):
                     or select.type == "single":
                 self.population.basic_addition_to_population(
                     model, select, sim_ids=sim_ids)
-                #print(f'New model {model.label} added to population based'
+                # print(f'New model {model.label} added to population based'
                 #      ' on their objective values only!')
 
             # Othewise, perform usual epsilon-MOEA
@@ -797,7 +800,7 @@ class Select(object):
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
 
-        self.max_times_as_parent = 20 # max times to be chosen as a parent
+        self.max_times_as_parent = 20  # max times to be chosen as a parent
         # Define weights for the objective functions
         if 'weights' not in select_obj_params:
             self.weights = [1, 1, 1, 1, 1]
@@ -1069,10 +1072,10 @@ class Select(object):
                 if len(parents) == 0:
                     new_parent = pool.archive.produce_model()
                     if new_parent.times_chosen_as_parent > \
-                                        self.max_times_as_parent:
-                        print ('Model {} reached max times to be chosen as '
-                               'parent. Removed from archive.'.format(
-                                new_parent.label))
+                            self.max_times_as_parent:
+                        print('Model {} reached max times to be chosen as '
+                              'parent. Removed from archive.'.format(
+                                  new_parent.label))
                         pool.finished_models.append(new_parent)
                         pool.archive.remove_model(new_parent)
                         pool.population.remove_model(new_parent)
@@ -1254,7 +1257,7 @@ class Population(object):
             self.models.remove(model)
             self.size -= 1
         except:
-            print ('Model {} not in population.'.format(model.label))
+            print('Model {} not in population.'.format(model.label))
 
     def init_clustering(self):
         '''
@@ -1269,11 +1272,11 @@ class Population(object):
             self.cluster_models, self.multi_model_clusters, _ = \
                 self.cluster_obj.initialize_clusters(
                     self.models)
-            self.cluster_obj.visualize_clusters()
+            # self.cluster_obj.visualize_clusters()
             print("Cluster object seeded with models.\n")
             print(f"Clustered models: {self.cluster_models}\n")
             print(f"Multi-model clusters: {self.multi_model_clusters}\n")
-            print(f"Visualized clusters.")
+            # print(f"Visualized clusters.")
 
     def basic_addition_to_population(self, model, select, sim_ids=None):
         '''
@@ -1391,7 +1394,8 @@ class Population(object):
 
         Args:
 
-        model (obj): structure_record.model() for which addition is being tested.
+        model (obj): structure_record.model() for which addition
+            is being tested.
         '''
         dominates = []
         dominated = False
@@ -1461,44 +1465,52 @@ class Population(object):
         cluster (True) as the first parent model, or a different cluster
         (False).
         '''
-        if cluster is None:
-            [model_one, model_two] = np.random.choice(self.models, 2)
-        else:
-            # Refer to cluster dictionary to get models
-            if same:
-                models = self.cluster_models[cluster]
-                # Usurp this requirement if cluster is single occupancy
-                if len(models) == 1:
-                    try:
-                        other_cluster = np.random.choice(self.multi_model_clusters)
-                    except:
-                        print(f"All clusters: {self.cluster_models}")
-                        print(f"Multi model clusters: {self.multi_model_clusters}")
-                        other_cluster = cluster
+        if len(self.models) >= 2:
+            if cluster is None:
+                [model_one, model_two] = np.random.choice(self.models, 2)
+            else:
+                # Refer to cluster dictionary to get models
+                if same:
+                    models = self.cluster_models[cluster]
+                    # Usurp this requirement if cluster is single occupancy
+                    if len(models) == 1:
+                        try:
+                            other_cluster = np.random.choice(
+                                self.multi_model_clusters)
+                        except:
+                            print(f"All clusters: {self.cluster_models}")
+                            print(
+                                "Multi model clusters: "
+                                f"{self.multi_model_clusters}")
+                            other_cluster = cluster
+                        models = self.cluster_models[other_cluster]
+                        [model_one, model_two] = np.random.choice(models, 2)
+                    else:
+                        [model_one, model_two] = np.random.choice(models, 2)
+                        if len(models) == 2:
+                            # return the dominated model, because it is the
+                            # model which does not live in the archive.
+                            nd_model = self._dominance.choose_non_dominated(
+                                model_one, model_two)
+                            return models[models.index(nd_model) - 1]
+                else:
+                    other_cluster = np.random.choice(self.multi_model_clusters)
+                    while other_cluster == cluster and \
+                            len(self.multi_model_clusters) != 1:
+                        try:
+                            other_cluster = np.random.choice(
+                                self.multi_model_clusters)
+                        except:
+                            print(f"All clusters: {self.cluster_models}")
+                            print(
+                                "Multi model clusters: "
+                                f"{self.multi_model_clusters}")
+                            other_cluster = cluster
                     models = self.cluster_models[other_cluster]
                     [model_one, model_two] = np.random.choice(models, 2)
-                else:
-                    [model_one, model_two] = np.random.choice(models, 2)
-                    if len(models) == 2:
-                        # return the dominated model, because it is the model
-                        # which does not live in the archive
-                        nd_model = self._dominance.choose_non_dominated(
-                            model_one, model_two)
-                        return models[models.index(nd_model) - 1]
-            else:
-                other_cluster = np.random.choice(self.multi_model_clusters)
-                while other_cluster == cluster and \
-                        len(self.multi_model_clusters) != 1:
-                    try:
-                        other_cluster = np.random.choice(self.multi_model_clusters)
-                    except:
-                        print(f"All clusters: {self.cluster_models}")
-                        print(f"Multi model clusters: {self.multi_model_clusters}")
-                        other_cluster = cluster
-                models = self.cluster_models[other_cluster]
-                [model_one, model_two] = np.random.choice(models, 2)
-
-        return self._dominance.choose_non_dominated(model_one, model_two)
+            return self._dominance.choose_non_dominated(model_one, model_two)
+        else:
+            return self.models[0]
 
 
 class Archive(object):
@@ -1610,4 +1622,4 @@ class Archive(object):
             self.models.remove(model)
             self.size -= 1
         except:
-            print ('Model {} not in archive'.format(model.label))
+            print('Model {} not in archive'.format(model.label))

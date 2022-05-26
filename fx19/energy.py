@@ -103,6 +103,7 @@ class lammps_code(object):
         relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
         os.mkdir(relax_path)
         self.relax_path = relax_path
+        model.relax_path = relax_path
         astr = model.astr
         files_path = self.energy_files_path
         atom_style = self.atom_style
@@ -146,16 +147,20 @@ class lammps_code(object):
 
         reg_id (obj): structure_record.register_id() object for bookkeeping
         """
+        print(f"Prepping the job folder of model {model.label}.")
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
         # start the lammps calculation
-        relax_path = self.relax_path
+        relax_path = model.relax_path
+        print(f"Model {model.label} relax path is: {relax_path}")
         # relax_path = model.relax_path
-        os.chdir(relax_path)
+        # os.chdir(relax_path)
         lammps_exec = self.energy_exec_cmd.split()
-        with open('log_lammps.{}'.format(model.label), 'w') as log_file:
+        with open(
+            relax_path + '/log_lammps.{}'.format(model.label), 'w'
+        )as log_file:
             lammps_job = sp.Popen(
-                lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT)
+                lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
             for each_line in lammps_job.stdout:
                 line = each_line.decode('utf-8')
                 log_file.write(line)
@@ -422,7 +427,9 @@ class vasp_code(object):
         # Ex: 'mpirun <path_to_vasp_binary>'
         self.energy_exec_cmd = energy_params['energy_exec_cmd']
         # how many times to resubmit job if not converged
-        self.resubmit = energy_params['resubmit']
+        self.resubmit = 0
+        if 'resubmit' in energy_params:
+            self.resubmit = energy_params['resubmit']
 
         #  All these parameters for use in sd_flags
         # These are stored in inputs after object creation
@@ -498,6 +505,7 @@ class vasp_code(object):
         relax_path = main_path + '/calcs/' + str(model.label) + '/relax'
         os.mkdir(relax_path)
         self.relax_path = relax_path
+        model.relax_path = relax_path
         astr = model.astr
         files_path = self.energy_files_path
 
@@ -522,7 +530,7 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        if self.shape == 'cluster':
+        if self.shape == 'cluster' or self.shape == "molecule":
             model.astr.to(filename=new_poscar, fmt='poscar')
 
         if self.shape == 'gb':
@@ -557,10 +565,7 @@ class vasp_code(object):
         """
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
-        # start the lammps calculation
-        relax_path = self.relax_path
-        # Go to job directory
-        os.chdir(relax_path)
+        # start the vasp calculation
         self.run_vasp(model)
 
     def re_relax(self, model):
@@ -593,18 +598,19 @@ class vasp_code(object):
         model (obj): structure_record.model() object for which energy
         evaluation will be done
         """
-        # returns nothing
-
         vasp_exec = self.energy_exec_cmd.split()
-        log_file = open('job.log', 'w')
-        err_file = open('job.err', 'w')
-        sp.call(vasp_exec, stdout=log_file, stderr=err_file)
+        log_file = open(model.relax_path + '/job.log', 'w')
+        err_file = open(model.relax_path + '/job.err', 'w')
+        sp.call(vasp_exec, stdout=log_file,
+                stderr=err_file, cwd=model.relax_path)
         # sp.call will wait for the calculation to finish
+        log_file.close()
+        err_file.close()
 
         # TODO: get energy
         # check if calculation is converged
         converged = False
-        outcar = self.relax_path + '/OUTCAR'
+        outcar = model.relax_path + '/OUTCAR'
         with open(outcar) as out:
             lines = out.readlines()
             for line in lines:
@@ -620,7 +626,7 @@ class vasp_code(object):
             model.converged = converged
 
             # get total energy from output files
-            oszicar = self.relax_path + '/OSZICAR'
+            oszicar = model.relax_path + '/OSZICAR'
             with open(oszicar) as oz:
                 lines = oz.readlines()
             if lines[-1].split()[3] == 'E0=':
@@ -629,8 +635,8 @@ class vasp_code(object):
 
             # get relaxed structure
             try:
-                contcar = self.relax_path + '/CONTCAR'
-                shutil.copy(contcar, self.relax_path + '/POSCAR_relaxed')
+                contcar = model.relax_path + '/CONTCAR'
+                shutil.copy(contcar, model.relax_path + '/POSCAR_relaxed')
                 relaxed_astr = Structure.from_file(contcar)
                 relaxed_astr.sort()
                 self.move_atoms_inside(relaxed_astr)
@@ -646,16 +652,17 @@ class vasp_code(object):
             # DU
             # Evaluate free energy by calculating
             # chemical potential contribution
-            free_en = total_energy
-            for elem in astr_elems:
-                if elem in self.sym_mu_dict.keys():
-                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
-                else:
-                    print("Error. VASP species " + elem +
-                          " not contained in input yaml file.")
-
-            model.obj0_val = float(free_en)
-            # other objective functions should be evaluated here.
+            if self.shape == "molecule":
+                model.obj0_val = total_energy/model.astr.num_sites
+            else:
+                free_en = total_energy
+                for elem in astr_elems:
+                    if elem in self.sym_mu_dict.keys():
+                        free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                    else:
+                        print("Error. VASP species " + elem +
+                              " not contained in input yaml file.")
+                model.obj0_val = float(free_en)
 
     def move_atoms_inside(self, astr):
         """

@@ -25,7 +25,6 @@ from math import asin, cos, sqrt, tan, pi
 from fx19 import structure_record
 from fx19 import distance_check as dc
 import traceback
-import time
 
 
 class Evolve(object):
@@ -33,7 +32,7 @@ class Evolve(object):
     A wrapper around mating and basinhopping classes. This is used to decide
     whether to do mating (GA) or mutation (basinhopping) to generate a new
     structure and calls either of these classes to generate a single model.
-    This class is only used in nanocluster geometry search.
+    This class is used in nanocluster and molecule geometry search.
     """
 
     def __init__(self, mate, hop, evolve_params):
@@ -79,7 +78,7 @@ class Evolve(object):
         hop = self.hop
         mate = self.mate
         operator = np.random.choice(
-                        select.operators, p=select.operator_frequencies)
+            select.operators, p=select.operator_frequencies)
 
         correct_comp = False
         tries = 0
@@ -90,22 +89,22 @@ class Evolve(object):
             try:
                 if operator == "perturb_sites":
                     new_astr, inheritance = hop.perturb_sites(
-                                                select, pool, model_id=label)
+                        select, pool, model_id=label)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "perturb_comp":
                     new_astr, inheritance = hop.perturb_comp(
-                                                select, pool, model=parent_model)
+                        select, pool, model=parent_model)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_same_cluster":
                     new_astr, inheritance = self.mate_by_slicing(
-                                            select, pool, same_cluster=True)
+                        select, pool, same_cluster=True)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_dif_cluster":
                     new_astr, inheritance = self.mate_by_slicing(
-                                            select, pool, same_cluster=False)
+                        select, pool, same_cluster=False)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice":
@@ -114,10 +113,12 @@ class Evolve(object):
 
                 elif operator == "mate_by_swap":
                     new_astr, inheritance = mate.mate_by_random_swap(
-                                                                select, pool)
+                        select, pool)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
             except:
-                print(f"Exception! Unable to get correct comp. Operator is: {operator}.")
+                print(
+                    "Exception! Unable to get correct comp."
+                    f"Operator is: {operator}.")
                 traceback.print_exc()
                 if operator == "perturb_sites" or operator == "perturb_comp":
                     parent_model = select.get_a_parent(pool)
@@ -145,8 +146,8 @@ class Evolve(object):
                 correct_comp = True
 
         if not correct_comp:
-            print ('Failed to produce model in 10 attempts '
-                   'with {} operator'.format(operator))
+            print('Failed to produce model in 10 attempts '
+                  'with {} operator'.format(operator))
             return None
 
         new_model = structure_record.model(new_astr, reg_id)
@@ -194,9 +195,11 @@ class mating(object):
                 print('mirror_slice_before_join parameter should be a boolean.'
                       ' Setting to defaults True')
 
-        if mating_params['shape'] == 'cluster':
+        if mating_params['shape'] == 'cluster' or\
+                mating_params['shape'] == 'molecule':
             self.max_dia = mating_params['max_dia']
             self.box_abc = np.array(mating_params['box_abc'])
+            self.origin = np.array(mating_params['origin'])
 
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
@@ -508,13 +511,13 @@ class mating(object):
         child (obj): pymatgen structure object
         """
         radius, abc = self.max_dia/2, self.box_abc
-        origin = abc/2
+        self.origin = abc/2
 
         # get atom indices that needs to be moved
         child_sites = child.sites
         species = child.species
         move_inds = [i for i, site in enumerate(child_sites)
-                     if dc.dist(origin, site.coords) > radius]
+                     if dc.dist(self.origin, site.coords) > radius]
         if len(move_inds) > 3:
             print('More than 3 atoms lie outside max diameter of cluster. '
                   'Rejecting this model and continuing to make new model')
@@ -527,9 +530,9 @@ class mating(object):
             replaced = False
             while not replaced and tries < 1000:
                 tries += 1
-                new_cart = unif(origin[0] - radius,
-                                origin[0] + radius, size=(3,))
-                if dc.dist(origin, new_cart) > radius:
+                new_cart = unif(self.origin[0] - radius,
+                                self.origin[0] + radius, size=(3,))
+                if dc.dist(self.origin, new_cart) > radius:
                     continue
                 # Check distance and replace with new coords
                 if dc.satisfies_all_dists(new_cart,
@@ -603,12 +606,18 @@ class basinhopping(object):
                 self.max_perturbation = basinhopping_params['max_perturbation']
 
         # maximum diameter and box lattice parameters of the cluster (geometry)
-        if self.shape == 'cluster':
+        if self.shape == 'cluster' or self.shape == 'molecule':
             # default is 8 Å
             self.max_dia = basinhopping_params['max_dia']
             # default a=b=c=20 Å
             self.box_abc = np.array(
                 basinhopping_params['box_abc'])
+            self.origin = np.array(basinhopping_params['origin'])
+        if self.shape == 'molecule':
+            self.fixed_species = basinhopping_params['fixed_species']
+            print(f"Atomic species held fixed: {self.fixed_species}")
+        else:
+            self.fixed_species = []
 
         # delta_comps list to modify the composition
         # Ex: ['AlO', 'Al2O', 'Al3O', 'Al4O', 'O2', 'Al2', 'Al3']
@@ -616,11 +625,12 @@ class basinhopping(object):
         if 'delta_comps' in basinhopping_params:
             self.delta_comps = basinhopping_params['delta_comps']
 
-        self.add_rem_comp_frac = 0.6 # add unit comp 60% of the time
+        self.add_rem_comp_frac = 0.6  # add unit comp 60% of the time
         if 'add_rem_comp_frac' in basinhopping_params:
             self.add_rem_comp_frac = basinhopping_params['add_rem_comp_frac']
 
-    def perturb_sites(self, select, pool, surface_thickness=None, model_id=None):
+    def perturb_sites(self, select, pool,
+                      surface_thickness=None, model_id=None):
         """
         Displaces atoms in a parent (cluster or gb_iface or surface layer)
         using uniform distribution within max_perturbation
@@ -670,9 +680,29 @@ class basinhopping(object):
 
         # Get frac_coords to perturb
         total_num_atoms = len(cart_coords)
-        # use indices_fraction; default to 1
+        # use indices_fraction; default to 1.
+        # Adjust if any species need to be held fixed.
         num_atoms_to_perturb = int(total_num_atoms * indices_fraction)
+        if len(self.fixed_species) > 0:
+            cap_reduction = 0
+            for specie in self.fixed_species:
+                cap_reduction += parent.astr.composition.as_dict()[specie]
+            if num_atoms_to_perturb > total_num_atoms - cap_reduction:
+                num_atoms_to_perturb = total_num_atoms - cap_reduction
+
         D_inds = random.sample(range(0, total_num_atoms), num_atoms_to_perturb)
+        if len(self.fixed_species) > 0:
+            # Grab species which correspond to D_inds
+            bh_species = [parent.astr.sites[i].specie.name for i in D_inds]
+            occupancy = [i in self.fixed_species for i in bh_species]
+            problematic_basinhopping = np.any(occupancy)
+            while problematic_basinhopping:
+                D_inds = random.sample(
+                    range(0, total_num_atoms), num_atoms_to_perturb)
+                bh_species = [parent.astr.sites[i].specie.name for i in D_inds]
+                occupancy = [i in self.fixed_species for i in bh_species]
+                problematic_basinhopping = np.any(occupancy)
+
         D_coords = [cart_coords[i] for i in D_inds]
 
         num_perturbed = 0
@@ -686,10 +716,10 @@ class basinhopping(object):
                 jump = self.max_perturbation
                 perturb = self.get_point_on_sphere(jump)
                 new_cart = one_coords + perturb
-                if self.shape == 'cluster':
+                if self.shape == 'cluster' or self.shape == "molecule":
                     # check if new cart is inside the cluster radius
-                    origin = self.box_abc/2
-                    if dc.dist(origin, new_cart) > self.max_dia/2:
+                    if dc.dist(self.origin, new_cart) > self.max_dia/2:
+                        # print(f"between origin and new_cart is too large")
                         continue
                     # Check distance and replace with new coords
                     if dc.satisfies_all_dists(new_cart,
@@ -715,12 +745,13 @@ class basinhopping(object):
         if num_perturbed >= jumps_needed:
             if self.shape == 'gb':
                 return parent.gb_iface, inheritance
-            elif self.shape == 'cluster':
+            elif self.shape == 'cluster' or self.shape == 'molecule':
                 return parent.astr, inheritance
         else:
             return None, None
 
-    def perturb_surface(self, select, pool, surface_thickness=1, model_id=None):
+    def perturb_surface(self, select, pool,
+                        surface_thickness=1, model_id=None):
         """
         Displaces atoms in a surface layer using uniform distribution
 
@@ -799,7 +830,8 @@ class basinhopping(object):
         else:
             return None, None
 
-    def perturb_comp(self, select, pool, z_bounds = None, dc_astr=None, model=None):
+    def perturb_comp(self, select, pool,
+                     z_bounds=None, dc_astr=None, model=None):
         """
         Function to generate a child model by changing the composition of a
         parent model.
@@ -830,7 +862,7 @@ class basinhopping(object):
         if len(self.delta_comps) > 0:
             unit = np.random.choice(self.delta_comps)
             unit_comp = Composition(unit).as_dict()
-        else: # else select random unit compositon
+        else:  # else select random unit compositon
             unit_comp = {}
             while True:
                 for sym in self.element_syms.values():
@@ -855,26 +887,31 @@ class basinhopping(object):
                     else:
                         x_cart = parent_astr.lattice.a*fracs[0]
                         y_cart = parent_astr.lattice.b*fracs[1]
-                        z_cart = fracs[2]*z_bounds[1] + (1-fracs[2])*z_bounds[0]
+                        z_cart = fracs[2]*z_bounds[1] + \
+                            (1-fracs[2])*z_bounds[0]
                         carts = (x_cart, y_cart, z_cart)
                     # Check dists with rest of the atoms in parent_astr
-                    if dc.satisfies_all_dists(carts, parent.astr,
-                                    self.element_syms, self.min_dist_dict,
-                                    new_carts_species=sps):
+                    if dc.satisfies_all_dists(carts,
+                                              parent.astr,
+                                              self.element_syms,
+                                              self.min_dist_dict,
+                                              new_carts_species=sps):
                         if dc_astr:
                             # check with dc_astr as well (if gb geometry)
-                            if dc.satisfies_all_dists(carts, dc_astr,
-                                    self.element_syms, self.min_dist_dict,
-                                    new_carts_species=sps):
+                            if dc.satisfies_all_dists(carts,
+                                                      dc_astr,
+                                                      self.element_syms,
+                                                      self.min_dist_dict,
+                                                      new_carts_species=sps):
                                 dc_astr.append(sps, carts,
-                                            coords_are_cartesian=True)
+                                               coords_are_cartesian=True)
                                 parent_astr.append(sps, carts,
-                                            coords_are_cartesian=True)
+                                                   coords_are_cartesian=True)
                         else:
                             parent_astr.append(sps, carts,
-                                            coords_are_cartesian=True)
+                                               coords_are_cartesian=True)
                         num_added += 1
-        else: # remove random sites from the parent
+        else:  # remove random sites from the parent
             rem_inds = []
             for sps in unit_comp.keys():
                 n_sps = int(parent_comp[sps])
@@ -1729,7 +1766,6 @@ class gb_ops(object):
         tries = 0
         if do_hop:
             parent_model = select.get_a_parent(pool)
-            model_copy = copy.deepcopy(parent_model)
             label = parent_model.label
         while correct_comp is False and tries <= 10:
             try:
@@ -1745,7 +1781,6 @@ class gb_ops(object):
             except:
                 if do_hop:
                     parent_model = select.get_a_parent(pool)
-                    model_copy = copy.deepcopy(parent_model)
                     label = parent_model.label
                 continue
             if new_astr is None:
@@ -1782,9 +1817,9 @@ class gb_ops(object):
 
     def get_model(self, select, pool, reg_id):
         """
-        Function to get a child model through basinhopping or mating operations.
-        Operators are provided from the select object. Available operators for
-        gb_ops are:
+        Function to get a child model through basinhopping or mating
+        operations. Operators are provided from the select object.
+        Available operators for gb_ops are:
         perturb_sites, fraction_slice, and fraction_slice_same_cluster and
         fraction_slice_dif_cluster. The latter two are only applicable if
         clustering is being employed.
@@ -1820,28 +1855,28 @@ class gb_ops(object):
                     # occurs in next step
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
-                    #maker = 'perturb_sites'
                 elif operator == "perturb_comp":
                     perturbed_iface, inheritance = hop.perturb_comp(
-                            select, pool, z_bounds = hollow_bounds, dc_astr=self.astr_for_dist_check,
-                            model=parent_model)
+                        select,
+                        pool,
+                        z_bounds=hollow_bounds,
+                        dc_astr=self.astr_for_dist_check,
+                        model=parent_model)
                     self.move_coords_inside(perturbed_iface)
                     new_astr = self.grain_implant(perturbed_iface)
-                    #maker = 'perturb_comp'
                 elif operator == "fraction_slice_same_cluster":
                     new_astr, inheritance = self.mate(
                         select, pool, same_cluster=True)
-                    #maker = 'fraction_slice_same_cluster'
                 elif operator == "fraction_slice_dif_cluster":
                     new_astr, inheritance = self.mate(
                         select, pool, same_cluster=False)
-                    #maker = 'fraction_slice_dif_cluster'
                 elif operator == "fraction_slice":
                     new_astr, inheritance = self.mate(
                         select, pool)
-                    #maker = 'fraction_slice'
             except:
-                print(f"Exception! Unable to get correct composition. Operator is: {operator}")
+                print(
+                    "Exception! Unable to get correct composition."
+                    f"Operator is: {operator}")
                 traceback.print_exc()
                 if operator == "perturb_sites" or operator == "perturb_comp":
                     parent_model = select.get_a_parent(pool)

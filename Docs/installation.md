@@ -1,0 +1,56 @@
+It is recommended to start installation on a new conda environment using Anaconda.
+
+Load Anaconda if available as a library
+```sh
+module load conda
+```
+Or in some systems, Anaconda comes with python module. So
+```sh
+module load python
+```
+
+If above methods fail, download Anaconda for the system [here](https://docs.conda.io/en/latest/miniconda.html). Follow default instructions and install Anaconda. Restart the terminal so that the installation takes effect.
+
+Update conda and add conda-forge to the Anaconda channels & set higher priority. Skip this step if conda-forge is already added before. Install everything from conda-forge to be consistent & reduce compatibility issues across different pacakges.
+```sh
+conda update -n base -c defaults conda
+conda config --add channels conda-forge
+```
+
+Create a new conda environment with path. Provide *path* to the new conda environment. Add the new environment (*fantastx*) to the system path. Install python 3.
+
+```sh
+conda create -yp ~/miniconda3/envs/fantastx
+conda activate ~/miniconda3/envs/fantastx
+export PATH=~/miniconda3/envs/fantastx/bin:$PATH
+conda install python=3
+```
+
+Install following dependencies in this order -
+
+Diffpy (For PDF simulation)
+```sh
+conda install -c diffpy diffpy-cmi
+```
+
+Install Pymatgen (Installs Numpy, Scipy, Matplotlib) with pip instead of conda.
+
+```sh
+pip install pymatgen
+```
+
+Dask, Dask-jobqueue (for parallel calculations on SLURM/PBS cluster)
+
+```sh
+conda install -c conda-forge dask dask-jobqueue
+```
+
+Follow instructions [here](https://github.com/MaterialEyes/ingrained/blob/dev_ch/README.md) to install Ingrained package (for TEM and STM simulations)
+
+Install Fantastx by cloning this repository. Enter username and password when prompted. Install using *develop* for ease of updating the code during development phase.
+
+```sh
+git clone https://github.com/MaterialEyes/fantastx.git
+
+python setup.py develop
+```

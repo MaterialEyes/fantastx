@@ -11,8 +11,22 @@ algorithm taken from (source): https://medium.com/@andriylazorenko
 and been modified
 """
 
+
 def solution(x, y, z, min_dist, close_coords):
     """
+    Finds the closest pair of points out of all possible pairs, as well
+    as all other points which are close within a threshold.
+
+    Returns the two points, the minimum distance, and the close_coords
+    object.
+
+    Args:
+
+    x,y,z (iterables): all x-, y-, and z-coords
+
+    min_dist (float): distance_cutoff with which to consider points close
+
+    close_coords (list): the container for all pairs of close coordinates.
     """
     x, y, z = list(x), list(y), list(z)
     a = list(zip(x, y, z))  # This produces list of tuples
@@ -184,7 +198,7 @@ def astr_min_dist(astr, min_dist):
     close_coords = []
     coords = astr.cart_coords
     p1, p2, dist, recheck_coords = solution(
-                coords[:,0], coords[:,1], coords[:,2], min_dist, close_coords)
+        coords[:, 0], coords[:, 1], coords[:, 2], min_dist, close_coords)
     if dist < min_dist:
         return True, recheck_coords
     else:
@@ -211,7 +225,6 @@ def check_all_bonds(astr, min_dist_dict, cum_sum):
     # atoms_too_close is False if recheck_coords is None
     if recheck_coords is None:
         return atoms_too_close
-
 
     sp1_coords = np.round(astr.cart_coords[:cum_sum[0]], 3)
     if len(cum_sum) > 1:

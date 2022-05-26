@@ -25,12 +25,782 @@ try:
     import ingrained.image_ops as iop
     import cv2
 except ImportError:
-    print ('Install scikit-image, Ingrained, opencv for TEM simulation.'
-           ' Otherwise ignore..')
+    print('Install scikit-image, Ingrained, opencv for TEM simulation.'
+          ' Otherwise ignore..')
 
 from math import floor
 import numpy as np
 import os
+import yaml
+import subprocess as sp
+from scipy.interpolate import CubicSpline, UnivariateSpline
+from ase.data import atomic_numbers
+from fx19.fingerprinting import DistanceCalculator
+import re
+
+
+class xanes_of_model(object):
+    """
+    This class contains functions to calculate the XANES, compare it against
+    the previously computed [Fe(CN)6]-4 spectra, and compare the difference
+    spectra against the experimental difference spectra.
+
+    Arguments:
+
+        xanes_params (dict): A dictionary of parameters used.
+    """
+
+    def __init__(self, xanes_params):
+        """
+        """
+        print("Initializing XANES module.")
+        # main path as in energy.py
+        self.name = 'XANES'
+        self.main_path = xanes_params['main_path']
+        self.simulation_code = xanes_params['simulation_code']
+        self.input_yaml_filepath = xanes_params['input_yaml_filepath']
+        self.comparison_spectra_type = xanes_params['comparison_spectra_type']
+
+        if 'code_folder' in xanes_params:
+            self.code_folder = xanes_params['code_folder']
+        else:
+            self.code_folder =\
+                "/mnt/c/Users/dunru/Research/XANES/parallel_fdmnes"
+
+        if self.comparison_spectra_type == "difference":
+            # 3 files need to be read in: base and excited experimental
+            # reference spectra, and the computational base spectra.
+            if "exp_base_ref_filepath" in xanes_params:
+                self.exp_base_ref_filepath =\
+                    xanes_params["exp_base_ref_filepath"]
+            else:
+                self.exp_base_ref_filepath = "/experiment_base_ref.dat"
+            if "exp_exc_ref_filepath" in xanes_params:
+                self.exp_exc_ref_filepath =\
+                    xanes_params["exp_exc_ref_filepath"]
+            else:
+                self.exp_exc_ref_filepath = "/experiment_exc_ref.dat"
+            if "comp_base_ref_filepath" in xanes_params:
+                self.comp_base_ref_filepath =\
+                    xanes_params["comp_base_ref_filepath"]
+            else:
+                self.comp_base_ref_filepath = "/computational_base_ref.dat"
+        else:
+            if "exp_base_ref_filepath" in xanes_params:
+                self.exp_base_ref_filepath =\
+                    xanes_params["exp_base_ref_filepath"]
+            else:
+                self.exp_base_ref_filepath = "/experiment_base_ref.dat"
+
+        if 'exec_cmd' in xanes_params:
+            self.exec_cmd = xanes_params['exec_cmd']
+        else:
+            self.exec_cmd = "./mpirun_fdmnes -np 4"
+
+        if 'spectra_distance_metric' in xanes_params:
+            self.distance_calculator = DistanceCalculator(
+                xanes_params['spectra_distance_metric'])
+        else:
+            # options are any of those in fingerprinting.DistanceCalculator
+            self.distance_calculator = DistanceCalculator('rmse')
+
+        if 'spline_mesh_params' in xanes_params:
+            spline_min = xanes_params['spline_mesh_params'][0]
+            spline_max = xanes_params['spline_mesh_params'][1]
+            spline_step = xanes_params['spline_mesh_params'][2]
+            self.spline_mesh = np.arange(spline_min, spline_max, spline_step)
+            self.mesh_step = spline_step
+        else:
+            self.spline_mesh = np.arange(7110, 7165, 0.1)
+            self.mesh_step = 0.1
+
+        if 'convolution_params' in xanes_params:
+            self.convolution_type = xanes_params['convolution_params'][0]
+            self.convolution_params = xanes_params['convolution_params'][1]
+            self.extract_cutting_energy = xanes_params['convolution_params'][2]
+        else:
+            self.convolution_type = 'lorentzian'
+            self.convolution_params = [1.33, 15., 23.5, 23.5, -8]
+            self.extract_cutting_energy = True
+        self.cutting_energy_correction = -11.
+        self.refine_alignment_using_difference_spectra = False
+
+        # Gather experimental data
+        self.exp_base_arrays, self.exp_base_maxes =\
+            self.read_in_experimental_spectra(self.exp_base_ref_filepath)
+        exp_base_spline = self.fit_spline(
+            self.exp_base_arrays[0], self.exp_base_arrays[1], "cubic")
+        if self.comparison_spectra_type == "difference":
+            self.exp_exc_arrays, self.exp_exc_maxes =\
+                self.read_in_experimental_spectra(self.exp_exc_ref_filepath)
+            exp_exc_spline = self.fit_spline(
+                self.exp_exc_arrays[0], self.exp_exc_arrays[1], "cubic")
+            self.exp_dif_spline = exp_exc_spline - exp_base_spline
+            self.exp_dif_reshaped_spline = np.reshape(
+                self.exp_dif_spline, (-1, 1))
+        else:
+            self.exp_base_spline = exp_base_spline
+            self.exp_base_reshaped_spline = np.reshape(
+                self.exp_base_spline, (-1, 1))
+
+        print("Gathered experimental data.")
+
+        if self.comparison_spectra_type == "difference":
+            # Gather pre-computed computational base spectra
+            self.comp_base_arrays, _ = self.read_in_calculated_spectra(
+                self.comp_base_ref_filepath, self.exp_base_maxes)
+            self.comp_base_spline = self.fit_spline(
+                self.comp_base_arrays[0], self.comp_base_arrays[1], "cubic")
+            print("Gathered pre-computed computational data.")
+
+    def fwhm2sigma(self, fwhm):
+        '''
+        Converts the full width half maximum into a sigma for gaussian
+        convolution.
+
+        Arguments:
+
+            fwhm (float): full width half maximum
+
+        Returns:
+
+            (float): the gaussian sigma
+        '''
+        return fwhm / np.sqrt(8 * np.log(2))
+
+    def lorentzian_broadening(self, E, g_ch, g_m, E_cent, E_larg, E_f):
+        '''
+        Calculates the energy dependent broadening parameter for
+        Lorentzian broadening. For reference, refer to this
+        [paper](https://hal.archives-ouvertes.fr/hal-00687301/document).
+        In this method, the broadening depends on both the core-hole width
+        as well as the spectral width of the final state. This spectral
+        width is approximated by an arctangent.
+
+        Arguments:
+
+            E (float): energy
+
+            g_ch (float): core-hole broadening width
+
+            g_m (float): maximum height of the arctangent
+
+            E_cent (float): the energy of the arctangent inflection point
+
+            E_larg (float): the inclination of the arctangent
+
+            E_f (float): the effective Fermi energy (also referred to as
+              the cutting energy)
+
+        Returns:
+
+            (float): the energy dependent broadening parameter
+        '''
+        eps = (E - E_f)/E_cent
+        return g_ch + g_m*(0.5 +
+                           1/np.pi *
+                           np.arctan(np.pi/3*g_m/E_larg*(eps-1/eps**2)))
+
+    def calculate_zero_derivative_peak(self, x_array, y_array):
+        '''
+        Adjusts the peak of the spectra to be the point closest to the
+        maximum intensity point where the first derivative is zero. The
+        spectra is first fitted with a spline, so as to correspond with
+        the final mesh which will be used.
+        The first derivative is then calculated numerically as:
+        f'(x) = f(x+h) - f(x-h)/(2*h)
+        The second derivative is then calculated numerically as:
+        f''(x) = (f(x+h) - 2*f(x) + f(x-h))/(h**2)
+        The zero-crossing of the first derivative is then estimated
+        by approximating the second-derivative as constant in this
+        narrow mesh interval.
+
+        Arguments:
+
+            x_array (iterable): the bin locations of the spectra
+
+            y_array (iterable): the bin heights of the spectra
+
+        Returns:
+
+            (float): the estimated x-coordinate of the peak
+        '''
+        spline_y = self.fit_spline(x_array, y_array, "cubic")
+        max_indice = np.argmax(spline_y)
+        x_max = self.spline_mesh[np.argmax(spline_y)]
+
+        # now find the second_derivative maximum
+        peak_derivative = (spline_y[max_indice + 1] -
+                           spline_y[max_indice - 1])/(2*self.mesh_step)
+        peak_second_derivative = (
+            spline_y[max_indice + 1] -
+            2*spline_y[max_indice] +
+            spline_y[max_indice - 1]) / (self.mesh_step**2)
+        zero_derivative_adjustment = (-peak_derivative)/peak_second_derivative
+        x_max = x_max + zero_derivative_adjustment
+
+        return x_max
+
+    def create_lorentzian_kernel(self, g_ch, g_m, E_cent, E_larg, E_f):
+        '''
+        Creates a Lorentzian kernel for convolution. Uses the energy-
+        dependent broadening parameter described in this [paper](https:
+        //hal.archives-ouvertes.fr/hal-00687301/document).
+
+        Arguments:
+
+            g_ch (float): core-hole broadening width
+
+            g_m (float): maximum height of the arctangent
+
+            E_cent (float): the energy of the arctangent inflection point
+
+            E_larg (float): the inclination of the arctangent
+
+            E_f (float): the effective Fermi energy (also referred to as
+              the cutting energy)
+
+        Returns:
+            (array, int):
+            - the convolution kernel
+            - integer used for shifting the final
+            convolved spectra to remove the zero points
+
+        '''
+        x_for_kernel = np.arange(-10, 10)
+        gammas = self.lorentzian_broadening(
+            x_for_kernel, g_ch, g_m, E_cent, E_larg, E_f)
+        kernel = 1/np.pi*(0.5*gammas)/((x_for_kernel)**2 + (0.5*gammas)**2)
+        kernel_above_thresh = kernel > 0.0001
+        finite_kernel = kernel[kernel_above_thresh]
+        finite_kernel = finite_kernel / finite_kernel.sum()
+        kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
+
+        return finite_kernel, kernel_n_below_0
+
+    def create_gaussian_kernel(self, fwhm):
+        '''
+        Create a gaussian kernel for convolution
+
+        Arguments:
+
+            fwhm (float): the broadening energy
+
+        Returns:
+            (array, int):
+            - the convolution kernel
+            - integer used for shifting the final convolved spectra
+            to remove the zero points
+        '''
+        # create gaussian kernel
+        sigma = self.fwhm2sigma(fwhm)
+        x_for_kernel = np.arange(-10, 10)
+        kernel = np.exp(-(x_for_kernel) ** 2 / (2 * sigma ** 2))
+        kernel_above_thresh = kernel > 0.0001
+        finite_kernel = kernel[kernel_above_thresh]
+        finite_kernel = finite_kernel / finite_kernel.sum()
+        kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
+
+        return finite_kernel, kernel_n_below_0
+
+    def convolve_with_gaussian(self, fwhm, y_array):
+        '''
+        Convolves a XANES spectra with a gaussian.
+
+        Arguments:
+
+            fwhm (float): the broadening energy
+
+            y_array (array): the absorption profile to be convolved.
+
+        Returns:
+
+            (array): the convolved absorption profile
+        '''
+        n_points = len(y_array)
+        finite_kernel, kernel_n_below_0 = self.create_gaussian_kernel(fwhm)
+        convolved_y = np.convolve(y_array, finite_kernel)
+        smoothed_y = convolved_y[kernel_n_below_0:(
+            n_points + kernel_n_below_0)]
+
+        return smoothed_y
+
+    def convolve_with_lorentzian(self, y_array,
+                                 g_ch, g_m, E_cent, E_larg, E_f):
+        '''
+        Convolve a XANES spectra with a lorentzian
+
+        Arguments:
+
+            y_array (array): the absorption profile to be convolved.
+
+            g_ch (float): core-hole broadening width
+
+            g_m (float): maximum height of the arctangent
+
+            E_cent (float): the energy of the arctangent inflection point
+
+            E_larg (float): the inclination of the arctangent
+
+            E_f (float): the effective Fermi energy (also referred to as
+              the cutting energy)
+
+        Returns:
+
+            (array): the convolved absorption profile
+        '''
+        n_points = len(y_array)
+        finite_kernel, kernel_n_below_0 = self.create_lorentzian_kernel(
+            g_ch, g_m, E_cent, E_larg, E_f)
+        convolved_y = np.convolve(y_array, finite_kernel)
+        smoothed_y = convolved_y[kernel_n_below_0:(
+            n_points + kernel_n_below_0)]
+
+        return smoothed_y
+
+    def fit_spline(self, x_array, y_array, type):
+        '''
+        Fit a spline to the spectra, and uses it to interpolate points
+        onto a pre-defined mesh (`self.spline_mesh`).
+
+        Arguments:
+
+            x_array (array): spectra energy values
+
+            y_array (array): spectra absorption values
+
+            type (string): which type of spline should be fit to the
+            spectra. Options are `cubic` and `univariate`.
+
+        Returns:
+
+            (array): the spline points on self.spline_mesh
+        '''
+        if type not in ["cubic", "univariate"]:
+            print("Error. Tried to fit spline with a keyword that was"
+                  "not 'cubic' or 'univariate'. Using the default of 'cubic'.")
+            type = "cubic"
+
+        if type == "cubic":
+            cs = CubicSpline(x_array, y_array)
+            # us = UnivariateSpline(x_array, y_array, s=0.01)
+            new_data = cs(self.spline_mesh)
+        else:
+            us = UnivariateSpline(x_array, y_array, s=0.0001)
+            new_data = us(self.spline_mesh)
+        return new_data
+
+    def read_in_experimental_spectra(self, file_path):
+        '''
+        Reads in the experimental spectra from the .dat file, convolves
+        it with a Gaussian with broadening of 0.5 eV, and returns the
+        x- and y-coords of the first peak maximum (taken to be the energy
+        value where the absorption profile has zero derivative).
+
+        Arguments:
+
+            file_path (string): the path to the .dat file
+
+        Returns:
+            (tuple, tuple):
+            - the convolved spectra
+            - the x- and y-coords of the first peak maximum.
+        '''
+        lines = open(file_path, "r").read().splitlines()
+        x_list = []
+        y_list = []
+        for line in lines:
+            newline = line.split()
+            if len(newline) != 0 and newline[0] != "#":
+                x = float(newline[0])*1000
+                y = float(newline[1])
+                x_list.append(x)
+                y_list.append(y)
+        x_array = np.array(x_list)
+        y_array = np.array(y_list)
+
+        smoothed_y = self.convolve_with_gaussian(0.5, y_array)
+
+        y_max = np.amax(smoothed_y)
+        x_max = self.calculate_zero_derivative_peak(x_array, smoothed_y)
+
+        return (x_array, smoothed_y), (x_max, y_max)
+
+    def read_in_calculated_spectra(self, file_path, experimental_maxes):
+        '''
+        Reads in the calculated spectra from the simulation file. This
+        spectra is then convolved using the user-specified parameters. 
+        The x- and y-coords of the first peak maximum, taken to be the
+        energy value where the first derivative is zero, are then
+        extracted. These values are then used to scale and shift the
+        spectra to align with the provided experimental max values.
+
+        Arguments:
+
+            file_path (string): the path to the simulated spectra data file.
+
+            experimental_maxes (tuple): the x- and y-coords of the first peak
+            maximum of the convolved experimental spectra.
+
+        Returns:
+            (tuple, tuple):
+            - the convolved spectra, shifted and scaled to match the
+            experimental spectra.
+            - the values by which the spectra was shifted and scaled.
+        '''
+        lines = open(file_path, "r").read().splitlines()
+        x_list = []
+        y_list = []
+        energy_val = 0
+        for line_index, line in enumerate(lines):
+            newline = line.split()
+            if line_index == 0:
+                energy_val = float(newline[0])
+            if line_index > 1:
+                x = float(newline[0]) + energy_val
+                y = float(newline[1])*100
+                x_list.append(x)
+                y_list.append(y)
+        x_array = np.array(x_list)
+        y_array = np.array(y_list)
+
+        if self.convolution_type == "lorentzian":
+            if self.extract_cutting_energy:
+                # Grab the fermi level to cut with
+                pattern = re.compile("Cycle  19")
+                bav_file = file_path[:-9] + "bav.txt"
+                lines = open(bav_file, "r").read().splitlines()
+                for line in lines:
+                    match = re.search(pattern, line)
+                    if match is not None:
+                        fermi_energy = float(line.split()[5])
+                        fermi_energy += self.cutting_energy_correction
+                        self.convolution_params[4] = fermi_energy
+                        break
+            smoothed_y = self.convolve_with_lorentzian(
+                y_array, *self.convolution_params)
+        else:
+            smoothed_y = self.convolve_with_gaussian(
+                y_array, *self.convolution_params)
+
+        max_indice = np.argmax(smoothed_y)
+        if max_indice < 30:
+            print("Had to trim arrays.")
+            smoothed_y = smoothed_y[30:]
+            x_array = x_array[30:]
+
+        y_max = np.amax(smoothed_y)
+        x_max = self.calculate_zero_derivative_peak(x_array, smoothed_y)
+
+        scale_factor = experimental_maxes[1] / y_max
+        shift_factor = experimental_maxes[0] - x_max
+
+        scaled_y = smoothed_y * scale_factor
+        shifted_x = x_array + shift_factor
+
+        return (shifted_x, scaled_y), (scale_factor, shift_factor)
+
+    def prepare_fdmnes(self, model, fdmnes_path):
+        '''
+        Function which prepares the FDMNES input file as well as the
+        mpi file if running on a computer which does not have mpi
+        installed.
+        Filenames are standardized for all FANTASTX runs. However, the
+        FDMNES inputs themselves are defined through a yaml file for
+        user friendliness.
+
+        Arguments:
+
+            model (obj): `model` which is the target of FDMNES
+
+            fdmnes_path (string): path to the folder containing the fdmnes
+            mpi executable.
+        '''
+        ################################################
+        # Define the filenames for all FDMNES operations
+        fdmnes_input_folder = model.relax_path + "/FDMNES_in/"
+        fdmnes_output_folder = model.relax_path + "/FDMNES_out/"
+        try:
+            os.mkdir(fdmnes_input_folder)
+            print("Created FDMNES input directory.")
+        except FileExistsError:
+            print("Error. Input directory already exists.")
+        try:
+            os.mkdir(fdmnes_output_folder)
+            print("Created FDMNES input directory.")
+        except FileExistsError:
+            print("Error. Output directory already exists.")
+        fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
+        fdmnes_abbr_input_filename = fdmnes_input_filename
+        fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
+        fdmfile_filename = model.relax_path + "/fdmfile.txt"
+        fdmnes_mpirun_filename = model.relax_path + "/mpirun_fdmnes"
+
+        #############################################
+        #  Write the fdmfile.txt file #
+        fdmfile = open(fdmfile_filename, "w+")
+        fdmfile.write("1\n")
+        fdmfile.write(fdmnes_abbr_input_filename + "\n")
+        fdmfile.close()
+
+        #############################################
+        # Write the fdmnes input file #
+        with open(self.input_yaml_filepath) as ifile:
+            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
+
+        fdmnes_headers = {
+            "Filout": fdmnes_output_filename,
+            "Radius": fdmnes_dict["cluster_radius"],
+            "Edge": fdmnes_dict["edge"]
+        }
+
+        # Absorber and core_hole_coords are determined based on structure
+        core_hole_index = 1
+        absorption_site = ""
+        core_hole_coords = [0, 0, 0]
+        for n, site in enumerate(model.astr.sites):
+            specie = site.specie.symbol
+            if specie == fdmnes_dict["core_hole_site_element"]:
+                if core_hole_index == fdmnes_dict["core_hole_site_id"]:
+                    core_hole_coords = np.copy(site.coords)
+                    absorption_site = str(n+1)
+                    fdmnes_headers['Absorber'] = absorption_site
+                core_hole_index += 1
+
+        inputfile = open(fdmnes_input_filename, "w+")
+        for key, value in fdmnes_headers.items():
+            inputfile.write(str(key) + "\n" + str(value) + "\n\n")
+
+        for key, value in fdmnes_dict["fdmnes_cards"].items():
+            print(f"key: {key}; value: {value}")
+            if value is not None:
+                if value == "include":
+                    inputfile.write(key + "\n")
+                else:
+                    if key == "Atom":
+                        inputfile.write(key + "\n")
+                        for sub_key, sub_value in value.items():
+                            inputfile.write(sub_key + " " + sub_value + "\n")
+                    elif key == "Atom_conf":
+                        inputfile.write(key + "\n")
+                        all_atom_counts = {}
+                        all_atom_indices = {}
+                        atom_index = 1
+                        for site in model.astr.sites:
+                            specie = site.specie.symbol
+                            an = str(atomic_numbers[specie])
+                            if an in all_atom_counts:
+                                all_atom_counts[an] += 1
+                            else:
+                                all_atom_counts[an] = 1
+                            if an in all_atom_indices:
+                                all_atom_indices[an].append(str(atom_index))
+                            else:
+                                all_atom_indices[an] = [str(atom_index)]
+                            atom_index += 1
+
+                        for sub_key, sub_value in value.items():
+                            # Need to get number of atoms and their indices
+                            atom_count = str(all_atom_counts[sub_key])
+                            atom_indices = " ".join(all_atom_indices[sub_key])
+                            inputfile.write(
+                                atom_count + " " +
+                                atom_indices + " " +
+                                sub_value + "\n")
+                    elif key == "Multipolar":
+                        if type(value) is str:
+                            inputfile.write(value + "\n")
+                        else:
+                            for sub_value in value:
+                                inputfile.write(sub_value + "\n")
+                    else:
+                        inputfile.write(key + "\n")
+                        inputfile.write(value + "\n")
+                inputfile.write("\n")
+
+        # create atoms card
+        inputfile.write(fdmnes_dict["structure_type"] + "\n")
+
+        # grab cartesian coordinates of lattice
+        abc = model.astr.lattice.abc
+        angles = model.astr.lattice.angles
+        l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
+        angle_vals = str(angles[0]) + " " + \
+            str(angles[1]) + " " + str(angles[2])
+        inputfile.write("    " + l_vals + " " + angle_vals + "\n")
+        for site in model.astr.sites:
+            print(f"Old coords: {site.coords}")
+        for site in model.astr.sites:
+            specie = site.specie.symbol
+            an = atomic_numbers[specie]
+            coords = np.copy(site.coords)
+            mc = []
+            for i in range(3):
+                coords[i] -= core_hole_coords[i]
+                if coords[i] > abc[i]/2:
+                    mc.append((coords[i] - abc[i])/abc[i])
+                else:
+                    mc.append(coords[i]/abc[i])
+            inputfile.write(
+                str(an) + "  " + str(mc[0]) +
+                " " + str(mc[1]) +
+                " " + str(mc[2]) + "\n")
+
+        for site in model.astr.sites:
+            print(f"New coords: {site.coords}")
+
+        inputfile.write("\n")
+
+        inputfile.write("END\n")
+        inputfile.close()
+
+        ######################################
+        # Write the mpirun_fdmnes file. Only needed if on local computer.
+        mpifile = open(fdmnes_mpirun_filename, "w+")
+        mpifile.write("#!/bin/bash\n")
+        mpifile.write(f"fdmnesDir={fdmnes_path}\n")
+        mpifile.write("IFS=$'\\n'\n")
+        mpifile.write(". \"${fdmnesDir}/mpirt/bin/intel64/mpivars.sh\"\n")
+        mpifile.write(
+            "\"${fdmnesDir}/mpirt/bin/intel64/mpirun\" "
+            "$* \"${fdmnesDir}/fdmnes_mpi_linux64\"\n")
+        mpifile.write("IFS=$' \\t\\n'\n")
+        mpifile.close()
+
+        # Make the mpifile executable
+        make_exc_string = "chmod +rx " + fdmnes_mpirun_filename
+        make_exc_command = make_exc_string.split()
+        sp.call(make_exc_command)
+
+    def evaluate_obj(self, model):
+        """
+        This function performs the full XANES simulation of the model.
+        It prepares the input file, executes the simulation code, and
+        then calculates the user-specified objective function. This
+        objective can be a straightforward comparison between the
+        experimental and simulated spectra, using a user-specified
+        distance calculation. Alternatively, it can be a comparison
+        between the experimental and simulated difference spectra. This
+        is essential to comparing to XTA experiments, where the spectra
+        is the time-resolved difference between the excited spectra and
+        the reference spectra.
+
+        Which mode is used depends on the users choice of the
+        `comparison_spectra_type` variable, which is defined in the
+        FANTASTX yaml.
+
+        This function is a part of the API for all classes in
+        experimental_simulation module.
+
+        Args:
+
+        model (obj): structure_record.model() object for which TEM simulation
+                     is obtained and a mismatch score is assigned
+
+        Returns:
+            (model obj, float):
+            - the model whose objective was calculated
+            - the objective value
+        """
+
+        # Prepare FDMNES input file and run simulation
+        self.prepare_fdmnes(model, self.code_folder)
+
+        fdmnes_exec = self.fdmnes_exec_cmd.split()
+        with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
+                  'w') as log_file:
+            fdmnes_job = sp.Popen(
+                fdmnes_exec,
+                stdout=sp.PIPE,
+                stderr=sp.STDOUT,
+                cwd=model.relax_path)
+            for each_line in fdmnes_job.stdout:
+                line = each_line.decode('utf-8')
+                log_file.write(line)
+        # wait for the calculation to finish
+        fdmnes_job.wait()
+
+        # Reference XANES simulation against experiment
+        xanes_result_path = model.relax_path +\
+            "/FDMNES_out/run_fdmnes_result_tddft.txt"
+        reference_maxes = self.exp_base_maxes
+        if self.comparison_spectra_type == "difference":
+            reference_maxes = self.exp_exc_maxes
+        self.model_comp_arrays, (scale_factor, shift_factor) =\
+            self.read_in_calculated_spectra(xanes_result_path,
+                                            reference_maxes)
+        self.model_comp_spline = \
+            self.fit_spline(
+                self.model_comp_arrays[0], self.model_comp_arrays[1], "cubic")
+
+        print("Read in calculated spectra.")
+
+        compare_indices = (self.spline_mesh <= 7135) & (
+            self.spline_mesh >= 7110)
+        lowest_spectra_distance = np.inf
+        lowest_spline = None
+        if self.comparison_spectra_type == "difference":
+            if self.refine_alignment_using_difference_spectra:
+                scale_factor_og = scale_factor
+                for i in range(-50, 50):
+                    for j in range(-5, 5):
+                        y_array = self.model_comp_arrays[1] * \
+                            (1 + 0.01*j/scale_factor_og)
+                        x_array = self.model_comp_arrays[0] - i*0.01
+                        new_spline = self.fit_spline(
+                            x_array, y_array, "cubic")
+                        compare_spline = self.comp_base_spline[compare_indices]
+                        fdmnes_dif_spectra = new_spline[compare_indices] - \
+                            compare_spline
+                        fdmnes_dif_spectra_array = np.reshape(
+                            fdmnes_dif_spectra, (-1, 1))
+                        spectra_distance = self.distance_calculator.create(
+                            fdmnes_dif_spectra_array,
+                            self.exp_dif_reshaped_spline[compare_indices])
+
+                        if spectra_distance < lowest_spectra_distance:
+                            lowest_spectra_distance = spectra_distance
+                            lowest_spline = new_spline
+            else:
+                compare_spline = self.comp_base_spline[compare_indices]
+                fdmnes_dif_spline =\
+                    self.model_comp_spline[compare_indices] - \
+                    compare_spline
+                fdmnes_dif_reshaped_spline = np.reshape(
+                    fdmnes_dif_spline, (-1, 1))
+                lowest_spectra_distance = self.distance_calculator.create(
+                    fdmnes_dif_reshaped_spline,
+                    self.exp_dif_reshaped_spline[compare_indices])
+                lowest_spline = self.model_comp_spline
+        else:
+            fdmnes_compare_spline = self.model_comp_spline[compare_indices]
+            fdmnes_compare_array = np.reshape(
+                fdmnes_compare_spline, (-1, 1)
+            )
+            lowest_spectra_distance = self.distance_calculator.create(
+                fdmnes_compare_array, self.exp_base_reshaped_spline
+            )
+            lowest_spline = self.model_comp_spline
+
+        # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
+        # print(lowest_spline_array)
+        # print(lowest_spline)
+        print(f"RMS score: {float((lowest_spectra_distance)*100)}")
+        np.save(model.relax_path + "/model_sim_spectra.npy", lowest_spline)
+
+        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+        # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
+        if model.Xsim1 == 'XANES':
+            # Minimizing the obj vals
+            model.obj1_val = float((lowest_spectra_distance)*100)
+        elif model.Xsim2 == 'XANES':
+            model.obj2_val = float((lowest_spectra_distance)*100)
+        elif model.Xsim3 == 'XANES':
+            model.obj3_val = float((lowest_spectra_distance)*100)
+        elif model.Xsim4 == 'XANES':
+            model.obj4_val = float((lowest_spectra_distance)*100)
+
+        return model, lowest_spectra_distance
 
 
 class pdf_of_model(object):
@@ -73,7 +843,7 @@ class pdf_of_model(object):
 
         # minimization method from scipy_optimize.minimize i.e., one of strings
         # ['L-BFGS-B', 'SLSQP']
-        self.minimize_method = 'L-BFGS-B' # or 'SLSQP' only
+        self.minimize_method = 'L-BFGS-B'  # or 'SLSQP' only
         # Range parameters of the PDF function (x-axis)
         self.xmin = 0.5
         self.xmax = 10.0
@@ -262,7 +1032,8 @@ class pdf_of_model(object):
         This optimizes previous variables along with atomic coordinates.
         Take the energy_code
         relaxed structure, and create a PDF object. Then perform
-        fit_variables_recipe() using the resulting fitted coordinates from this.
+        fit_variables_recipe() using the resulting fitted coordinates from
+        this.
 
         The PDF object should contain the optimum variables for the main four
         variables obtained from fit_variables_recipe()
@@ -347,6 +1118,7 @@ class pdf_of_model(object):
         # get residue from the fitted params
         fitted_params = result.x
         residual = recipe.scalarResidual(fitted_params)
+
 
         # Write output structure with new coordinates
         fcs = result.x[7:]
@@ -543,15 +1315,16 @@ class gb_ingrained(object):
 
         sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
 
-        #np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        #np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
+        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
 
         # Temporarily "hard-coded" exp interface region for VASP runs
         # Load prev_whole_exp.npy that is from the LAMMPS runs
         # exp_prev = np.load('prev_whole_exp.npy')
         # in y & x directions # TODO: remove hard-coded values
-        exp_patch_for_vasp = exp_img[459:584, 249:374] #exp_prev[152:279, 12:]
-        #exp_patch_for_vasp = exp_prev
+        exp_patch_for_vasp = exp_img[459:584,
+                                     249:374]  # exp_prev[152:279, 12:]
+        # exp_patch_for_vasp = exp_prev
         self.im_ref = exp_patch_for_vasp
         match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
