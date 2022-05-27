@@ -117,6 +117,10 @@ class model(object):
         self.fingerprint = {}
         self.features = None
 
+        # if the model corresponds to a molecule, store the fragment
+        # representation of the model for genetic operations
+        self.molecule_representation = None
+
 
 class structure_constraints(object):
     """
@@ -381,10 +385,10 @@ class structure_constraints(object):
                       'Using default setting of [].')
                 self.fixed_species = []
 
-            if 'fragments' in str_record['molecule']:
-                self.fragments = str_record['molecule']['fragments']
+            if 'fragments_yaml' in str_record['molecule']:
+                self.fragments_yaml = str_record['molecule']['fragments_yaml']
             else:
-                print('No fragments provided. No random molecule generation'
+                print('No fragment yaml provided. No random molecule generation '
                       'will be possible')
             if 'fragments_directory' in str_record['molecule']:
                 self.fragments_directory =\

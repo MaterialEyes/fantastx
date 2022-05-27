@@ -552,9 +552,9 @@ class vasp_code(object):
         # copy INCAR, KPOINTS to the relax path
         if self.count_hydrogen:
             # get amount of hydrogen in poscar and copy correct INCAR
-            poscar = Poscar.from_file(poscar_filename)
+            poscar = Poscar.from_file(poscar)
             num_H = poscar.structure.composition.as_dict()["H"]
-            if num_H = 0:
+            if num_H == 0:
                 shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
             else:
                 shutil.copy(files_path + '/INCAR' + '_' + str(num_H) + 'H',

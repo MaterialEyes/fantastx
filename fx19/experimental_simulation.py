@@ -1,8 +1,6 @@
 
 from __future__ import division, unicode_literals, print_function
 
-from sympy import N
-
 from fx19 import distance_check as dc
 from scipy import optimize as scipy_optimize
 from pymatgen.core.structure import Structure
