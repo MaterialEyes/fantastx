@@ -23,7 +23,7 @@ dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('cluster_input.yaml') as ifile:
+with open('gb_input.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
@@ -105,7 +105,7 @@ cluster_job = SLURMCluster(cores=1,
 
 """cluster_job = PBSCluster(cores=1,
                          memory="4GB",
-                         project='cnm728xx', ### Enter the project number
+                         project='cnm72859', ### Enter the project number
                          walltime='4:00:00',
                          interface='ib0',
                          job_extra=['-l nodes=1:ppn=2:gen6'],

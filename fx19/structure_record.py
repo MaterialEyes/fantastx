@@ -113,6 +113,12 @@ class model(object):
         self.cluster = None
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = 0
+        # Selective dynamics z-coordinates for gb or slab models
+        # NOTE: If only sd_true_above is provided - 
+        # 1. sd_true_below is set to hollow_top_z for gb models
+        # 2. all atoms above sd_true_above are set to True for slab models
+        self.sd_true_above = None 
+        self.sd_true_below = None
         # fingerprinting information
         self.fingerprint = {}
         self.features = None
@@ -296,6 +302,13 @@ class structure_constraints(object):
             self.hop_mate_frac = 0.5
             if 'hop_mate_frac' in str_record['gb']:
                 self.hop_mate_frac = str_record['gb']['hop_mate_frac']
+
+            self.sd_true_above = None
+            if 'sd_true_above' in str_record['gb']:
+                self.sd_true_above = str_record['gb']['sd_true_above']
+            self.sd_true_below = None
+            if 'sd_true_below' in str_record['gb']:
+                self.sd_true_below = str_record['gb']['sd_true_below']
 
             """
             We get best matched gb interface structure from ingrained.
