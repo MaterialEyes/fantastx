@@ -28,7 +28,7 @@ class lammps_code(object):
         """
         energy_params: dictionary of all the parameters
 
-        Eg: 
+        Eg:
         ```python
         {'main_path': <path to directory in which fantastx is ran>,
         'shape': 'gb',
@@ -413,8 +413,7 @@ class vasp_code(object):
         """
         Takes as input `energy_params`, the `dictionary` of all the
         parameters, taken from the input yaml file.
-
-        Eg: 
+        Eg:
         ```python
         {'main_path': <path to direcctory in which fantastx is ran>,
         'shape': 'gb',
@@ -445,7 +444,6 @@ class vasp_code(object):
         self.substrate_thickness = None
         self.sd_cut_off = None
         self.sd_no_z = None
-
 
         # This will be used to make potcars
         all_pots = [i for i in os.listdir(self.energy_files_path) if
@@ -478,16 +476,13 @@ class vasp_code(object):
     def prep_job_folder(self, model, reg_id):
         """
         Function to:
-
         - check the provided input files (if any)
         - copy the input files to the model calc directory (relax_path)
-            - The input files for vasp: INCAR, KPOINTS, POTCAR & POSCAR from model
-
+            - The input files for vasp: INCAR, KPOINTS, POTCAR & POSCAR from
+             model
         Arguments:
-
             model (obj): structure_record.model() object for which energy
              evaluation will be done
-
             reg_id (obj): structure_record.register_id() object for bookkeeping
         """
         main_path = self.main_path
@@ -570,15 +565,12 @@ class vasp_code(object):
         """
         Starts the VASP relaxation in the calcs/<model label> path. Assigns
         the evaluated total energy and obj0_val to model attributes.
-
         Does not return anything
-
         Arguments:
-
             model (obj): `structure_record.model()` object for which energy
              evaluation will be done
-
-            reg_id (obj): `structure_record.register_id()` object for bookkeeping
+            reg_id (obj): `structure_record.register_id()` object for
+             bookkeeping
         """
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
@@ -608,9 +600,7 @@ class vasp_code(object):
         Runs vasp in the job directory (relax_path), checks if converged
         and resubmits if necessary. Saves energy and objective function
         value to model object.
-
         Arguments:
-
             model (obj): `structure_record.model()` object for which energy
              evaluation will be done
         """
@@ -684,9 +674,7 @@ class vasp_code(object):
         """
         For a given structure object, move all sites within the unit cell.
         Eg: [-0.1, 0.4, 1.2] --> [0.9, 0.4, 0.2]
-
         Arguments:
-
             astr (obj): pymatgen `Structure` object
         """
         species = astr.species
@@ -705,20 +693,17 @@ class vasp_code(object):
         z-coordinate. For 'gb' gemoetry, all interface region atoms would have
         [T,T,T] and others would have [F,F,F]. Then writes the POSCAR file in
         relax_path.
-
         Arguments:
-
             model (obj): `structure_record.model()` object for which energy
              evaluation will be done
-
             file_name (str): the file name of the structure to be written as
              POSCAR
         """
         frac_zmin, frac_zmax = self.hollow_botz, self.hollow_topz
         if model.sd_true_above is not None:
-            frac_zmin = model.sd_true_above # smaller z-coordinate
+            frac_zmin = model.sd_true_above  # smaller z-coordinate
         if model.sd_true_below is not None:
-            frac_zmax = model.sd_true_below # larger z-coordinate
+            frac_zmax = model.sd_true_below  # larger z-coordinate
 
         frac_zs = model.astr.frac_coords[:, 2]
         bs = []
@@ -739,19 +724,14 @@ class vasp_code(object):
         to atoms above `sd_cut_ff` if provided, else uses the substrate
         thickness as `sd_cut_off`. Sets [T, T, F] for atoms if `sd_no_z`
         is `True`.
-
         Arguments:
-
             model (obj): structure_record.model() object for which energy
              evaluation will be done
-
             file_name (str): the file name of the structure to be written
              as POSCAR
-
             sd_cut_off (float): the cut off distance from bottom of the slab.
              The atoms below it will be frozen. Default is substrate
              thickness.
-
             sd_no_z (bool): set to True to allow the atoms to relax
              in z-direction
         """

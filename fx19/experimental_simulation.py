@@ -873,17 +873,17 @@ class pdf_of_model(object):
         # default structure scale factor
         self.scale = 1.0
         # quadratic term related to sharpness of first peak (from pdfgui manual)
-        self.delta2 = 3.87 
+        self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
-        self.qdamp = 0.043 # G(r) intensity decereases with r
+        self.qdamp = 0.043  # G(r) intensity decereases with r
         self.fit_coords = True
         # default bounds_dict
         lb_ub_dict = {}
-        lb_ub_dict['a'] = [17.8, 19.0]
+        lb_ub_dict['a'] = [19.0, 21.0]
         # Biso_val = 8*pi**2 * Uiso_val
-        lb_ub_dict['Biso_val'] = [78.96*0.00001, 78.96*0.01]
-        lb_ub_dict['scale'] = [0.8, 1.2]
-        lb_ub_dict['delta2'] = [2.0, 4.0]
+        lb_ub_dict['Biso_val'] = [78.96*0.00001, 200.096*0.01]
+        lb_ub_dict['scale'] = [0.5, 1.5]
+        lb_ub_dict['delta2'] = [2.0, 5.0]
         lb_ub_dict['qdamp'] = [0.001, 0.1]
         self.var_bounds = lb_ub_dict
 
@@ -895,8 +895,8 @@ class pdf_of_model(object):
         self.xmax = 10.0
         self.dx = 0.01
         # PDF Qmin and Qmax
-        self.Qmin = 0.0 # G(r) goes below zero for Qmin > 0
-        self.Qmax = 50.0 # G(r) gets wavy for smaller Qmax 
+        self.Qmin = 0.0  # G(r) goes below zero for Qmin > 0
+        self.Qmax = 50.0  # G(r) gets wavy for smaller Qmax
         # elemental symbols of species as a list
         self.symbols = None
 
@@ -970,7 +970,7 @@ class pdf_of_model(object):
         """
         Make diffpy.srfit.pdfcontribution.PDFContribution object from temp.cif
         """
-        # Make profile object 
+        # Make profile object
         profile = Profile()
         # Add data through parser to the profile
         profile.loadtxt(self.exp_pdf_file)
@@ -982,13 +982,12 @@ class pdf_of_model(object):
         generator.setStructure(diffpy_str)
         generator.setQmax(self.Qmax)
         generator.setQmin(self.Qmin)
-        generator.qdamp.value = self.qdamp
 
         # Make contribution object
-        ## The FitContribution
+        # The FitContribution
         contribution = PDFContribution("contribution_name")
         contribution.addProfileGenerator(generator)
-        contribution.setProfile(profile, xname = "r")
+        contribution.setProfile(profile, xname="r")
 
         return contribution
 
@@ -1027,6 +1026,12 @@ class pdf_of_model(object):
         """
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
+        lattice = contribution.generator_name.phase.getLattice()
+        lattice.constrain(lattice.b, lattice.a)
+        lattice.constrain(lattice.c, lattice.a)
+        lattice.alpha.setConst(True, np.pi/2.)
+        lattice.beta.setConst(True, np.pi/2.)
+        lattice.gamma.setConst(True, np.pi/2.)
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1034,29 +1039,32 @@ class pdf_of_model(object):
         Bisos = []
         for sym in symbols:
             Bisos.append('Biso{}'.format(sym))
-            recipe.newVar('Biso{}'.format(sym), value=self.Biso_val, fixed=False)
+            recipe.newVar('Biso{}'.format(sym),
+                          value=self.Biso_val,
+                          fixed=False).boundRange(
+                              self.var_bounds['Biso_val'][0],
+                              self.var_bounds['Biso_val'][1])
 
         for scatterer in contribution.generator_name.phase.scatterers:
             for sym in symbols:
                 if sym in scatterer.name:
-                    recipe.constrain(scatterer._parameters['Biso'], 
-                                    'Biso{}'.format(sym))
+                    recipe.constrain(scatterer._parameters['Biso'],
+                                     'Biso{}'.format(sym))
 
         # Set all Biso values to provided or default Biso_val
-        #for p in Bisos:
+        # for p in Bisos:
         #    fit_param = recipe._parameters[p]
         #    fit_param.setValue(self.Biso_val)
 
         # add existing PDF variables as Fit parameters and setValue
         recipe.addVar(generator.scale, self.scale, fixed=False)
         recipe.addVar(generator.delta2, self.delta2, fixed=False)
-        recipe.addVar(contribution.qdamp, self.qdamp, fixed=False)
+        recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
         recipe.a.bounds = self.var_bounds['a']
-        recipe.b.bounds = self.var_bounds['a']
-        recipe.c.bounds = self.var_bounds['a']
-        recipe.BisoAu.bounds = self.var_bounds['Biso_val']
+        # recipe.b.bounds = self.var_bounds['a']
+        # recipe.c.bounds = self.var_bounds['a']
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1103,6 +1111,12 @@ class pdf_of_model(object):
 
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
+        lattice = contribution.generator_name.phase.getLattice()
+        lattice.constrain(lattice.b, lattice.a)
+        lattice.constrain(lattice.c, lattice.a)
+        lattice.alpha.setConst(True, np.pi/2.)
+        lattice.beta.setConst(True, np.pi/2.)
+        lattice.gamma.setConst(True, np.pi/2.)
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1110,24 +1124,27 @@ class pdf_of_model(object):
         Bisos = []
         for sym in symbols:
             Bisos.append('Biso{}'.format(sym))
-            recipe.newVar('Biso{}'.format(sym), value=self.Biso_val, fixed=False)
+            recipe.newVar('Biso{}'.format(sym),
+                          value=self.Biso_val,
+                          fixed=False).boundRange(
+                              self.var_bounds['Biso_val'][0],
+                              self.var_bounds['Biso_val'][1])
 
         for scatterer in contribution.generator_name.phase.scatterers:
             for sym in symbols:
                 if sym in scatterer.name:
-                    recipe.constrain(scatterer._parameters['Biso'], 
-                                    'Biso{}'.format(sym))
+                    recipe.constrain(scatterer._parameters['Biso'],
+                                     'Biso{}'.format(sym))
 
         # add existing PDF variables as Fit parameters and setValue
         recipe.addVar(generator.scale, self.scale, fixed=False)
         recipe.addVar(generator.delta2, self.delta2, fixed=False)
-        recipe.addVar(contribution.qdamp, self.qdamp, fixed=False)
+        recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
         recipe.a.bounds = self.var_bounds['a']
-        recipe.b.bounds = self.var_bounds['a']
-        recipe.c.bounds = self.var_bounds['a']
-        recipe.BisoAu.bounds = self.var_bounds['Biso_val']
+        # recipe.b.bounds = self.var_bounds['a']
+        # recipe.c.bounds = self.var_bounds['a']
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1171,9 +1188,8 @@ class pdf_of_model(object):
         fitted_params = result.x
         residual = recipe.scalarResidual(fitted_params)
 
-
         # Write output structure with new coordinates
-        fcs = result.x[7:]
+        fcs = result.x[-1*(len(pymat_str)-1)*3:]
         fcs_new = np.insert(fcs, center_ind,
                             pymat_str.frac_coords[center_ind], axis=0)
         #fcs_new = np.concatenate((pymat_str.frac_coords[center_ind], fcs))
@@ -1194,6 +1210,7 @@ class pdf_of_model(object):
         r = recipe.contribution_name.profile.x
         g_obs = recipe.contribution_name.profile.y
         g_calc = recipe.contribution_name.evaluate()
+
         g_diff = g_obs - g_calc
 
         diffzero = -0.8 * max(g_obs) * np.ones_like(g_obs)
@@ -1207,6 +1224,7 @@ class pdf_of_model(object):
                         + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6]
                         + ' \n')
 
+        plt.figure(figsize=(10, 6))
         plt.plot(r, g_obs, 'bo', label="G(r) Target")
         plt.plot(r, g_calc, 'r-', label="G(r) Fit", linewidth=3)
         plt.plot(r, diff, 'c-', label="G(r) diff", linewidth=3)
@@ -1216,7 +1234,7 @@ class pdf_of_model(object):
         plt.xticks(fontsize=15)
         plt.yticks(fontsize=15)
         plt.legend(loc=1, fontsize=15)
-        plt.tight_layout() 
+        plt.tight_layout()
 
         pdf_plot_name = name + '_pdf_plot.png'
         plt.savefig(fname=self.pdf_sim_dir + '/' + pdf_plot_name)
@@ -1254,11 +1272,12 @@ class pdf_of_model(object):
         # coords as variables. This is to get best solution wrt main variables.
         # Then some local solution with second fitting..
 
-        fitted_params, residual, recipe = self.fit_variables_recipe(contribution, cif_file)
+        fitted_params, residual, recipe = self.fit_variables_recipe(
+            contribution, cif_file)
         # write initial fitted parameters to a file
         with open(pdf_sim + '/initial_fitted_params.txt', 'w') as f:
             for item in fitted_params:
-                f.write(str(item) + '\n')
+                f.write(str(float(item)) + '\n')
             f.write('Residual: {}'.format(residual))
         self.plot_pdf(recipe, 'initial')
 
@@ -1267,7 +1286,7 @@ class pdf_of_model(object):
             contribution = self.get_PDFContribution_obj(cif_file)
             # fit the atomic coordinates using Diffpy
             fitted_params, residual, recipe = self.fit_coords_recipe(
-                                                        contribution, fitted_params)
+                contribution, fitted_params)
             # # write initial fitted parameters to a file
             with open(pdf_sim + '/final_fitted_params.txt', 'w') as f:
                 for item in fitted_params[:7]:

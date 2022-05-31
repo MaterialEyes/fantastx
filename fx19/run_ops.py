@@ -8,9 +8,7 @@ def get_working_jobs(futures):
     """
     Checks if any jobs in futures is still running and returns number of
     running jobs
-
     Arguments:
-
         futures (list): list of future objects (`concurrent.futures`)
     """
     if len(futures) == 0:
@@ -27,10 +25,8 @@ def get_working_jobs(futures):
 def write_data(model, data_file):
     """
     Writes the model data to data_file
-
     Arguments:
         model (obj): `structure_record.model()` object
-
         data_file (str): path to the `data_file`
     """
     try:
@@ -53,7 +49,6 @@ def write_data(model, data_file):
 def temp_selection_probs(pool):
     """
     (Deprecated)
-
     Always the minimum overall value gets selevtion_prob of 1.
     """
     ov = [model.overall_val for model in pool.good_pool]
@@ -68,13 +63,9 @@ def temp_selection_probs(pool):
 def relax(model, reg_id, energy_code):
     """
     Does energy relaxation of the given model
-
     Arguments:
-
         model (obj): `structure_record.model()` object
-
         reg_id (obj): `structure_record.register_id()` object
-
         energy_code (obj): energy code object (lammps_code or vasp_code)
     """
     try:
@@ -84,8 +75,8 @@ def relax(model, reg_id, energy_code):
         return None
     resubmitted = 2
     if not model.converged:
-        for i in range(len(energy_code.resubmit)):
-            if resubmitted < energy_code.resubmit and model.converged == False:
+        for i in range(energy_code.resubmit):
+            if resubmitted < energy_code.resubmit and model.converged is False:
                 resubmitted += 1
                 try:
                     energy_code.re_relax(model)
@@ -99,23 +90,16 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
                model_type='random', model=None):
     """
     Makes a random model or a child model
-
     Arguments:
         random_model_obj : make_random_model for cluster or gb_ops obj for gb
           or surface_ops for surface geometry object
-
         evolve : structure_operations.evolve() object
-
         select : select object from selection.py
-
         pool : pool object from selection.py
-
         reg_id : structure_record.register_id() object
-
         model_type (str): `random` or `evolved`.
             `random` - make random model for initial population
             `evolved` - make child model by evolution
-
         model (model obj): if a model object is provided as inputs model_type
           it is directly taken to energy evaluation step.
     """
@@ -128,7 +112,6 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
     # make new random model
     if model_type == 'random':
         new_model = random_model_obj.random_model(reg_id)
-        print("Made random model!")
 
     # make new model from parents
     if model_type == 'evolved':
@@ -152,13 +135,9 @@ def separate_gb(energy_code, gb_ops_obj, model):
     """
     For gb search, separate the gb_iface from the relaxed gb
     Does nothing if not gb search
-
     Arguments:
-
         energy_code - energy code object (lammps_code or vasp_code)
-
         gb_ops_obj - gb_ops_obj from structure_operations.py
-
         model (obj): structure_record.model() object
     """
     # For grain boundary search, assign grain_interface as model attribute
@@ -172,11 +151,8 @@ def do_Xsim(model, Xsim_1):
     """
     Do Xsim if needed and assign the corresponding objective function value. If
     no experimental simulation needed or Xsim_1 is None, does nothing.
-
     Args:
-
     model : structure_record.model() object
-
     Xsim_1 : experimental simulation object (pdf_of_model or gb_ingrained)
     """
     if Xsim_1:
@@ -199,22 +175,14 @@ def update_pool(evald_futures, models_evald, pool, select,
     """
     Calculates the obejctive values for all models and updates pool with
     best models
-
     Returns:
         Updated `evald_futures`, `models_evald`, `pool`, `select`
-
     Arguments:
-
         evald_futures : (list) list of submitted energy evaluation futures objects
-
         models_evald : (int) count of number of fully evaluated models
-
         pool : `pool` object from `selection.py`
-
         select : `select` object from `selection.py`
-
         data_file : path to `data_file` to write model data
-
         sim_ids : (bool) True if experimental simulation is used
     """
     # remove all futures with an exception
@@ -248,9 +216,7 @@ def update_nonparallel_pool(models_evald, model_evaled, pool, select,
     """
     Calculates the obejctive values for all models and updates pool with
     best models
-
     Returns updated (evald_futures, pool, models_evald)
-
     Args:
     evald_futures - (list) list of submitted energy evaluation futures objects
     models_evald - (int) count of number of fully evaluated models
@@ -281,7 +247,6 @@ def cluster_models(pool, data_file, xsim, cluster_obj):
             SSIM scores for each model pair.
     cluster_obj - the clustering object which will perform all clustering
                     operations.
-
     Outputs images of the cluster dendrogram, and the clustering in objective
     function space.
     '''

@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+import traceback
 import os
 import yaml
 import datetime
@@ -17,9 +18,10 @@ import dask
 import dask.distributed
 dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
+
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('epsilon_selection.yaml') as ifile:
+with open('input.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
@@ -96,8 +98,8 @@ if workers['cluster'] == 'SLURM':
                                header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
-    #jobfile.write(cluster_job.job_script())
-    #jobfile.close()
+    # jobfile.write(cluster_job.job_script())
+    # jobfile.close()
 elif workers['cluster'] == 'PBS':
     job_script = '/home/dunruh/sample_job_script.txt'
     jobfile = open(job_script, "w+")
@@ -137,7 +139,6 @@ def full_eval(model):
     parameters in all workers and master
     """
     # submit model to energy relaxation
-    print(f"Trying full eval of model: {model.label}")
     try:
         energy_code.relax(model, reg_id)
     except:
@@ -146,7 +147,7 @@ def full_eval(model):
 
     resubmitted = 2
     if not model.converged:
-        for i in range(len(energy_code.resubmit)):
+        for i in range(energy_code.resubmit):
             if resubmitted < energy_code.resubmit and not model.converged:
                 resubmitted += 1
                 try:
@@ -171,8 +172,10 @@ def full_eval(model):
             print('Relaxed structure not available. Skipping Xsim..')
             return None
         else:
+            print("Doing experimental simulation!!")
             # if relaxed structure exists
             model.Xsim1 = Xsim_1.name
+            print(f"Experimental simulation is: {model.Xsim1}")
             model, Xsim_val = Xsim_1.evaluate_obj(model)
             model.num_of_obj += 1
             return model

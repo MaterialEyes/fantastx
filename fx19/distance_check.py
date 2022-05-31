@@ -359,6 +359,23 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
     return True
 
 
+def satisfies_all_dists_quick(one_point, many_points, one_species,
+                              many_species, inv_syms, min_dist_dict, lattice):
+    sym1 = inv_syms[one_species]
+    for index, each_point in enumerate(many_points):
+        d = dist_pbc(one_point, each_point, lattice)
+        sym2 = inv_syms[many_species[index]]
+        key1 = sym1 + '_' + sym2
+        key2 = sym2 + '_' + sym1
+        if key1 in min_dist_dict:
+            if d < min_dist_dict[key1]:
+                return False
+        if key2 in min_dist_dict:
+            if d < min_dist_dict[key2]:
+                return False
+    return True
+
+
 def satisfies_all_dists(new_carts, existing_astr, element_syms,
                         min_dist_dict, max_dist_dict=None,
                         atom_index_in_astr=None,

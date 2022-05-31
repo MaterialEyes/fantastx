@@ -106,7 +106,8 @@ class make_random_model(object):
         self.max_dist_dict = str_constraints['max_dist_dict']
         self.species_dict = str_constraints['species_dict']
         self.element_syms = str_constraints['element_syms']
-        self.inv_syms = {v: 'sp' + str(k) for k, v in self.element_syms.items()}
+        self.inv_syms = {v: 'sp' + str(k)
+                         for k, v in self.element_syms.items()}
         self.shape = str_constraints['shape']
 
         if 'box_abc' in str_constraints:
@@ -181,15 +182,15 @@ class make_random_model(object):
 
         atoms_too_close = True
         while atoms_too_close is True:
-            cart_coords = self.get_n_coords_linear(species, max_dia)
+            cart_coords = self.get_n_coords_linear(species, max_dia, latt)
             if cart_coords is None:
                 continue
             cluster = Structure(latt, species, cart_coords,
                                 coords_are_cartesian=True)
 
             # check distance between different pairs of species
-            atoms_too_close = dc.check_all_bonds(cluster, min_dist_dict,
-                                                 cum_sum)
+            # atoms_too_close = dc.check_all_bonds(cluster, min_dist_dict,
+            #                                      cum_sum)
 
             # check if atleast one nearest neighbor (nn) less
             # than max_bond_dist
@@ -197,6 +198,8 @@ class make_random_model(object):
                 nn = cluster.get_neighbors(cluster.sites[i], max_bond_dist)
                 if len(nn) < 1:
                     continue
+
+            atoms_too_close = False
 
         # put the cluster in a box
         # get thickness of cluster in all three directions
@@ -338,7 +341,7 @@ class make_random_model(object):
 
         return astr
 
-    def get_n_coords_linear(self, species, max_dia):
+    def get_n_coords_linear(self, species, max_dia, latt):
         """
         Given maximum allowed diamter of a cluster, this function adds random
         coordinates in a chain like fashion connected to the previous added
@@ -354,18 +357,22 @@ class make_random_model(object):
 
             list: the cartesian coordinates
         """
+        # shuffle the species prior to assembly
+        np.random.shuffle(species)
         num_atoms = len(species)
         inv_syms = self.inv_syms
-        box_latt = [[self.box_abc[0], 0, 0], 
-                    [0, self.box_abc[1], 0], 
-                    [0, 0, self.box_abc[2]]]
-        dc_astr = Structure(box_latt, [species[0]], [[0, 0, 0]])
+        # box_latt = [[self.box_abc[0], 0, 0],
+        #             [0, self.box_abc[1], 0],
+        #             [0, 0, self.box_abc[2]]]
+        # dc_astr = Structure(box_latt, [species[0]], [[0, 0, 0]])
         # start from origin
         old_sps = species[0]
         old_point = np.array([0, 0, 0])
-        coords = []
-        coords_added = 0 # considering the [0,0,0]
+        species_added = [species[0]]
+        coords = [old_point]
+        coords_added = 1  # considering the [0,0,0]
         new_point_attempt = 0
+        ref_atom = 0
         while coords_added < num_atoms:
             new_sps = species[coords_added]
             dist_key = inv_syms[old_sps] + '_' + inv_syms[new_sps]
@@ -380,8 +387,15 @@ class make_random_model(object):
             # if the cluster_diameter is too small, this algo hangs trying to
             # add new point
             new_point_attempt += 1
-            if new_point_attempt > 1000:
-                return None
+            if new_point_attempt > 100:
+                # choose a new point at random to add to
+                ref_atom -= 1
+                if ref_atom < 0:
+                    return None
+                old_sps = species[ref_atom]
+                old_point = coords[ref_atom]
+                new_point_attempt = 0
+                continue
 
             # translate the point near the old_point
             new_point = new_point + old_point
@@ -390,31 +404,39 @@ class make_random_model(object):
             if not np.linalg.norm(new_point) < max_dia/2:
                 continue
 
-            # check distances with all previous points
+            # check distances with all previous points, accounting for the
+            # presence of multiple species
             # using max of min_dists for initial population
-            max_of_min_dists = max(self.min_dist_dict.values())
-            if not dc.satisfies_all_dists(new_point, dc_astr, self.element_syms,
-                                      self.min_dist_dict,
-                                      new_carts_species=new_sps):
+            # if not dc.satisfies_all_dists(new_point, dc_astr, self.element_syms,
+            #                               self.min_dist_dict,
+            #                               new_carts_species=new_sps):
+            #     continue
+            if not dc.satisfies_all_dists_quick(new_point, coords, new_sps,
+                                                species_added, inv_syms,
+                                                self.min_dist_dict, latt):
                 continue
 
-            #if not dc.one_to_many_distances(new_point, coords,
+            # max_of_min_dists = max(self.min_dist_dict.values())
+            # if not dc.one_to_many_distances(new_point, coords,
             #                                max_of_min_dists):
             #    continue
 
             # add the new_point and reset the no. of attempts
             coords.append(new_point)
-            dc_astr.append(new_sps, new_point)
+            species_added.append(new_sps)
+            # dc_astr.append(new_sps, new_point)
             new_point_attempt = 0
             old_point = new_point
+            old_sps = new_sps
             coords_added += 1
+            ref_atom = coords_added - 1
 
         # move coords relative to center of cube
         coords = np.array(coords)
         coords = np.full((3,), max_dia/2) + coords
 
         # shuffle the coords
-        np.random.shuffle(coords)
+        # np.random.shuffle(coords)
 
         # coords are cartesian
         return coords
