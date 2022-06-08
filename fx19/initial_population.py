@@ -14,7 +14,6 @@ are supported:
 """
 
 from __future__ import division, unicode_literals, print_function
-from matplotlib.pyplot import thetagrids
 from pymatgen.core.structure import Structure, PeriodicSite
 from pymatgen.core.lattice import Lattice
 from scipy.spatial.transform import Rotation as R
@@ -30,7 +29,6 @@ from pymatgen.analysis import local_env
 from fx19 import distance_check as dc
 from fx19 import structure_record
 import yaml
-import traceback
 
 
 class make_model_from_input(object):
@@ -119,6 +117,7 @@ class make_random_model(object):
             self.max_dia = str_constraints['max_dia']
 
         self.num_species = str_constraints['num_species']
+        self.allow_self_bonding = False
         # save species1 data
         # DU:
         # If species are all properly labeled in order,
@@ -156,6 +155,8 @@ class make_random_model(object):
         #         setattr(self, 'max_num_sp' + index,
         #                 str_constraints[key]['max_num'])
 
+        self.max_bonds = {"Ir": 8, "O": 2}
+
     def get_cluster_in_box(self):
         """
         Creates a new model for the initial population with a random structure
@@ -172,12 +173,10 @@ class make_random_model(object):
              cluster.
         """
         max_dia = self.max_dia
-        min_dist_dict = self.min_dist_dict
-        max_dist_dict = self.max_dist_dict
-        max_bond_dist = max(max_dist_dict.values())
-        # get species
+        max_bond_dist = max(self.max_dist_dict.values())
+
+        # get species and make an empty lattice box
         species, cum_sum = self.get_n_species()
-        #num_atoms = len(species)
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
 
         atoms_too_close = True
@@ -361,84 +360,134 @@ class make_random_model(object):
         np.random.shuffle(species)
         num_atoms = len(species)
         inv_syms = self.inv_syms
-        # box_latt = [[self.box_abc[0], 0, 0],
-        #             [0, self.box_abc[1], 0],
-        #             [0, 0, self.box_abc[2]]]
-        # dc_astr = Structure(box_latt, [species[0]], [[0, 0, 0]])
-        # start from origin
+
+        # start with the first site placed at the origin
         old_sps = species[0]
         old_point = np.array([0, 0, 0])
         species_added = [species[0]]
+        available_bonds = [self.max_bonds[species[0]]]
+        attached_bonds = [[]]
         coords = [old_point]
-        coords_added = 1  # considering the [0,0,0]
-        new_point_attempt = 0
+        coords_added = 1
+
+        # Iterate through each of the remaining species and add them in turn
         ref_atom = 0
+        non_referenced_atoms = []
+        flipped_species = False
+        failed_addition = False
+        outside_cluster_attempts = 0
+        failed_dist_attempts = 0
         while coords_added < num_atoms:
             new_sps = species[coords_added]
+
+            # Check if same-species bonding is allowed
+            bond_ok = True
+            if not self.allow_self_bonding:
+                bond_ok = (new_sps != old_sps)
+
+            target_bonds_avail = available_bonds[ref_atom]
+
+            # If all checks fail, then first attempt to add the atom to a
+            # different atom. If iterated through all atoms, then swap
+            # atomic species if possible and repeat.
+            # If neither is possible, then return None
+            if failed_addition or not bond_ok or target_bonds_avail == 0:
+                if len(non_referenced_atoms) == 0 and not flipped_species:
+                    # attempt to flip the species
+                    for n, sp in enumerate(species[coords_added:]):
+                        if sp != new_sps:
+                            species[coords_added] = sp
+                            species[coords_added + n] = new_sps
+                            break
+                        if n == len(species[coords_added:]) - 1:
+                            return None
+                    flipped_species = True
+                    non_referenced_atoms = [i for i in range(coords_added)]
+                elif len(non_referenced_atoms) == 0 and flipped_species:
+                    return None
+
+                # choose a new atom at random to add to
+                ref_atom = np.random.choice(non_referenced_atoms)
+                non_referenced_atoms.remove(ref_atom)
+                old_sps = species[ref_atom]
+                old_point = coords[ref_atom]
+                failed_addition = False
+                continue
+
+            # Draw the bond length from a uniform distribution
             dist_key = inv_syms[old_sps] + '_' + inv_syms[new_sps]
             if inv_syms[old_sps] > inv_syms[new_sps]:
                 dist_key = inv_syms[new_sps] + '_' + inv_syms[old_sps]
             min_bond_dist = self.min_dist_dict[dist_key]
             max_bond_dist = self.max_dist_dict[dist_key]
             radius = unif(min_bond_dist, max_bond_dist)
-            new_point = self.get_point_on_sphere(radius)
 
-            # returns None if the algo cannot add a new point in 500 attempts
-            # if the cluster_diameter is too small, this algo hangs trying to
-            # add new point
-            new_point_attempt += 1
-            if new_point_attempt > 100:
-                # choose a new point at random to add to
-                ref_atom -= 1
-                if ref_atom < 0:
-                    return None
-                old_sps = species[ref_atom]
-                old_point = coords[ref_atom]
-                new_point_attempt = 0
-                continue
+            # Make sure that the coordinate is
+            if coords_added > 1:
+                min_distance = 3*np.pi/8
+                new_point, failed_addition = self.get_max_sep_point_on_sphere(
+                    radius,
+                    min_distance,
+                    attached_bonds[ref_atom],
+                    100)
+
+                if failed_addition:
+                    continue
+            else:
+                new_point = self.get_point_on_sphere(radius)
 
             # translate the point near the old_point
             new_point = new_point + old_point
 
             # check if the translated point is within cluster diamter box
+            # prevent too many repetitive attempts if this check keeps failing
             if not np.linalg.norm(new_point) < max_dia/2:
+                outside_cluster_attempts += 1
+                if outside_cluster_attempts > 10:
+                    failed_addition = True
+                    outside_cluster_attempts = 0
                 continue
 
             # check distances with all previous points, accounting for the
-            # presence of multiple species
-            # using max of min_dists for initial population
-            # if not dc.satisfies_all_dists(new_point, dc_astr, self.element_syms,
-            #                               self.min_dist_dict,
-            #                               new_carts_species=new_sps):
-            #     continue
+            # presence of multiple species. This is important to account for
+            # neighbors of neighbors.
+            # prevent too many repetitive attempts if this check keeps failing
             if not dc.satisfies_all_dists_quick(new_point, coords, new_sps,
                                                 species_added, inv_syms,
                                                 self.min_dist_dict, latt):
+                failed_dist_attempts += 1
+                if failed_dist_attempts > 10:
+                    failed_addition = True
+                    failed_dist_attempts = 0
                 continue
 
-            # max_of_min_dists = max(self.min_dist_dict.values())
-            # if not dc.one_to_many_distances(new_point, coords,
-            #                                max_of_min_dists):
-            #    continue
-
-            # add the new_point and reset the no. of attempts
+            # add the new_point
             coords.append(new_point)
+            coords_added += 1
             species_added.append(new_sps)
-            # dc_astr.append(new_sps, new_point)
-            new_point_attempt = 0
+
+            # update all bond information
+            available_bonds[ref_atom] -= 1
+            bond_vector = (new_point - old_point)
+            bond_vector = bond_vector/np.linalg.norm(bond_vector)
+            attached_bonds[ref_atom].append(bond_vector)
+            attached_bonds.append([-bond_vector])
+            available_bonds.append(self.max_bonds[new_sps] - 1)
+
+            # newest atom will be first atom to try to add other new atoms to
             old_point = new_point
             old_sps = new_sps
-            coords_added += 1
             ref_atom = coords_added - 1
+            non_referenced_atoms = [i for i in range(coords_added - 1)]
+            flipped_species = False
+            outside_cluster_attempts = 0
+            failed_dist_attempts = 0
+            # failed_addition = False
 
         # move coords relative to center of cube
         coords = np.array(coords)
         coords = np.full((3,), max_dia/2) + coords
 
-        # shuffle the coords
-        # np.random.shuffle(coords)
-
-        # coords are cartesian
         return coords
 
     def get_point_on_sphere(self, r):
@@ -464,6 +513,65 @@ class make_random_model(object):
 
         return point
 
+    def get_max_sep_point_on_sphere(self, r, min_ang_distance,
+                                    other_points, n_attempts):
+        """
+        Get a random point on a sphere of radius *r* which is as far
+        away from a collection of other points on the sphere as possible
+
+        Arguments:
+
+            r (float) - radius of the sphere
+
+            min_ang_distance (float) - the minimum great circle angular
+             distance which must separate the new point and any other
+             point already on the sphere
+
+            other_points (array) - the unit vectors of the other points on
+             the sphere
+
+            n_attempts (int) - the number of attempts to try and add the point
+             to the sphere
+
+        Returns:
+
+            (array, bool):
+            - the random cartesian coordinates on the sphere
+            - whether or not the point achieved the desired ang. separation
+        """
+
+        farthest_distance = 0
+        new_point_attempt = 0
+        failed_addition = False
+        while new_point_attempt <= n_attempts and\
+                farthest_distance < min_ang_distance:
+            # Grab proposed vector
+            new_point = self.get_point_on_sphere(r)
+            current_vector = new_point / np.linalg.norm(new_point)
+
+            # determine great circle distance to every other bonded atom
+            dotp = np.dot(
+                other_points,
+                current_vector)
+            crossp = np.cross(
+                other_points,
+                current_vector)
+            distances = np.arctan2(
+                np.linalg.norm(crossp, axis=1), dotp)
+
+            # if this distance is greater than before, store optimal new bond
+            current_distance = np.min(distances)
+            if current_distance > farthest_distance:
+                optimal_point = np.copy(new_point)
+                farthest_distance = current_distance
+
+            new_point_attempt += 1
+
+        if farthest_distance < min_ang_distance:
+            failed_addition = True
+
+        return optimal_point, failed_addition
+
 
 class make_random_molecule_model(object):
 
@@ -482,8 +590,8 @@ class make_random_molecule_model(object):
         """
 
         if 'fragments_yaml' not in str_constraints:
-            print('Error! Must provide yaml for molecular fragments when constructing'
-                  'random molecules!')
+            print('Error! Must provide yaml for molecular fragments when'
+                  ' constructing random molecules!')
         else:
             self.fragments_yaml = str_constraints['fragments_yaml']
 
@@ -533,6 +641,11 @@ class make_random_molecule_model(object):
             self.bond_lengths = self._load_bond_length_data()
         else:
             self.bond_lengths = None
+
+        self.attached_fragments = 0
+        # self.visualization_dir = \
+        #     "/mnt/c/Users/dunru/Research/fantastx/FeBPy3/
+        # attachment_visualizations"
 
     def _initialize_molecule(self, sf):
         """
@@ -588,6 +701,14 @@ class make_random_molecule_model(object):
                     molecule["fragment_vectors"][i] /\
                     np.linalg.norm(molecule["fragment_vectors"][i])
 
+        self.attached_fragments = 1
+        # poscar_filename = self.visualization_dir + \
+        #     "/" + "POSCAR" + str(self.attached_fragments)
+        # poscar = Poscar(astr, true_names=True)
+        # poscar.write_file(filename=poscar_filename,
+        #                   direct=False, vasp4_compatible=False)
+        # self.attached_fragments += 1
+
         return molecule, astr
 
     def attach_fragment(self, fragment, current_molecule,
@@ -640,6 +761,7 @@ class make_random_molecule_model(object):
         frag_attach_site_id = frag_attach_sites[0]
         frag_att_list_index = 0
         aa = 0
+
         fragment_bond_dist = 2.0
         bond_translation = np.array([0, 0, fragment_bond_dist])
         while not attached and aa < self.attachment_attempts:
@@ -697,6 +819,14 @@ class make_random_molecule_model(object):
             molecule_attach_site =\
                 current_molecule_astr.sites[m_att_site_id]
             molecule_attach_coords = molecule_attach_site.coords
+            # grab the bond length for this attachment if a bond
+            # dict exists
+            if self.bond_lengths is not None:
+                frag_atom = frag_attach_site.specie.name
+                attach_atom = molecule_attach_site.specie.name
+                bond_syms = tuple(sorted([frag_atom, attach_atom]))
+                print(f"Bond syms: {bond_syms}")
+                fragment_bond_dist = self.bond_lengths[bond_syms][1.0]
 
             # All fragments lie on the X-Z plane, centered on the z-axis
             # We will translate the fragment by the bonding distance, then
@@ -790,6 +920,13 @@ class make_random_molecule_model(object):
             else:
                 cur_mol_fragment_vectors[m_att_site_id] = \
                     [optimal_vector]
+
+            # Visualize the attachment
+            # poscar_filename = self.visualization_dir + \
+            #     "/" + "POSCAR" + str(self.attached_fragments)
+            # poscar = Poscar(molecule_astr, true_names=True)
+            # poscar.write_file(filename=poscar_filename,
+            #                   direct=False, vasp4_compatible=False)
 
             # Extend molecule with new (non-passivated) addition sites, and
             # fragment info: sites which belong to the fragment,
@@ -1049,6 +1186,7 @@ class make_random_molecule_model(object):
                 else:
                     # print(f"Now molecule is: {molecule}")
                     added_fragments += 1
+                    self.attached_fragments += 1
             if added_fragments == self.number_of_fragments:
                 assembled = True
 

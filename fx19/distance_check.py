@@ -363,7 +363,7 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
                               many_species, inv_syms, min_dist_dict, lattice):
     sym1 = inv_syms[one_species]
     for index, each_point in enumerate(many_points):
-        d = dist_pbc(one_point, each_point, lattice)
+        d = dist(one_point, each_point)  # , lattice)
         sym2 = inv_syms[many_species[index]]
         key1 = sym1 + '_' + sym2
         key2 = sym2 + '_' + sym1
