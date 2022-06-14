@@ -120,12 +120,12 @@ class Evolve(object):
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_same_cluster":
-                    new_astr, inheritance = self.mate_by_slicing(
+                    new_astr, inheritance = mate.mate_by_slicing(
                         select, pool, same_cluster=True)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_dif_cluster":
-                    new_astr, inheritance = self.mate_by_slicing(
+                    new_astr, inheritance = mate.mate_by_slicing(
                         select, pool, same_cluster=False)
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
@@ -1648,7 +1648,7 @@ class gb_ops(object):
         while len(random_blocks) < len(mold_ax_bounds):
             # choose blocks from parents alternatively
             # NOTE: Do not shuffle the list of blocks when choosing
-            # NOTE: Raises IndexError due to less blocks when there 
+            # NOTE: Raises IndexError due to less blocks when there
             # are no sites in some blocks (in fraction_slice). Let it be.
             # Do not resolve it as such child models are not good.
             if i % 2 == 0:
