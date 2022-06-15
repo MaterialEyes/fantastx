@@ -17,13 +17,14 @@ module load python
 
 If above methods fail, download Anaconda for the system [here](https://docs.conda.io/en/latest/miniconda.html). Follow default instructions and install Anaconda. Restart the terminal so that the installation takes effect.
 
-Update conda and add conda-forge to the Anaconda channels & set higher priority. Skip this step if conda-forge is already added before. Install everything from conda-forge to be consistent & reduce compatibility issues across different pacakges.
+Update conda and add conda-forge to the Anaconda channels & set higher priority. This step can be skipped if conda-forge has been previously added, or if adding the conda-forge flags directly to each conda installation step (adding the flags --channel conda-forge). Installing everything from conda-forge is desired to maintain consistency & reduce compatibility issues across different packages.
+
 ```sh
 conda update -n base -c defaults conda
 conda config --add channels conda-forge
 ```
 
-Create a new conda environment with path. Provide *path* to the new conda environment. Add the new environment (*fantastx*) to the system path. Install python 3.
+Create a new conda environment with path. Provide *path* to the new conda environment. Add the new environment (*fantastx*) to the system path. Install python 3. If compatability issues are encountered, explicitly set python=3.7.
 
 ```sh
 conda create -yp ~/miniconda3/envs/fantastx
@@ -34,26 +35,45 @@ conda install python=3
 
 Install following dependencies in this order -
 
-Diffpy (For PDF simulation)
-```sh
-conda install -c diffpy diffpy-cmi
-```
+1. Diffpy (For PDF simulation)
+  ```sh
+  conda install -c diffpy diffpy-cmi
+  ```
 
-Install Pymatgen (Installs Numpy, Scipy, Matplotlib) with pip instead of conda.
+2. Install Pymatgen. Prerequisites to installing pymatgen are numpy, scipy and matplotlib. If ASE functionality is desired, then also install ASE prior to installing pymatgen by running:
+  ```sh
+  pip install --upgrade --user ase
+  ```
+  Follow this by installing pymatgen using either pip: 
+  ```sh
+  conda install --yes numpy scipy matplotlib
+  pip install pymatgen
+  ```
+  or using conda:
+  ```sh
+  conda install pymatgen
+  ```
 
-```sh
-pip install pymatgen
-```
+ Note that the conda installation of pymatgen will automatically install the numpy, scipy and matplotlib dependencies. As ASE is an optional dependency, it must be explicitly installed prior to installing pymatgen. 
 
-Dask, Dask-jobqueue (for parallel calculations on SLURM/PBS cluster)
+3. Dask and Dask-jobqueue (for parallel calculations on local, SLURM or PBS clusters)
+ ```sh
+ conda install -c conda-forge dask dask-jobqueue
+ ```
 
-```sh
-conda install -c conda-forge dask dask-jobqueue
-```
+4. If using fingerprints, install the sci-kit learn package:
+ ```sh
+ conda install scikit-learn
+ ```
+ and if using any dscribe fingerprints then install dscribe:
+ ```sh
+ conda install dscribe
+ ```
+ Also install the sci-kit learn package
 
-Follow instructions [here](https://github.com/MaterialEyes/ingrained/blob/dev_ch/README.md) to install Ingrained package (for TEM and STM simulations)
+5. If performing TEM or STM simulations, follow instructions [here](https://github.com/MaterialEyes/ingrained/blob/dev_ch/README.md) to install the Ingrained package.
 
-Install Fantastx by cloning this repository. Enter username and password when prompted. Install using *develop* for ease of updating the code during development phase.
+Finally, install Fantastx by cloning this repository. Enter username and password when prompted. Install using *develop* for ease of updating the code during development phase.
 
 ```sh
 git clone https://github.com/MaterialEyes/fantastx.git

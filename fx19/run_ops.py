@@ -76,7 +76,7 @@ def relax(model, reg_id, energy_code):
     resubmitted = 2
     if not model.converged:
         for i in range(energy_code.resubmit):
-            if resubmitted < energy_code.resubmit and model.converged is False:
+            if resubmitted < energy_code.resubmit and not model.converged:
                 resubmitted += 1
                 try:
                     energy_code.re_relax(model)
@@ -126,9 +126,9 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
                 pool.all_models,
                 exact=True)
         # add the new_model inheritance to select.all_parent_labels
-        select.all_parent_labels += new_model.inheritance
+        # select.all_parent_labels += new_model.inheritance
 
-    return new_model, select
+    return new_model
 
 
 def separate_gb(energy_code, gb_ops_obj, model):
@@ -156,6 +156,10 @@ def do_Xsim(model, Xsim_1):
     Xsim_1 : experimental simulation object (pdf_of_model or gb_ingrained)
     """
     if Xsim_1:
+        if not model.converged:
+            print('Energy calculation of model {} is not'
+                  ' converged'.format(model.label))
+            return None
         # get the relaxed structure
         relaxed_str = model.astr
         if relaxed_str is None:
@@ -166,8 +170,10 @@ def do_Xsim(model, Xsim_1):
             # if relaxed structure exists
             model.Xsim1 = Xsim_1.name
             model, Xsim_val = Xsim_1.evaluate_obj(model)
-
+            model.num_of_obj += 1
             return model
+    else:
+        return model
 
 
 def update_pool(evald_futures, models_evald, pool, select,
@@ -204,6 +210,8 @@ def update_pool(evald_futures, models_evald, pool, select,
         # Selection_probs are also updated
         if model is not None:
             select = pool.add_to_pool(model, select, sim_ids=sim_ids)
+            if model.made_by is not None and model.made_by != "random":
+                select.all_parent_labels += model.inheritance
             # write data to file
             write_data(model, data_file)
             models_evald += 1
