@@ -226,7 +226,7 @@ class Pool(object):
                     # Here epsilon = 1
                     operator_counts = np.zeros(len(select.operator_hashmap))
                     for operator in self.population.operator_inheritance:
-                        if operator != "random":
+                        if operator in select.operator_hashmap.keys():
                             operator_counts[
                                 select.operator_hashmap[operator]
                             ] += 1

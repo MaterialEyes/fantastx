@@ -220,8 +220,9 @@ class Pool(object):
             if len(self.good_pool) == 0 or select.type == 'single':
                 # if update fails due to too few points for convex hull
                 print('New Model {} made by {} added to good pool'.format(
-                                                model.label, model.made_by))
-                self.good_pool = [m for m in self.all_models if m.overall_val is not None]
+                    model.label, model.made_by))
+                self.good_pool = [
+                    m for m in self.all_models if m.overall_val is not None]
                 self.good_pool.append(model)
                 return select
             else:
@@ -235,11 +236,10 @@ class Pool(object):
                     operator_counts = np.zeros(
                         len(select.operator_hashmap))
                     for operator in select.operator_inheritance:
-                        if operator != "random":
-                            if operator is not None:  # for user-input models
-                                operator_counts[
-                                    select.operator_hashmap[operator]
-                                ] += 1
+                        if operator in select.operator_hashmap.keys():
+                            operator_counts[
+                                select.operator_hashmap[operator]
+                            ] += 1
                         else:
                             operator_counts += 1 / \
                                 len(select.operator_hashmap)
@@ -416,7 +416,7 @@ class Select(object):
 
         if self.is_point_on_pareto((model_obj0, model_obj1)):
             # if model is on pareto, set overall value to be 0
-            # Because overall_val remains None after added to pool 
+            # Because overall_val remains None after added to pool
             # if model is non-dominated on both axis
             model.overall_val = 0
             return None, model

@@ -14,6 +14,7 @@ are supported:
 """
 
 from __future__ import division, unicode_literals, print_function
+from hashlib import new
 from pymatgen.core.structure import Structure, PeriodicSite
 from pymatgen.core.lattice import Lattice
 from scipy.spatial.transform import Rotation as R
@@ -636,11 +637,8 @@ class make_random_molecule_model(object):
         self.attachment_attempts = 10
         self.fragment_rotation_attempts = 200
         self.number_of_fragments = 6
-        self.add_H = True
-        if self.add_H:
-            self.bond_lengths = self._load_bond_length_data()
-        else:
-            self.bond_lengths = None
+        self.add_H = False
+        self.bond_lengths = self._load_bond_length_data()
 
         self.attached_fragments = 0
         # self.visualization_dir = \
@@ -667,8 +665,10 @@ class make_random_molecule_model(object):
         available_attachments = sf["available_attachments"].copy()
         molecule = {"attachment_sites": attachment_sites,
                     "available_attachments": available_attachments,
+                    "total_avail_attachments": available_attachments.copy(),
                     "fragments": None,
-                    "fragment_vectors": {}}
+                    "fragment_vectors": {}
+                    }
 
         # Create the starting pymatgen structure
         if sf["type"] == "atom":
@@ -677,11 +677,12 @@ class make_random_molecule_model(object):
             astr = Structure(latt, starting_atom, starting_coords,
                              coords_are_cartesian=True)
             molecule["fragment_vectors"][0] = []
+            molecule["fixed_atoms"] = [0]
         else:
-            if "com_coords" in sf:
-                com_coords = sf["com_coords"]
+            if "geometric_center_coords" in sf:
+                geom_cent_coords = sf["geometric_center_coords"]
                 coord_offset = np.array(
-                    [box_center[i] - com_coords[i] for i in range(3)]
+                    [box_center[i] - geom_cent_coords[i] for i in range(3)]
                 )
             else:
                 coord_offset = np.array(box_center)
@@ -694,12 +695,21 @@ class make_random_molecule_model(object):
             astr = Structure(latt, species, new_coords,
                              coords_are_cartesian=True)
 
+            # To make sure that fragments which will attach don't ovelap
+            # with the central fragment, create fragment vectors pointing
+            # toward the box center
             for i in attachment_sites:
                 molecule["fragment_vectors"][i] = np.array(box_center) -\
                     astr.sites[i].coords
                 molecule["fragment_vectors"][i] =\
                     molecule["fragment_vectors"][i] /\
                     np.linalg.norm(molecule["fragment_vectors"][i])
+
+        # add oxidation states to molecule atoms if provided
+        if 'oxidation_states' in sf:
+            self._oxidize_structure(astr, sf['oxidation_states'])
+
+        # molecule["charge"] += sf["charge"]
 
         self.attached_fragments = 1
         # poscar_filename = self.visualization_dir + \
@@ -710,6 +720,34 @@ class make_random_molecule_model(object):
         # self.attached_fragments += 1
 
         return molecule, astr
+
+    def _oxidize_structure(self, astr, oxidation_states):
+        """
+        Adds oxidation states to a structure
+
+        Arguments:
+            astr (obj): pymatgen `structure` object which will have oxidation
+             states added
+            oxidation_states (iterable): the oxidation states which
+             will be assigned. Each state can be provided as a iterable itself,
+             in which case one of the items in the iterable will be chosen at
+             random as the assigned oxidation state
+        """
+        if not hasattr(oxidation_states, '__iter__'):
+            print("Error! Oxidation state not specified in iterable format")
+        else:
+            if len(oxidation_states) != astr.num_sites:
+                print("Error! Length of oxidation states iterable must be the"
+                      " same as the number of sites in the structure.")
+            else:
+                oxi_states = []
+                for i in oxidation_states:
+                    if hasattr(i, '__iter__'):
+                        oxi_state = float(np.random.choice(i))
+                    else:
+                        oxi_state = float(i)
+                    oxi_states.append(oxi_state)
+                astr.add_oxidation_state_by_site(oxi_states)
 
     def attach_fragment(self, fragment, current_molecule,
                         current_molecule_astr):
@@ -728,7 +766,7 @@ class make_random_molecule_model(object):
             fragment (str): the string id corresponding to the fragment which
             will be added.
             current_molecule (dict): dictionary representation of the model's
-             attachment sites, fragments and fragment vectors.
+             attachment sites, fragments, fragment vectors and charge.
             current_molecule_astr (obj): pymatgen `Structure` object
              corresponding to the molecule
 
@@ -741,29 +779,52 @@ class make_random_molecule_model(object):
         fragment_POSCAR_file = self.fragments_directory + "/" +\
             fragment_info["poscar"]
         fragment_POSCAR = Poscar.from_file(fragment_POSCAR_file)
-        num_preexisting_sites = current_molecule_astr.num_sites
-        cur_mol_fragment_vectors = current_molecule["fragment_vectors"]
+
+        if "geometric_center_coords" in fragment_info:
+            geom_cent_coords = fragment_info["geometric_center_coords"]
+            geom_cent_offset = np.linalg.norm(geom_cent_coords)
+        else:
+            geom_cent_coords = None
+            geom_cent_offset = 0.0
 
         # hydrogenate fragment and update attachment sites and
         # attachment site availability (how many att each site can have)
+        # Modify charge of fragment if H are added
         if self.add_H:
             fragment_structure, frag_attach_avail =\
                 self._hydrogenate_fragment(
                     fragment_POSCAR.structure,
                     fragment_info)
             frag_attach_sites = fragment_info["attachment_sites"].copy()
+            frag_attach_total = frag_attach_avail.copy()
+
+            # num_H = fragment_structure.composition.as_dict()["H"]
+            # frag_charge += num_H
         else:
             fragment_structure = fragment_POSCAR.structure.copy()
             frag_attach_sites = fragment_info["attachment_sites"].copy()
             frag_attach_avail = fragment_info["available_attachments"].copy()
+            frag_attach_total = frag_attach_avail.copy()
 
-        attached = False
-        frag_attach_site_id = frag_attach_sites[0]
+        if 'oxidation_states' in fragment_info:
+            oxidation_states = fragment_info["oxidation_states"]
+            if self.add_H:
+                num_H = fragment_structure.composition.as_dict()["H"]
+                oxidation_states.extend([1]*num_H)
+            self._oxidize_structure(
+                fragment_structure, fragment_info['oxidation_states'])
+
+        # Grab current molecule fragment vectors
+        cur_mol_fragment_vectors = current_molecule["fragment_vectors"]
+
+        # initialize variables
         frag_att_list_index = 0
         aa = 0
-
+        embedded_site_ids = []
         fragment_bond_dist = 2.0
         bond_translation = np.array([0, 0, fragment_bond_dist])
+
+        attached = False
         while not attached and aa < self.attachment_attempts:
             # Copy the pymatgen structures to avoid altering them in the loop
             molecule_astr = current_molecule_astr.copy()
@@ -772,148 +833,74 @@ class make_random_molecule_model(object):
             # Choose the fragment attachment site at random
             frag_attach_probs = np.array(
                 frag_attach_avail) / sum(frag_attach_avail)
-
-            print(
-                f"Available frag attach sites and probs: {frag_attach_sites}"
-                f" and {frag_attach_avail}")
             num_avail_att_sites = len(frag_attach_sites)
             frag_att_list_index = np.random.choice(range(num_avail_att_sites),
                                                    p=frag_attach_probs)
-            frag_attach_site_id = frag_attach_sites[frag_att_list_index]
-            frag_attach_site = fragment_astr.sites[frag_attach_site_id]
-            print(f"Chosen fragment attachment site: {frag_attach_site_id}")
+            frag_attach_site = fragment_astr.sites[
+                frag_attach_sites[frag_att_list_index]]
 
             # Next, if this attachment site is not already on the z-axis,
             # rotate the fragment around the y-axis until it is, and shift
             # until the attachment site is at (0,0,0)
-            if not (np.isclose(frag_attach_site.coords[0], 0.0) and
-                    np.isclose(frag_attach_site.coords[2], 0.0)):
-                asite_coords = frag_attach_site.coords
-                angle = np.arctan2(np.linalg.norm(
-                    np.cross(asite_coords, [0, 0, -1])
-                ), np.dot(asite_coords, [0, 0, -1]))
-                if asite_coords[0] < 0:
-                    angle = 2 * np.pi - angle
-                rotation = R.from_euler(
-                    'y', angle, degrees=False)
-                z_offset = np.linalg.norm(asite_coords)
-                for site in fragment_astr.sites:
-                    site.coords = rotation.apply(site.coords)
-                    site.coords = site.coords + np.array([0, 0, z_offset])
+            self._align_fragment_site(fragment_astr, frag_attach_site,
+                                      geom_cent_coords)
 
             # Grab the molecule attachment site at random, with
             # probability determined by availability. Better would
             # be an energetic determination
             m_att_avail = current_molecule["available_attachments"]
             m_att_sites = current_molecule["attachment_sites"]
-
-            print(
-                f"Available attach sites and probs: {m_att_sites} "
-                f"and {m_att_avail}")
-
             m_att_probs = np.array(m_att_avail) / sum(m_att_avail)
             m_att_index = np.random.choice(range(len(m_att_sites)),
                                            p=m_att_probs)
             m_att_site_id = m_att_sites[m_att_index]
-
-            molecule_attach_site =\
-                current_molecule_astr.sites[m_att_site_id]
+            m_att_total = current_molecule["total_avail_attachments"]
+            molecule_attach_site = molecule_astr.sites[m_att_site_id]
             molecule_attach_coords = molecule_attach_site.coords
+
             # grab the bond length for this attachment if a bond
             # dict exists
             if self.bond_lengths is not None:
                 frag_atom = frag_attach_site.specie.name
                 attach_atom = molecule_attach_site.specie.name
                 bond_syms = tuple(sorted([frag_atom, attach_atom]))
-                print(f"Bond syms: {bond_syms}")
                 fragment_bond_dist = self.bond_lengths[bond_syms][1.0]
+                bond_translation = np.array([0.0, 0.0, fragment_bond_dist])
 
-            # All fragments lie on the X-Z plane, centered on the z-axis
-            # We will translate the fragment by the bonding distance, then
-            # rotate the fragment by random angles around the z, then x, then
-            # z axis again (this ZXZ rotation is a proper Euler rotation)
-            (optimal_vector, zθ_one, xθ, zθ_two) =\
-                self._generate_vector_and_angles()
-            current_vector = np.copy(optimal_vector)
-            optimal_angles = [xθ, zθ_two]
-            fra = 0
-            farthest_distance = 0
-
-            min_distance = np.pi/2
-            if len(cur_mol_fragment_vectors[m_att_site_id]) != 0:
-                while fra < self.fragment_rotation_attempts and\
-                        farthest_distance < min_distance:
-                    # determine great circle distance to every other fragment
-                    dotp = np.dot(
-                        cur_mol_fragment_vectors[m_att_site_id],
-                        current_vector)
-                    crossp = np.cross(
-                        cur_mol_fragment_vectors[m_att_site_id],
-                        current_vector)
-                    distances = np.arctan2(
-                        np.linalg.norm(crossp, axis=1), dotp)
-
-                    # if this distance is greater than before, store optimal
-                    # fragment vector
-                    current_distance = np.min(distances)
-                    if current_distance > farthest_distance:
-                        optimal_angles = [xθ, zθ_two]
-                        optimal_vector = np.copy(current_vector)
-                        farthest_distance = current_distance
-
-                    (current_vector, zθ_one, xθ,
-                     zθ_two) = self._generate_vector_and_angles()
-                    fra += 1
-
-            xθ = optimal_angles[0]
-            zθ_two = optimal_angles[1]
-
-            rotation = R.from_euler(
-                'zxz', [zθ_one, xθ, zθ_two], degrees=False)
+            # Rotate fragment to lie in appropriate angular region
+            mol_site_fragment_vectors = cur_mol_fragment_vectors[m_att_site_id]
+            rotation_angles, optimal_vector = self._optimally_rotate_fragment(
+                mol_site_fragment_vectors,
+                m_att_total[m_att_index],
+                m_att_avail[m_att_index],
+            )
 
             # Attach the fragment
-            attached_sites = 0
-            for site in fragment_astr.sites:
-                site.coords = site.coords + bond_translation
-                site.coords = rotation.apply(site.coords)
-                site.coords = site.coords + molecule_attach_coords
+            attached, embedded_site_ids = self._merge_structures(
+                fragment_astr,
+                molecule_astr,
+                molecule_attach_coords,
+                rotation_angles,
+                bond_translation)
 
-                # attempt to add site to molecule
-                atom_satisfies_dists = dc.satisfies_all_dists(
-                    site.coords,
-                    molecule_astr,
-                    self.element_syms,
-                    self.min_dist_dict,
-                    max_dist_dict=None,
-                    new_carts_species=site.specie.name)
-                if not atom_satisfies_dists:
-                    print("Did not satisfy dists. Need to re-rotate")
-                    break
-                else:
-                    molecule_astr.append(site.species,
-                                         site.coords,
-                                         coords_are_cartesian=True)
-                    attached_sites += 1
-
-            if attached_sites == len(fragment_astr.sites):
-                attached = True
             aa += 1
 
         # If successfully attached (e.g. no sites break distance constraints)
         # then update molecule and set of fragments
         if attached:
-            current_molecule_astr = molecule_astr
+
+            # Update available attachments
             m_att_avail[m_att_index] -= 1
 
             frag_att_site_avail = frag_attach_avail[frag_att_list_index]
             if frag_att_site_avail == 1:
                 frag_attach_sites.pop(frag_att_list_index)
                 frag_attach_avail.pop(frag_att_list_index)
+                frag_attach_total.pop(frag_att_list_index)
             else:
                 frag_att_site_avail -= 1
 
-            # gather
-
+            # Update molecule fragment vectors
             if m_att_site_id in cur_mol_fragment_vectors:
                 cur_mol_fragment_vectors[m_att_site_id].append(
                     optimal_vector)
@@ -921,47 +908,221 @@ class make_random_molecule_model(object):
                 cur_mol_fragment_vectors[m_att_site_id] = \
                     [optimal_vector]
 
-            # Visualize the attachment
-            # poscar_filename = self.visualization_dir + \
-            #     "/" + "POSCAR" + str(self.attached_fragments)
-            # poscar = Poscar(molecule_astr, true_names=True)
-            # poscar.write_file(filename=poscar_filename,
-            #                   direct=False, vasp4_compatible=False)
-
             # Extend molecule with new (non-passivated) addition sites, and
             # fragment info: sites which belong to the fragment,
             # and the fragment axis
-            frag_attach_sites =\
-                [i + num_preexisting_sites for i in frag_attach_sites]
-            current_molecule["attachment_sites"].extend(frag_attach_sites)
+            new_mol_attach_sites = [i + current_molecule_astr.num_sites
+                                    for i in frag_attach_sites]
+            current_molecule["attachment_sites"].extend(new_mol_attach_sites)
             current_molecule["available_attachments"].extend(frag_attach_avail)
-            fragment_info = {
-                "fragment_vector": current_vector,
-                "fragment_sites": fragment_astr.sites
+            current_molecule["total_avail_attachments"].extend(
+                frag_attach_total)
+
+            # Update fragment information stored by the molecule
+            stored_fragment_info = {
+                "fragment_vector": optimal_vector,
+                "molecule_attach_site": m_att_site_id,
+                "site_ids": embedded_site_ids
             }
             if current_molecule["fragments"] is not None:
-                current_molecule["fragments"].append(fragment_info)
+                current_molecule["fragments"].append(stored_fragment_info)
             else:
-                current_molecule["fragments"] = [fragment_info]
+                current_molecule["fragments"] = [stored_fragment_info]
 
-            # also update fragment vectors for available fragment sites which
-            # have not had other fragments attach yet
-            if "com_coords" in fragment_info:
-                com_offset = np.linalg.norm(fragment_info["com_coords"])
-            else:
-                com_offset = 0.0
-            frag_center = current_vector * (np.linalg.norm(current_vector) +
-                                            com_offset)
+            # Add fragment vectors which correspond to the fragment itself
+            frag_center = optimal_vector * (fragment_bond_dist +
+                                            geom_cent_offset)
             for n, a_site in enumerate(frag_attach_sites):
                 if frag_attach_avail[n] != 0:
-                    a_site_vector = frag_center -\
-                        current_molecule_astr.sites[a_site].coords
+                    mol_site = a_site + current_molecule_astr.num_sites
+                    center_point = molecule_attach_coords + frag_center
+                    a_site_vector = center_point -\
+                        molecule_astr.sites[mol_site].coords
                     a_site_vector = a_site_vector /\
                         np.linalg.norm(a_site_vector)
-                    cur_mol_fragment_vectors[a_site] = \
+                    cur_mol_fragment_vectors[mol_site] = \
                         [a_site_vector]
 
+            current_molecule_astr = molecule_astr
+
         return attached, current_molecule, current_molecule_astr
+
+    def _align_fragment_site(self, fragment_astr, frag_attach_site,
+                             geom_cent_coords=None):
+        """
+        Rotate fragment around geometric center until the fragment
+        attaching site is aligned with the negative z axis, then
+        shift fragment until fragment attaching site is at the origin.
+
+        This rotation is conducted by rotating around the y-axis, as the
+        fragment is assumed to be 2-dimensional and live on the x-z plane.
+
+        Arguments:
+            fragment_astr (obj): pymatgen `structure` object corresponding
+             to the molecular fragment
+            frag_attach_site (obj): pymatgen `PeriodicSite` object
+             corresponding to the atomic site which will be bonded to the
+             molecule
+            geom_cent_coords (array): coordinates of the geometric center
+             of the fragment
+        """
+        asite_coords = frag_attach_site.coords
+        if not (np.isclose(asite_coords[0], 0.0) and
+                np.isclose(asite_coords[2], 0.0)):
+            # align geometric center with the origin
+            center_shift = np.zeros(3)
+            if not geom_cent_coords is None:
+                if not np.allclose(np.zeros(3), geom_cent_coords):
+                    center_shift = np.zeros(3) - geom_cent_coords
+
+            asite_coords = asite_coords + center_shift
+            angle = np.arctan2(np.linalg.norm(
+                np.cross(asite_coords, [0, 0, -1])
+            ), np.dot(asite_coords, [0, 0, -1]))
+            if asite_coords[0] < 0:
+                angle = 2 * np.pi - angle
+            rotation = R.from_euler(
+                'y', angle, degrees=False)
+            z_offset = np.linalg.norm(asite_coords)
+            asite_coords = asite_coords - center_shift
+
+            for site in fragment_astr.sites:
+                site.coords = site.coords + center_shift
+                site.coords = rotation.apply(site.coords)
+                site.coords = site.coords + np.array([0, 0, z_offset])
+                site.coords = site.coords - center_shift
+
+    def _merge_structures(self, a, b, attach_coords=None,
+                          rotation_angles=None, translation=None):
+        """
+        Append the sites of one pymatgen structure onto another. Appends in
+        place, so nothing is returned.
+
+        Arguments:
+            a (obj): pymatgen `structure` object that will be appended
+            b (obj): base pymatgen `structure` object
+            attach_coords (vector): if provided, site coordinates of structure
+             a will be taken as being relative to this coordinate
+            rotation_angles (iterable): Euler rotation angles around the z-axis,
+             x-axis and then z-axis again.
+            translation (vector): numpy vector which will be added to all
+             sites in a before rotating and appending
+
+        Returns:
+            (bool, list):
+             - `True` if attachment was successful
+             - indices of sites which were appended
+        """
+        # Attach the fragment
+        attached_sites = 0
+        attached = False
+        embedded_site_ids = []
+        for site in a.sites:
+            if translation is not None:
+                site.coords = site.coords + translation
+            if rotation_angles is not None:
+                rotation = R.from_euler(
+                    'zxz', rotation_angles, degrees=False)
+                site.coords = rotation.apply(site.coords)
+            if attach_coords is not None:
+                site.coords = site.coords + attach_coords
+
+            # attempt to add site to molecule
+            atom_satisfies_dists = dc.satisfies_all_dists(
+                site.coords,
+                b,
+                self.element_syms,
+                self.min_dist_dict,
+                max_dist_dict=None,
+                new_carts_species=site.specie.name)
+            if not atom_satisfies_dists:
+                print("Did not satisfy dists. Need to re-rotate")
+                break
+            else:
+                b.append(site.species,
+                         site.coords,
+                         coords_are_cartesian=True)
+                attached_sites += 1
+                embedded_site_ids.append(b.num_sites - 1)
+
+        if attached_sites == a.num_sites:
+            attached = True
+
+        return attached, embedded_site_ids
+
+    def _optimally_rotate_fragment(self,
+                                   mol_site_fragment_vectors,
+                                   m_att_total,
+                                   m_att_avail,):
+        """
+        Rotate fragment around attachment site until it both lies as far
+        away from the other attached fragments as possible, and also
+        will be approximately the expected angular distance away from
+        the other other fragments if the attachment site is fully occupied.
+
+        This rotation will occur by rotations around the z-axis, x-axis, then
+        the z-axis again, a ZXZ proper Euler rotation.
+
+        Arguments:
+            mol_site_fragment_vectors (list): other fragment vectors attached
+             to the molecule attachment site
+            m_att_total (int): the total number of fragments which can be
+             attached to the molecule attachment site
+            m_att_avail (int): the remaining number of fragments which can be
+             attached to the molecule attachment site.
+        """
+
+        expected_bond_angles = [180, 180, 120, 109, 105, 90]
+        sigma_dist = .1*np.pi  # rotation tolerance
+        (optimal_vector, zθ_one, xθ, zθ_two) =\
+            self._generate_vector_and_angles()
+        optimal_angles = [xθ, zθ_two]
+
+        current_vector = np.copy(optimal_vector)
+        fra = 0
+        smallest_difference = np.inf
+
+        # adjust min_distance based on number of fragment vectors attached currently
+        n_preattached_frags = len(mol_site_fragment_vectors)
+        if n_preattached_frags != 0:
+            # determine approx. expected angular distances for geometry
+            if n_preattached_frags != m_att_total - m_att_avail:
+                expec_dist = np.pi * \
+                    expected_bond_angles[m_att_total - 1] / 180
+            else:
+                expec_dist = np.pi * \
+                    expected_bond_angles[m_att_total - 2] / 180
+
+            # rotate fragment accordingly
+            while fra < self.fragment_rotation_attempts and\
+                    smallest_difference > sigma_dist:
+                # determine great circle distance to every other fragment
+                dotp = np.dot(
+                    mol_site_fragment_vectors,
+                    current_vector)
+                crossp = np.cross(
+                    mol_site_fragment_vectors,
+                    current_vector)
+                distances = np.arctan2(
+                    np.linalg.norm(crossp, axis=1), dotp)
+
+                # if this distance is greater than before, store optimal
+                # fragment vector
+                current_dist = np.min(distances)
+                expec_difference = abs(current_dist - expec_dist)
+                if expec_difference < smallest_difference:
+                    optimal_angles = [xθ, zθ_two]
+                    optimal_vector = np.copy(current_vector)
+                    smallest_difference = expec_difference
+                    print(current_dist)
+
+                (current_vector, zθ_one, xθ,
+                    zθ_two) = self._generate_vector_and_angles()
+                fra += 1
+
+        rotation_angles = [zθ_one, optimal_angles[0], optimal_angles[1]]
+
+        return rotation_angles, optimal_vector
 
     def _generate_vector_and_angles(self):
         """
@@ -977,7 +1138,7 @@ class make_random_molecule_model(object):
         zθ_two = np.random.random_sample()*2*np.pi
         vector = np.array(
             [np.sin(xθ) * np.sin(zθ_two),
-             np.sin(xθ) * np.cos(zθ_two),
+             -np.sin(xθ) * np.cos(zθ_two),
              np.cos(xθ)]
         )
         return (vector, zθ_one, xθ, zθ_two)
@@ -1191,12 +1352,37 @@ class make_random_molecule_model(object):
                 assembled = True
 
         if assembled:
-            print("Assembled molecule!")
+            # Now, sort molecule_astr and molecule representation
+            s_indices = np.argsort(molecule_astr)
+            s_map = {s_indices[i]: i for i in range(len(s_indices))}
+            molecule["attachment_sites"] =\
+                [s_map[i] for i in molecule["attachment_sites"]]
+            molecule["fixed_atoms"] =\
+                [s_map[i] for i in molecule["fixed_atoms"]]
+
+            for fragment in molecule["fragments"]:
+                fragment["molecule_attach_site"] =\
+                    s_map[fragment["molecule_attach_site"]]
+                fragment["site_ids"] =\
+                    [s_map[i] for i in fragment["site_ids"]]
+
+            mol_frag_vector_keys = list(molecule["fragment_vectors"].keys())
+            for key in mol_frag_vector_keys:
+                val = molecule["fragment_vectors"][key]
+                molecule["fragment_vectors"].pop(key)
+                molecule["fragment_vectors"][s_map[key]] = val
+
+            site_array = np.array(molecule_astr.sites)
+            sorted_sites = site_array[s_indices]
+            molecule_astr = Structure.from_sites(
+                sorted_sites,
+                charge=molecule_astr._charge)
+            print("Assembled and sorted molecule!")
         else:
             print("Failed to assemble molecule within "
                   f"{self.assembly_attempts} attempts.")
 
-        return molecule, molecule_astr
+        return molecule, molecule_astr.get_sorted_structure()
 
     def random_model(self, reg_id):
         """

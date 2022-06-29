@@ -20,6 +20,7 @@ import os
 import shutil
 import numpy as np
 import subprocess as sp
+import re
 
 
 class lammps_code(object):
@@ -532,8 +533,11 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        if self.shape == 'cluster' or self.shape == "molecule":
+        if self.shape == 'cluster':
             model.astr.to(filename=new_poscar, fmt='poscar')
+
+        if self.shape == "molecule":
+            self.write_mol_poscar(model, new_poscar)
 
         if self.shape == 'gb':
             self.write_gb_poscar(model, new_poscar)
@@ -545,18 +549,37 @@ class vasp_code(object):
         # TODO: implement selective dynamics for cluster & other geometries
 
         shutil.copy(new_poscar, poscar)
-        # copy INCAR, KPOINTS to the relax path
-        if self.count_hydrogen:
-            # get amount of hydrogen in poscar and copy correct INCAR
-            poscar = Poscar.from_file(poscar)
-            num_H = poscar.structure.composition.as_dict()["H"]
-            if num_H == 0:
-                shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
-            else:
-                shutil.copy(files_path + '/INCAR' + '_' + str(num_H) + 'H',
-                            relax_path + '/INCAR')
-        else:
+        # copy INCAR, KPOINTS to the relax path. Modify the INCAR if the model is a molecule
+        if self.shape == "molecule":
             shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
+
+            if model.astr.charge != 0:
+                z_val_dict = {}
+                # grab default number of electrons and modify it by the charge
+                pattern = re.compile("ZVAL")
+                pot_i = 0
+                for line in all_lines:
+                    match = re.search(pattern, line)
+                    if match is not None:
+                        z_val = float(line.split()[5])
+                        z_val_dict[sorted_syms[pot_i]] = z_val
+                        pot_i += 1
+                        if pot_i == len(sorted_syms) - 1:
+                            break
+
+                total_electrons = 0
+                poscar = Poscar.from_file(poscar)
+                for sym in sorted_syms:
+                    num_atoms = poscar.structure.composition.as_dict()[sym]
+                    total_electrons += num_atoms * z_val_dict[sym]
+
+                # number of electrons increases with negative charge
+                total_electrons -= model.astr.charge
+
+                incar_file = open(relax_path + '/INCAR', 'a')
+                incar_file.write("\nNELECT = " + str(total_electrons) + "\n")
+                incar_file.close()
+
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
         print('Job prep finished. Submitting...')
@@ -639,11 +662,22 @@ class vasp_code(object):
                 total_energy = float(lines[-1].split()[4])
                 model.tot_en = total_energy
 
-            # get relaxed structure
+            # get relaxed structure and oxidize it if original was oxidized
             try:
                 contcar = model.relax_path + '/CONTCAR'
                 shutil.copy(contcar, model.relax_path + '/POSCAR_relaxed')
                 relaxed_astr = Structure.from_file(contcar)
+
+                oxi_states = []
+                oxi_states_exist = False
+                for site in model.astr.sites:
+                    if hasattr(site, 'oxi_state'):
+                        oxi_states.append(site.oxi_state)
+                        oxi_states_exist = True
+                    else:
+                        oxi_states.append(0)
+                if oxi_states_exist:
+                    relaxed_astr.add_oxidation_state_by_site(oxi_states)
                 relaxed_astr.sort()
                 self.move_atoms_inside(relaxed_astr)
                 model.astr = relaxed_astr
@@ -686,6 +720,29 @@ class vasp_code(object):
         astr.remove_sites(all_inds)
         for sps, coords in zip(species, fc):
             astr.append(sps, coords, coords_are_cartesian=False)
+
+    def write_mol_poscar(self, model, file_name):
+        """
+        For a newly created molecule model, set sd_flags for the central
+        fragment to be [F, F, F], set all other sd_flags to be [T, T, T].
+
+        Arguments:
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
+            file_name (str): the file name of the structure to be written
+             as poscar. 
+        """
+        mol = model.molecule_representation
+        if 'fixed_atoms' in mol.keys():
+            sd_flags = [["T", "T", "T"] if i in mol['fixed_atoms']
+                        else ["F", "F", "F"] for i
+                        in range(model.astr.num_sites)]
+        else:
+            sd_flags = [["T", "T", "T"] for i in range(model.astr.num_sites)]
+
+        model.astr.add_site_property("selective_dynamics", sd_flags)
+        mol_poscar = Poscar(model.astr)
+        mol_poscar.write_file(file_name)
 
     def write_gb_poscar(self, model, file_name):
         """
