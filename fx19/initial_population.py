@@ -14,7 +14,6 @@ are supported:
 """
 
 from __future__ import division, unicode_literals, print_function
-from hashlib import new
 from pymatgen.core.structure import Structure, PeriodicSite
 from pymatgen.core.lattice import Lattice
 from scipy.spatial.transform import Rotation as R
@@ -971,7 +970,7 @@ class make_random_molecule_model(object):
                 np.isclose(asite_coords[2], 0.0)):
             # align geometric center with the origin
             center_shift = np.zeros(3)
-            if not geom_cent_coords is None:
+            if geom_cent_coords is not None:
                 if not np.allclose(np.zeros(3), geom_cent_coords):
                     center_shift = np.zeros(3) - geom_cent_coords
 
@@ -1003,8 +1002,8 @@ class make_random_molecule_model(object):
             b (obj): base pymatgen `structure` object
             attach_coords (vector): if provided, site coordinates of structure
              a will be taken as being relative to this coordinate
-            rotation_angles (iterable): Euler rotation angles around the z-axis,
-             x-axis and then z-axis again.
+            rotation_angles (iterable): Euler rotation angles around the
+             z-axis, x-axis and then z-axis again.
             translation (vector): numpy vector which will be added to all
              sites in a before rotating and appending
 
@@ -1082,7 +1081,7 @@ class make_random_molecule_model(object):
         fra = 0
         smallest_difference = np.inf
 
-        # adjust min_distance based on number of fragment vectors attached currently
+        # adjust min_distance based on number of fragment vectors attached
         n_preattached_frags = len(mol_site_fragment_vectors)
         if n_preattached_frags != 0:
             # determine approx. expected angular distances for geometry
