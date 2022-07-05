@@ -360,10 +360,45 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
 
 
 def satisfies_all_dists_quick(one_point, many_points, one_species,
-                              many_species, inv_syms, min_dist_dict, lattice):
+                              many_species, inv_syms, min_dist_dict,
+                              lattice=None):
+    """
+    Function to check that a new coordinate being added to an existing
+    structure satisfies all minimum distance constraints. To be used with
+    initial_population and basinhopping methods. This is a minimal version
+    of the method, the full version also includes functionality to ensure
+    that maximum distance constraints are obeyed, in addition to other
+    functionality.
+
+    Arguments:
+
+        one_point (iterable): Cartesian coordinates of the new atom
+
+        many_points (iterable): Cartesian coordinates of the atoms which
+         currently reside in the structure
+
+        one_species (str): species of the new atom
+
+        many_species (iterable): strings corresponding to the species of the
+         atoms which currently reside in the structure
+
+        inv_syms (dict): the mapping of each atomic species to their
+         designation in the input yaml file (sp1, sp2, etc)
+
+        min_dist_dict (dict): dictionary of minimum distances with respect to
+         different species
+
+        lattice (obj): Pymatgen `Lattice` object which contains the species.
+         If provided, all distances are calculated using periodic boundary
+         conditions.
+    """
     sym1 = inv_syms[one_species]
     for index, each_point in enumerate(many_points):
-        d = dist(one_point, each_point)  # , lattice)
+        if lattice is None:
+            d = dist(one_point, each_point)
+        else:
+            d = dist_pbc(one_point, each_point, lattice)
+        # d = dist(one_point, each_point)
         sym2 = inv_syms[many_species[index]]
         key1 = sym1 + '_' + sym2
         key2 = sym2 + '_' + sym1

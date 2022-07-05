@@ -37,6 +37,7 @@ from scipy.interpolate import CubicSpline, UnivariateSpline
 from ase.data import atomic_numbers
 from fx19.fingerprinting import DistanceCalculator
 import re
+from collections import Counter
 
 
 class xanes_of_model(object):
@@ -555,7 +556,7 @@ class xanes_of_model(object):
             print("Error. Input directory already exists.")
         try:
             os.mkdir(fdmnes_output_folder)
-            print("Created FDMNES input directory.")
+            print("Created FDMNES output directory.")
         except FileExistsError:
             print("Error. Output directory already exists.")
         fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
@@ -607,16 +608,66 @@ class xanes_of_model(object):
                 else:
                     if key == "Atom":
                         inputfile.write(key + "\n")
+                        # create oxidation state separated substates
+                        oxi_confs = {}
                         for sub_key, sub_value in value.items():
-                            inputfile.write(sub_key + " " + sub_value + "\n")
+                            # if key corresponds to central atom, check for
+                            # ionic charge
+                            underscore_index = sub_key.find("_")
+                            atomic_id = sub_key
+                            if underscore_index != -1:
+                                atomic_id = sub_key[:underscore_index]
+                                charge = int(sub_key[underscore_index + 1:])
+
+                                if atomic_id in oxi_confs:
+                                    oxi_confs[atomic_id][charge] = sub_value
+                                else:
+                                    oxi_confs[atomic_id] = {charge: sub_value}
+                            else:
+                                oxi_confs[atomic_id] = sub_value
+
+                        for atomic_id, val in oxi_confs.items():
+                            if type(val) is dict:
+                                # determine dominant oxidation state in the structure
+                                oxi_states = []
+                                for site in model.astr.sites:
+                                    number = site.specie.number
+                                    if number == int(atomic_id):
+                                        if hasattr(site.specie, 'oxi_state'):
+                                            oxi_states.append(
+                                                int(site.specie.oxi_state))
+                                if len(oxi_states) == 0:
+                                    key = list(val.keys())[0]
+                                    inputfile.write(
+                                        atomic_id + " " + val[key] + "\n")
+                                else:
+                                    oxi_state = Counter(
+                                        oxi_states).most_common(1)[0][0]
+                                    inputfile.write(
+                                        atomic_id + " " + val[oxi_state] + "\n")
+                            else:
+                                inputfile.write(atomic_id + " " + val + "\n")
                     elif key == "Atom_conf":
                         inputfile.write(key + "\n")
                         all_atom_counts = {}
                         all_atom_indices = {}
                         atom_index = 1
+                        found_keys = []
                         for site in model.astr.sites:
-                            specie = site.specie.symbol
-                            an = str(atomic_numbers[specie])
+                            an = str(site.specie.number)
+                            oxidized = hasattr(site.specie, 'oxi_state')
+                            if oxidized:
+                                ox_an = an + "_" + \
+                                    str(int(site.specie.oxi_state))
+                                if ox_an in value.keys():
+                                    an = ox_an
+                                else:
+                                    if an not in value.keys():
+                                        print("Note! No atom_conf for "
+                                              f"oxidation state {ox_an} and "
+                                              "no default state found for"
+                                              f" atomic number {an} either.")
+                            found_keys.append(an)
                             if an in all_atom_counts:
                                 all_atom_counts[an] += 1
                             else:
@@ -629,12 +680,14 @@ class xanes_of_model(object):
 
                         for sub_key, sub_value in value.items():
                             # Need to get number of atoms and their indices
-                            atom_count = str(all_atom_counts[sub_key])
-                            atom_indices = " ".join(all_atom_indices[sub_key])
-                            inputfile.write(
-                                atom_count + " " +
-                                atom_indices + " " +
-                                sub_value + "\n")
+                            if sub_key in found_keys:
+                                atom_count = str(all_atom_counts[sub_key])
+                                atom_indices = " ".join(
+                                    all_atom_indices[sub_key])
+                                inputfile.write(
+                                    atom_count + " " +
+                                    atom_indices + " " +
+                                    sub_value + "\n")
                     elif key == "Multipolar":
                         if type(value) is str:
                             inputfile.write(value + "\n")

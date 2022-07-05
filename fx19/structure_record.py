@@ -114,10 +114,10 @@ class model(object):
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = 0
         # Selective dynamics z-coordinates for gb or slab models
-        # NOTE: If only sd_true_above is provided - 
+        # NOTE: If only sd_true_above is provided -
         # 1. sd_true_below is set to hollow_top_z for gb models
         # 2. all atoms above sd_true_above are set to True for slab models
-        self.sd_true_above = None 
+        self.sd_true_above = None
         self.sd_true_below = None
         # fingerprinting information
         self.fingerprint = {}
@@ -244,7 +244,7 @@ class structure_constraints(object):
                 if 'max_dist' in str_record:
                     if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
-        # ########################cluster parameters###########################
+
         # shape and related
         if 'cluster' in str_record:
             self.shape = 'cluster'
@@ -254,8 +254,27 @@ class structure_constraints(object):
             self.shape = 'surface'
         elif 'molecule' in str_record:
             self.shape = 'molecule'
+        elif 'bulk' in str_record:
+            self.shape = 'bulk'
         # TODO: add other shapes here
 
+        # ########################bulk parameters begin########################
+        if self.shape == 'bulk':
+            if 'box_abc' in str_record['bulk']:
+                self.box_abc = str_record['bulk']['box_abc']
+            else:
+                print('The lattice lengths of the box are not specified.'
+                      ' Using default equal side lengths of a=b=c=10Å')
+                self.box_abc = [10, 10, 10]
+
+            if 'box_angles' in str_record['bulk']:
+                self.box_angles = str_record['bulk']['box_angles']
+            else:
+                print('The lattice angles of the box are not specified.'
+                      ' Using default orthogonal angles of 90 degrees.')
+        # ###################bulk parameters end###############################
+
+        # ########################cluster parameters begin#####################
         if self.shape == 'cluster':
             if 'box_abc' in str_record['cluster']:
                 self.box_abc = str_record['cluster']['box_abc']

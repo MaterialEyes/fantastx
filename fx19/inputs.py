@@ -48,7 +48,8 @@ def make_objects(i_dict):
     all_objects['input_model_obj'] = input_model_obj
 
     # For cluster, initial population module is used for random models
-    if str_constraints['shape'] == 'cluster':
+    if str_constraints['shape'] == 'bulk' or\
+            str_constraints['shape'] == 'cluster':
         # make_random_model object from initial_population
         random_model_obj = initial_population.make_random_model(
             str_constraints)
@@ -350,9 +351,10 @@ def make_objects(i_dict):
         all_objects['energy_code'] = energy_code
 
     # Evolve object - wrapper on mating and basinhopping
-    evolve_params = get_evolve_params(i_dict, str_constraints)
+    evolve_params = get_evolve_params(str_constraints)
     if str_constraints['shape'] == 'cluster' or\
-            str_constraints['shape'] == 'molecule':
+            str_constraints['shape'] == 'molecule' or\
+            str_constraints['shape'] == 'bulk':
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
@@ -593,14 +595,11 @@ def get_mating_params(i_dict, str_constraints):
     return mating_params
 
 
-def get_evolve_params(i_dict, str_constraints):
+def get_evolve_params(str_constraints):
     """
     Determines parameters to be used for the `'evolve'` class
 
     Args:
-
-        i_dict (dict): dictionary of all the user-provided input parameters
-         read from yaml file
 
         str_constraints (dict): dictionary of all the constraints for making
          random models
@@ -610,6 +609,7 @@ def get_evolve_params(i_dict, str_constraints):
         dict: all the determined parameters
     """
     evolve_params = {}
+    evolve_params['shape'] = str_constraints['shape']
     evolve_params['num_species'] = str_constraints['num_species']
     # species dicts
     # DU

@@ -54,7 +54,7 @@ class Evolve(object):
     A wrapper around mating and basinhopping classes. This is used to decide
     whether to do mating (GA) or mutation (basinhopping) to generate a new
     structure and calls either of these classes to generate a single model.
-    This class is used in nanocluster and molecule geometry search.
+    This class is used in bulk, nanocluster and molecule geometry searches.
     """
 
     def __init__(self, mate, hop, evolve_params):
@@ -72,6 +72,7 @@ class Evolve(object):
         self.mate = mate
         self.hop = hop
         self.num_species = evolve_params['num_species']
+        self.shape = evolve_params['shape']
 
         # Make species dicts as attributes
         # DU
@@ -112,30 +113,27 @@ class Evolve(object):
                 if operator == "perturb_sites":
                     new_astr, inheritance = hop.perturb_sites(
                         select, pool, model_id=label)
-                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "perturb_comp":
                     new_astr, inheritance = hop.perturb_comp(
                         select, pool, model=parent_model)
-                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_same_cluster":
                     new_astr, inheritance = mate.mate_by_slicing(
                         select, pool, same_cluster=True)
-                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice_dif_cluster":
                     new_astr, inheritance = mate.mate_by_slicing(
                         select, pool, same_cluster=False)
-                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "fraction_slice":
                     new_astr, inheritance = mate.mate_by_slicing(select, pool)
-                    new_astr = mate.move_atoms_to_within_cluster(new_astr)
 
                 elif operator == "mate_by_swap":
                     new_astr, inheritance = mate.mate_by_random_swap(
                         select, pool)
+
+                if self.shape == 'cluster' or self.shape == 'molecule':
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
             except:
                 print(
@@ -183,28 +181,32 @@ class mating(object):
 
     def __init__(self, mating_params):
         """
-        This class is used by cluster geometry search. This is used to create a
-        child structure by mating 2 or 3 parents
+        This class is used in bulk, molecule and cluster geometry searches.
+        This is used to create a child structure by mating 2 or more parents.
 
-        Args:
+        Input parameters are provided in the form of a dictionary. Such a
+        dictionary would be:
 
-        mating_params (dict): a dictionary of different parameters that are
-        required for performing mating on parents
+        ```python
+            {'shape': 'cluster'  # taken from input file directly
+            'mirror_slice_before_join': True
+            'min_dist_dict': dictionary of minimum bond distances
+                            {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
+            'species_dict': # dictionary of species
+                            {'species1': {'name': 'Al',
+                            'min_num': 36,
+                            'max_num': 36,
+                            'mu': -3.35958515625},
+                            'species2': {'name': 'O',
+                            'min_num': 30,
+                            'max_num': 30,
+                            'mu': -6.76069604253}}
+        ```
 
-        Eg: {'shape': 'cluster'  # taken from input file directly
-        'mirror_slice_before_join': True
-        'min_dist_dict': dictionary of minimum bond distances
-                        {'sp1_sp1': 2.3, 'sp1_sp2': 1.5, 'sp2_sp2': 1.2},
-        'species_dict': # dictionary of species
-                        {'species1': {'name': 'Al',
-                           'min_num': 36,
-                           'max_num': 36,
-                           'mu': -3.35958515625},
-                          'species2': {'name': 'O',
-                           'min_num': 30,
-                           'max_num': 30,
-                           'mu': -6.76069604253}}
+        Arguments:
 
+            mating_params (dict): the dictionary of different parameters that
+             are required for performing mating on parents
         """
         # Defaults for the parameters
         self.mirror_slice_before_join = True
@@ -217,8 +219,9 @@ class mating(object):
                 print('mirror_slice_before_join parameter should be a boolean.'
                       ' Setting to defaults True')
 
-        if mating_params['shape'] == 'cluster' or\
-                mating_params['shape'] == 'molecule':
+        self.shape = mating_params['shape']
+        if self.shape['shape'] == 'cluster' or\
+                self.shape == 'molecule':
             self.max_dia = mating_params['max_dia']
             self.box_abc = np.array(mating_params['box_abc'])
             self.origin = np.array(mating_params['origin'])
@@ -242,11 +245,12 @@ class mating(object):
 
     def get_attach_type(self):
         """
-        Function to get the attach type - mirror and attach, or direct attach
+        Function to get the attach type - mirror and attach, or direct attach.
+        Probability of selecting each type is 50%. 
 
-        Returns either
-        'direct' (--> to attach the slice as is) or
-        'mirror' (--> to attach the slice after rotating it 180 deg (mirrored))
+        Returns:
+            (str): 'direct' if attaching the slice as is, or 'mirror'
+             if attaching the slice after rotating it 180 deg (mirrored)
         """
         attach_type = 'direct'
 
@@ -263,16 +267,22 @@ class mating(object):
         slicing each parent after a random rotation and attaching two slices
         from both parents.
 
-        Returns the child Structure object
+        !!! note "TODO"
+            Make the lattice scaling account for different lattice angles
 
-        Args:
+        Arguments:
 
-        select (obj): selection.Select object
+            select (obj): fantastx `Select` object
 
-        pool (obj): selection.Pool object
+            pool (obj): fantastx `Pool` object
 
-        same_cluster (bool): Whether to mate from same cluster or not.
-                            If None, then ignored.
+            same_cluster (bool): Whether to mate from same cluster or not.
+                                If None, then ignored.
+
+        Returns:
+            (obj, list):
+             - the pymatgen `Structure` object of the new child
+             - the labels of the parent models which were mated
         """
         # Get num_parents and select them parents
         num_parents = 2
@@ -282,10 +292,48 @@ class mating(object):
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
 
+        # check to make sure that the parents have the same lattice
+        # parameters. If not, then make the smaller one have the same
+        # lattice parameters as the larger one
+        parent_one_astr = parent1.astr.copy()
+        parent_two_astr = parent2.astr.copy()
+        if not np.allclose(parent1.lattice.matrix, parent2.lattice.matrix):
+            scale_factor = parent1.lattice.volume/parent2.lattice.volume
+            if scale_factor < 1:
+                lattice_scaling = np.divide(
+                    parent2.lattice.abc, parent1.lattice.abc)
+                supercell_scaling = [math.ceil(i) for i in lattice_scaling]
+                parent_one_astr.make_supercell(supercell_scaling)
+                removal_ind = []
+                for n, i in enumerate(parent_one_astr.cart_coords):
+                    new_frac_coords = parent2.lattice.get_fractional_coords(i)
+                    if np.any(new_frac_coords >= 1):
+                        removal_ind.append(n)
+                parent_one_astr.remove_sites(removal_ind)
+                cart_coords = parent_one_astr.cart_coords
+                parent_one_astr.lattice = parent_two_astr.lattice
+                for n, site in enumerate(parent_one_astr.sites):
+                    site.coords = cart_coords[n]
+            else:
+                lattice_scaling = np.divide(
+                    parent1.lattice.abc, parent2.lattice.abc)
+                supercell_scaling = [math.ceil(i) for i in lattice_scaling]
+                parent_two_astr.make_supercell(supercell_scaling)
+                removal_ind = []
+                for n, i in enumerate(parent_two_astr.cart_coords):
+                    new_frac_coords = parent1.lattice.get_fractional_coords(i)
+                    if np.any(new_frac_coords >= 1):
+                        removal_ind.append(n)
+                parent_two_astr.remove_sites(removal_ind)
+                cart_coords = parent_two_astr.cart_coords
+                parent_two_astr.lattice = parent_one_astr.lattice
+                for n, site in enumerate(parent_two_astr.sites):
+                    site.coords = cart_coords[n]
+
         # rotate all parents randomly and slice them
-        temp1 = self.rotate_astr(parent1.astr)
+        temp1 = self.rotate_astr(parent_one_astr)
         slice1 = self.fraction_slice(temp1)
-        temp2 = self.rotate_astr(parent2.astr)
+        temp2 = self.rotate_astr(parent_two_astr)
         slice2 = self.fraction_slice(temp2)
 
         # Attach two slices at a time
@@ -299,46 +347,79 @@ class mating(object):
 
     def rotate_astr(self, astr, rotate_type='random'):
         """
-        Given a structure, rotates it at a random angle (0:360) along random
-        vector([0, 0, 0]:[3, 3, 3])
+        Given a structure, rotates it at a random angle (0:360) along a
+        random lattice vector ([0, 0, 0]:[3, 3, 3]). This lattice vector
+        is aligned with the center of the structure's box.
 
-        Returns Structure object after the random rotation
+        Alternately, "mirror" the structure by rotating it 180 degrees
+        with respect to an arbitrary x-y vector. In this case, ensure that
+        the z-bounds remain constant.
 
-        Args:
+        !!! note "TODO"
+            Need to make mirror operation an actual mirroring, rather than
+            a 180 degree rotation. The two operations are not equivalent.
 
-        astr (obj): pymatgen Structure object
+        Arguments:
 
-        rotate_type (str): 'random' or 'mirror' for rotation of structure
+            astr (obj): pymatgen `Structure` object
+
+            rotate_type (str): 'random' or 'mirror' for rotation of structure
+
+        Returns:
+            (obj): the pymatgen `Structure` object of the rotated structure
         """
+
+        # if bulk, translate all sites such that the center of the
+        # box is the origin
+        trans_vector = np.array([-0.5, -0.5, -0.5])
+        # otherwise, find geometric center and make that it is the origin
+        if self.shape == "cluster" or self.shape == "molecule":
+            fc = astr.frac_coords
+            range_x, range_y, range_z = fc[:, 0], fc[:, 1], fc[:, 2]
+            cent_x, cent_y, cent_z = (max(range_x) + min(range_x))/2, \
+                                     (max(range_y) + min(range_y))/2, \
+                                     (max(range_z) + min(range_z))/2
+            cent = np.array([cent_x, cent_y, cent_z])
+            trans_vector = -cent
+
+        # log z_max for mirror translation
+        if rotate_type == 'mirror':
+            old_z_max = max(astr.frac_coords[:, 2])
+
+        all_inds = [i for i in range(len(astr.cart_coords))]
+        astr.translate_sites(all_inds, trans_vector,
+                             frac_coords=True, to_unit_cell=False)
         species = astr.species
         first_coords = astr.cart_coords
         if rotate_type == 'random':
             # perfrom random rotation transformation
             hkl = [random.randint(0, 3), random.randint(
                 0, 3), random.randint(0, 3)]
+            while hkl[0] == 0 and hkl[1] == 0 and hkl[2] == 0:
+                hkl = [random.randint(0, 3), random.randint(
+                    0, 3), random.randint(0, 3)]
             rotate = RotationTransformation(hkl, unif(0, 360))
             temp_astr = rotate.apply_transformation(astr)
         elif rotate_type == 'mirror':
             hkl = [random.randint(0, 3), random.randint(0, 3), 0]
+            while hkl[0] == 0 and hkl[1] == 0:
+                hkl = [random.randint(0, 3), random.randint(0, 3), 0]
             rotate = RotationTransformation(hkl, 180)
             temp_astr = rotate.apply_transformation(astr)
 
         # NOTE: The lattice is rotated, but coords are still same
         # Place old cart_coords in temp_parent lattice
-        all_inds = [i for i in range(len(astr.cart_coords))]
         temp_astr.remove_sites(all_inds)
         for specie, coord in zip(species, first_coords):
             temp_astr.append(specie, coord, coords_are_cartesian=True)
 
-        # Translate the cluster to center of box
-        fc = temp_astr.frac_coords
-        range_x, range_y, range_z = fc[:, 0], fc[:, 1], fc[:, 2]
-        cent_x, cent_y, cent_z = (max(range_x) + min(range_x))/2, \
-                                 (max(range_y) + min(range_y))/2, \
-                                 (max(range_z) + min(range_z))/2
-        cent = np.array([cent_x, cent_y, cent_z])
-        trans_vector = np.array([0.5, 0.5, 0.5]) - cent
-        temp_astr.translate_sites(all_inds, trans_vector)
+        # reverse the prior translation
+        temp_astr.translate_sites(all_inds, -trans_vector)
+
+        if rotate_type == 'mirror':
+            z_max = max(temp_astr.frac_coords[:, 2])
+            z_trans_vector = np.array([0, 0, old_z_max - z_max])
+            temp_astr.translate_sites(all_inds, z_trans_vector)
 
         # Get conventional structure (2 ways)
         # 1. modify_lattice from parent1 (straight forward)
@@ -352,14 +433,16 @@ class mating(object):
 
     def fraction_slice(self, astr):
         """
-        For a given astr, this function slices it from bottom either at half (2
-        parents) or at one third (3 parents)
-
-        Returns the bottom part (pymatgen structure object of the bottom part)
+        For a given astr, this function slices it from the bottom leaving
+        a fraction of the structure corresponding to 1 divided by the number
+        of parents (e.g. 1/2 for 2 parents).
 
         Args:
 
-        astr (obj): pymatgen Structure object
+            astr (obj): pymatgen `Structure` object
+
+        Returns:
+            (obj): the input pymatgen `Structure` object with the slice removed
         """
         # Fixed num_parents to 2.
         num_parents = 2
@@ -382,15 +465,18 @@ class mating(object):
     def attach_slices(self, slice1, slice2, attach_type='mirror'):
         """
         Given two slices, rotates and attaches slices
-        Returns attached structure
 
         Args:
 
-        slice1 (obj): pymatgen structure object of one slice
+            slice1 (obj): pymatgen `Structure` object of one slice
 
-        slice2 (obj): pymatgen structure object of second slice
+            slice2 (obj): pymatgen `Structure` object of the second slice
 
-        attach_type: 'mirror' or 'direct'
+            attach_type (str): how to attach the slices, 'mirror' for
+             mirrored or 'direct' if no mirroring should be performed. 
+
+        Returns:
+            (obj): pymatgen `Structure` object of the merged slices
         """
         astr = copy.deepcopy(slice1)
         new_slice2 = copy.deepcopy(slice2)
@@ -406,15 +492,17 @@ class mating(object):
         z_trans = np.array([0, 0, (max_z_1 - min_z_2) + 1]
                            )   # tolerance of z+1
         add_coords = slice2_coords + z_trans
-        # center add_coords on slice1 i.e., align centers along x and y
-        range_x1, range_y1 = slice1_coords[:, 0], slice1_coords[:, 1]
-        range_x2, range_y2 = slice2_coords[:, 0], slice2_coords[:, 1]
-        cent_x1, cent_y1 = (max(range_x1) + min(range_x1))/2, \
-            (max(range_y1) + min(range_y1))/2
-        cent_x2, cent_y2 = (max(range_x2) + min(range_x2))/2, \
-            (max(range_y2) + min(range_y2))/2
-        xy_trans = np.array([(cent_x1 - cent_x2), (cent_y1 - cent_y2), 0])
-        add_coords = add_coords + xy_trans
+
+        if self.shape == "cluster" or self.shape == "molecule":
+            # center add_coords on slice1 i.e., align centers along x and y
+            range_x1, range_y1 = slice1_coords[:, 0], slice1_coords[:, 1]
+            range_x2, range_y2 = slice2_coords[:, 0], slice2_coords[:, 1]
+            cent_x1, cent_y1 = (max(range_x1) + min(range_x1))/2, \
+                (max(range_y1) + min(range_y1))/2
+            cent_x2, cent_y2 = (max(range_x2) + min(range_x2))/2, \
+                (max(range_y2) + min(range_y2))/2
+            xy_trans = np.array([(cent_x1 - cent_x2), (cent_y1 - cent_y2), 0])
+            add_coords = add_coords + xy_trans
 
         # species of add_coords
         add_species = new_slice2.species
@@ -431,16 +519,22 @@ class mating(object):
         from each of the parent. In other words, randomly select few atoms
         from two parents to create a child structure.
 
-        TODO: Add distance check
+`       !!! note "TODO"
+            Still need to add a distance check
 
-        Args:
+        Arguments:
 
-        select (obj): Select object
+            select (obj): Select object
 
-        pool (obj): Pool object
+            pool (obj): Pool object
 
-        same_cluster (bool): Whether to mate from same cluster or not.
-                            If None, then ignored.
+            same_cluster (bool): `True` if mating structures from the same
+             fingerprint cluster, `False` if not. If `None`, then ignored.
+
+        Returns:
+            (obj, list):
+             - the pymatgen `Structure` object of the child
+             - the labels of the parent models which were mated
         """
         # Get num_parents and select them parents
         num_parents = 2
@@ -502,11 +596,14 @@ class mating(object):
 
     def get_point_on_sphere(self, r):
         """
-        Returns a random point on a sphere of radius r
+        Returns a random point on a sphere of radius `r`
 
-        Args:
+        Arguments:
 
-        r (float): radius of the sphere
+            r (float): radius of the sphere
+
+        Returns:
+            (array): cartesian coordinates of the point
         """
 
         # get random point (x, y, z) using normal distribution
@@ -521,19 +618,21 @@ class mating(object):
 
     def move_atoms_to_within_cluster(self, child):
         """
-        In cluster geometry, after a child is generated by mating,
-        check if any of the atoms are outside the maximum radius of the
-        cluster. If so, move them randomly to somewhere within the cluster
+        In cluster or molecule geometries, after a child is generated by
+        mating, check if any of the atoms are outside the maximum radius of
+        the cluster or molecule. If so, move them randomly to somewhere
+        within the radius.
 
-        Returns the modified child structure
-        Returns None if 4 or more atoms are outside the max diameter
+        Arguments:
 
-        Args:
+            child (obj): pymatgen `Structure` object
 
-        child (obj): pymatgen structure object
+        Returns:
+            (obj): pymatgen `Structure` object corresponding to the modified
+             child object. `None` if 4 or more atoms are outside the max
+             diameter.
         """
         radius, abc = self.max_dia/2, self.box_abc
-        # self.origin = abc/2
 
         # get atom indices that needs to be moved
         child_sites = child.sites
@@ -658,15 +757,21 @@ class basinhopping(object):
         using uniform distribution within max_perturbation
         Returns (child structure, inheritance) or (None, None) if fails.
 
-        TODO: Add a minimum perturbation to avoid risk of redundancy
+        !!! note "TODO"
+            Still need to add a minimum perturbation to avoid risk of
+            redundancy
 
-        Args:
+        Arguments:
 
-        select (obj): Select object
+            select (obj): Select object
 
-        pool (obj): Pool object
+            pool (obj): Pool object
 
-        model_id (int): If given, basinhopping is done on this specific model
+            surface_thickness (float): how many angstroms thick the active
+             surface region is
+
+            model_id (int): If given, basinhopping is done on this specific
+             model
         """
         if 'good_pool' in pool.__dict__.keys():
             all_models = pool.good_pool
@@ -698,13 +803,14 @@ class basinhopping(object):
                 parent = copy.deepcopy(parent_model)
                 inheritance = [parent.label]
 
-        # Get the cart_coords to be perturbed
-        cart_coords = parent.astr.cart_coords
-        species = parent.astr.species
-
+        # grab target structure. By default, this will be the entire parent
+        target_astr = parent.astr
         if self.shape == 'gb':
-            cart_coords = parent.gb_iface.cart_coords
-            species = parent.gb_iface.species
+            target_astr = parent.gb_iface
+
+        # Get the cart_coords to be perturbed
+        cart_coords = target_astr.cart_coords
+        species = target_astr.species
 
         # Get frac_coords to perturb
         total_num_atoms = len(cart_coords)
@@ -744,37 +850,24 @@ class basinhopping(object):
                 jump = self.max_perturbation
                 perturb = self.get_point_on_sphere(jump)
                 new_cart = one_coords + perturb
+
                 if self.shape == 'cluster' or self.shape == "molecule":
                     # check if new cart is inside the cluster radius
                     if dc.dist(self.origin, new_cart) > self.max_dia/2:
                         # print(f"between origin and new_cart is too large")
                         continue
-                    # Check distance and replace with new coords
-                    if dc.satisfies_all_dists(new_cart,
-                                              parent.astr,
-                                              self.element_syms,
-                                              self.min_dist_dict,
-                                              atom_index_in_astr=i):
-                        parent.astr.replace(i, species[i], new_cart,
-                                            coords_are_cartesian=True)
-                        replaced = True
-                        num_perturbed += 1
-                if self.shape == 'gb' \
-                    and dc.satisfies_all_dists(new_cart,
-                                               parent.gb_iface,
-                                               self.element_syms,
-                                               self.min_dist_dict,
-                                               atom_index_in_astr=i):
-                    parent.gb_iface.replace(i, species[i], new_cart,
-                                            coords_are_cartesian=True)
+
+                if dc.satisfies_all_dists(new_cart,
+                                          target_astr,
+                                          self.element_syms,
+                                          self.min_dist_dict,
+                                          atom_index_in_astr=i):
+                    target_astr.replace(i, species[i], new_cart,
+                                        coords_are_cartesian=True)
                     replaced = True
-                    num_perturbed += 1
 
         if num_perturbed >= jumps_needed:
-            if self.shape == 'gb':
-                return parent.gb_iface, inheritance
-            elif self.shape == 'cluster' or self.shape == 'molecule':
-                return parent.astr, inheritance
+            return target_astr, inheritance
         else:
             return None, None
 
