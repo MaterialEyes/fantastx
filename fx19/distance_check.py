@@ -493,11 +493,9 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         key2 = spx + '_' + new_atom_sym
         if key1 in min_dist_dict:
             if dist < min_dist_dict[key1]:
-                # print (1, dist, min_dist_dict[key1])
                 dists_ok = False
         if key2 in min_dist_dict:
             if dist < min_dist_dict[key2]:
-                # print (2, dist, min_dist_dict[key1])
                 dists_ok = False
 
     if not max_dist_dict:

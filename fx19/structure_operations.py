@@ -109,6 +109,7 @@ class Evolve(object):
             parent_model = select.get_a_parent(pool)
             label = parent_model.label
         while correct_comp is False and tries <= 10:
+            tries += 1
             try:
                 if operator == "perturb_sites":
                     new_astr, inheritance = hop.perturb_sites(
@@ -137,7 +138,7 @@ class Evolve(object):
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
             except:
                 print(
-                    "Exception! Unable to get correct comp."
+                    "Exception! Unable to conduct mating operation. "
                     f"Operator is: {operator}.")
                 traceback.print_exc()
                 if operator == "perturb_sites" or operator == "perturb_comp":
@@ -148,7 +149,6 @@ class Evolve(object):
                 continue
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
-            tries += 1
 
             new_astr.sort()
             new_comp = new_astr.composition
@@ -220,7 +220,7 @@ class mating(object):
                       ' Setting to defaults True')
 
         self.shape = mating_params['shape']
-        if self.shape['shape'] == 'cluster' or\
+        if self.shape == 'cluster' or\
                 self.shape == 'molecule':
             self.max_dia = mating_params['max_dia']
             self.box_abc = np.array(mating_params['box_abc'])
@@ -229,6 +229,8 @@ class mating(object):
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
         self.min_dist_dict = mating_params['min_dist_dict']
+
+        self.mating_attempts = 20  # ensure that most orientations are explored
 
         # DU
         # If storing all species in a list, and they are all in order
@@ -297,16 +299,19 @@ class mating(object):
         # lattice parameters as the larger one
         parent_one_astr = parent1.astr.copy()
         parent_two_astr = parent2.astr.copy()
-        if not np.allclose(parent1.lattice.matrix, parent2.lattice.matrix):
-            scale_factor = parent1.lattice.volume/parent2.lattice.volume
+        if not np.allclose(parent_one_astr.lattice.matrix,
+                           parent_two_astr.lattice.matrix):
+            scale_factor =\
+                parent_one_astr.lattice.volume/parent_two_astr.lattice.volume
             if scale_factor < 1:
                 lattice_scaling = np.divide(
-                    parent2.lattice.abc, parent1.lattice.abc)
+                    parent_two_astr.lattice.abc, parent_one_astr.lattice.abc)
                 supercell_scaling = [math.ceil(i) for i in lattice_scaling]
                 parent_one_astr.make_supercell(supercell_scaling)
                 removal_ind = []
                 for n, i in enumerate(parent_one_astr.cart_coords):
-                    new_frac_coords = parent2.lattice.get_fractional_coords(i)
+                    new_frac_coords =\
+                        parent_two_astr.lattice.get_fractional_coords(i)
                     if np.any(new_frac_coords >= 1):
                         removal_ind.append(n)
                 parent_one_astr.remove_sites(removal_ind)
@@ -316,12 +321,13 @@ class mating(object):
                     site.coords = cart_coords[n]
             else:
                 lattice_scaling = np.divide(
-                    parent1.lattice.abc, parent2.lattice.abc)
+                    parent_one_astr.lattice.abc, parent_two_astr.lattice.abc)
                 supercell_scaling = [math.ceil(i) for i in lattice_scaling]
                 parent_two_astr.make_supercell(supercell_scaling)
                 removal_ind = []
                 for n, i in enumerate(parent_two_astr.cart_coords):
-                    new_frac_coords = parent1.lattice.get_fractional_coords(i)
+                    new_frac_coords =\
+                        parent_one_astr.lattice.get_fractional_coords(i)
                     if np.any(new_frac_coords >= 1):
                         removal_ind.append(n)
                 parent_two_astr.remove_sites(removal_ind)
@@ -330,22 +336,65 @@ class mating(object):
                 for n, site in enumerate(parent_two_astr.sites):
                     site.coords = cart_coords[n]
 
-        # rotate all parents randomly and slice them
-        temp1 = self.rotate_astr(parent_one_astr)
-        slice1 = self.fraction_slice(temp1)
-        temp2 = self.rotate_astr(parent_two_astr)
-        slice2 = self.fraction_slice(temp2)
+        attached = False
 
-        # Attach two slices at a time
-        if random.randint(0, 2) == 0:
-            attach_type = 'direct'
+        if self.shape == "cluster" or self.shape == "molecule":
+            # rotate all parents randomly and slice them
+            temp1 = self.rotate_astr(parent_one_astr)
+            temp1_slices = self.fraction_slice(temp1, axis=2)
+            temp2 = self.rotate_astr(parent_two_astr)
+            temp2_slices = self.fraction_slice(temp2, axis=2)
+
+            # Attach two slices at a time
+            if random.randint(0, 1) == 0:
+                attach_type = 'direct'
+            else:
+                attach_type = 'mirror'
+            child = self.attach_slices(temp1_slices,
+                                       temp2_slices,
+                                       attach_type=attach_type,
+                                       axis=2,
+                                       remove_overlaps=False)
         else:
-            attach_type = 'mirror'
-        child = self.attach_slices(slice1, slice2, attach_type=attach_type)
+            tries = 0
+            while (not attached) and (tries < self.mating_attempts):
+                slice_axis = random.randint(0, 2)
+                temp1_slices = self.fraction_slice(parent_one_astr, slice_axis)
+                temp2_slices = self.fraction_slice(parent_two_astr, slice_axis)
+                # Attach two slices at a time
+                if random.randint(0, 1) == 0:
+                    attach_type = 'direct'
+                else:
+                    attach_type = 'mirror'
+                child = self.attach_slices(
+                    temp1_slices,
+                    temp2_slices,
+                    attach_type=attach_type,
+                    axis=slice_axis,
+                    remove_overlaps=False)
+                if child is None:
+                    tries += 1
+                else:
+                    attached = True
+            if not attached:
+                slice_axis = random.randint(0, 2)
+                temp1_slices = self.fraction_slice(parent_one_astr, slice_axis)
+                temp2_slices = self.fraction_slice(parent_two_astr, slice_axis)
+                # Attach two slices at a time
+                if random.randint(0, 1) == 0:
+                    attach_type = 'direct'
+                else:
+                    attach_type = 'mirror'
+                child = self.attach_slices(
+                    temp1_slices,
+                    temp2_slices,
+                    attach_type=attach_type,
+                    axis=slice_axis,
+                    remove_overlaps=True)
 
         return child, inheritance
 
-    def rotate_astr(self, astr, rotate_type='random'):
+    def rotate_astr(self, astr, rotate_type='random', mirror_axis=2):
         """
         Given a structure, rotates it at a random angle (0:360) along a
         random lattice vector ([0, 0, 0]:[3, 3, 3]). This lattice vector
@@ -382,16 +431,13 @@ class mating(object):
             cent = np.array([cent_x, cent_y, cent_z])
             trans_vector = -cent
 
-        # log z_max for mirror translation
-        if rotate_type == 'mirror':
-            old_z_max = max(astr.frac_coords[:, 2])
-
         all_inds = [i for i in range(len(astr.cart_coords))]
-        astr.translate_sites(all_inds, trans_vector,
-                             frac_coords=True, to_unit_cell=False)
-        species = astr.species
-        first_coords = astr.cart_coords
+        temp_astr = astr.copy()
+        species = temp_astr.species
+        first_coords = temp_astr.cart_coords
         if rotate_type == 'random':
+            temp_astr.translate_sites(all_inds, trans_vector,
+                                      frac_coords=True, to_unit_cell=False)
             # perfrom random rotation transformation
             hkl = [random.randint(0, 3), random.randint(
                 0, 3), random.randint(0, 3)]
@@ -399,119 +445,222 @@ class mating(object):
                 hkl = [random.randint(0, 3), random.randint(
                     0, 3), random.randint(0, 3)]
             rotate = RotationTransformation(hkl, unif(0, 360))
-            temp_astr = rotate.apply_transformation(astr)
+            temp_astr = rotate.apply_transformation(temp_astr)
+            # NOTE: The lattice is rotated, but coords are still same
+            # Place old cart_coords in temp_parent lattice
+            temp_astr.remove_sites(all_inds)
+            for specie, coord in zip(species, first_coords):
+                temp_astr.append(specie, coord, coords_are_cartesian=True)
+
+            # reverse the prior translation
+            temp_astr.translate_sites(all_inds, -trans_vector)
+
+            # Get conventional structure (2 ways)
+            # 1. modify_lattice from parent1 (straight forward)
+            # 2. use SpacegroupAnalyzer
+            temp_astr.lattice = astr.lattice
+            # If the above causes any issues, use this approach 2
+            # sp = SpacegroupAnalyzer(temp_parent)
+            # prepped_parent = sp.get_conventional_standard_structure()
         elif rotate_type == 'mirror':
-            hkl = [random.randint(0, 3), random.randint(0, 3), 0]
-            while hkl[0] == 0 and hkl[1] == 0:
-                hkl = [random.randint(0, 3), random.randint(0, 3), 0]
-            rotate = RotationTransformation(hkl, 180)
-            temp_astr = rotate.apply_transformation(astr)
+            # calculate mirror shift needed to make mirroring occur in place
+            coord_max = max(temp_astr.frac_coords[:, mirror_axis])
+            coord_min = min(temp_astr.frac_coords[:, mirror_axis])
+            mirrored_max = 1 - coord_min
+            mirror_shift = coord_max - mirrored_max
 
-        # NOTE: The lattice is rotated, but coords are still same
-        # Place old cart_coords in temp_parent lattice
-        temp_astr.remove_sites(all_inds)
-        for specie, coord in zip(species, first_coords):
-            temp_astr.append(specie, coord, coords_are_cartesian=True)
-
-        # reverse the prior translation
-        temp_astr.translate_sites(all_inds, -trans_vector)
-
-        if rotate_type == 'mirror':
-            z_max = max(temp_astr.frac_coords[:, 2])
-            z_trans_vector = np.array([0, 0, old_z_max - z_max])
-            temp_astr.translate_sites(all_inds, z_trans_vector)
-
-        # Get conventional structure (2 ways)
-        # 1. modify_lattice from parent1 (straight forward)
-        # 2. use SpacegroupAnalyzer
-        temp_astr.lattice = astr.lattice  # Approach 1
-        # If the above causes any issues, use this approach 2
-        # sp = SpacegroupAnalyzer(temp_parent)
-        # prepped_parent = sp.get_conventional_standard_structure()
+            frac_coords = temp_astr.frac_coords.copy()
+            for i in frac_coords:
+                i[mirror_axis] = 1 - i[mirror_axis] + mirror_shift
+            temp_astr.remove_sites(all_inds)
+            for specie, coord in zip(species, frac_coords):
+                temp_astr.append(specie, coord, coords_are_cartesian=False)
 
         return temp_astr
 
-    def fraction_slice(self, astr):
+    def fraction_slice(self, astr, axis):
         """
         For a given astr, this function slices it from the bottom leaving
         a fraction of the structure corresponding to 1 divided by the number
         of parents (e.g. 1/2 for 2 parents).
 
+        !!! note
+            Currently the number of slices is fixed to two.
+
         Args:
 
             astr (obj): pymatgen `Structure` object
+
+            axis (int): the cartesian axis to make slices along
 
         Returns:
             (obj): the input pymatgen `Structure` object with the slice removed
         """
         # Fixed num_parents to 2.
         num_parents = 2
-        z_mids = astr.cart_coords[:, 2]
+        temp_astr = astr.copy()
+        species = [i.specie.symbol for i in temp_astr.sites]
+
+        # make sure that all coordinates are within the box
+        cart_coords = temp_astr.cart_coords
+        for i in range(len(cart_coords)):
+            if cart_coords[i][axis] < 0:
+                cart_coords[i][axis] += temp_astr.lattice.abc[axis]
+                temp_astr.replace(i, species[i], cart_coords[i],
+                                  coords_are_cartesian=True)
+
+        coords = temp_astr.cart_coords[:, axis]
         # Determine z_cut to get ~ equal fractions from all parents
-        z_cut = (max(z_mids) + min(z_mids)) / num_parents
+        if self.shape == "cluster" or self.shape == "molecule":
+            coord_cut = (max(coords) + min(coords)) / num_parents
+        else:
+            coord_cut = temp_astr.lattice.abc[axis] / num_parents
 
-        # NOTE: Due to random rotation, the fraction we slice is different
-        # for all parents
-        # Get indices of slicing atoms, i.e., above z_cut
-        rm_inds = []
-        for i, z in enumerate(z_mids):
-            if z >= z_cut:
-                rm_inds.append(i)
-        # Remove these atoms from parent1
-        astr.remove_sites(rm_inds)
+        slices = []
+        for i in range(num_parents):
+            rm_inds = []
+            slice_astr = temp_astr.copy()
+            coords = slice_astr.cart_coords[:, axis]
+            for n, coord in enumerate(coords):
+                if coord <= coord_cut*i or coord >= coord_cut*(i + 1):
+                    rm_inds.append(n)
+            # Remove these atoms from parent1
+            slice_astr.remove_sites(rm_inds)
+            slices.append(slice_astr)
 
-        return astr
+        return slices
 
-    def attach_slices(self, slice1, slice2, attach_type='mirror'):
+    def attach_slices(self, p1_slices, p2_slices,
+                      attach_type='mirror', axis=2, remove_overlaps=False):
         """
-        Given two slices, rotates and attaches slices
+        Given two sets of slices, rotates and attaches slices. Functionality
+        is included to mirror the 2nd slice before attaching it to the first
+        slice.
+
+        !!! note
+            Currently the number of slices is hard-coded to be two.
 
         Args:
 
-            slice1 (obj): pymatgen `Structure` object of one slice
+            p1_slices (list): set of pymatgen `Structure` objects which are
+             slices from parent one along the designated axis
 
-            slice2 (obj): pymatgen `Structure` object of the second slice
+            p2_slices (list): set of pymatgen `Structure` objects which are
+             slices from parent two along the designated axis
 
             attach_type (str): how to attach the slices, 'mirror' for
              mirrored or 'direct' if no mirroring should be performed. 
 
+            axis (int): the cartesian axis along which to attach the slices
+
         Returns:
             (obj): pymatgen `Structure` object of the merged slices
         """
-        astr = copy.deepcopy(slice1)
-        new_slice2 = copy.deepcopy(slice2)
-        # If mirror one slice before attachment,
-        if attach_type == 'mirror':
-            new_slice2 = self.rotate_astr(slice2, rotate_type='mirror')
-        slice1_coords = astr.cart_coords
-        slice2_coords = new_slice2.cart_coords
+        failed_cc = True
+        cc_tries = 0
+        while failed_cc and cc_tries < 20:
+            # choose slice 1
+            slice_one_index = random.randint(0, 1)
+            slice1 = p1_slices[slice_one_index].copy()
+            # choose slice 2
+            slice_two_index = random.randint(0, 1)
+            slice2 = p2_slices[slice_two_index].copy()
 
-        max_z_1 = max(slice1_coords[:, 2])
-        min_z_2 = min(slice2_coords[:, 2])
-        # Get translate vector along z i.e., x, y are 0
-        z_trans = np.array([0, 0, (max_z_1 - min_z_2) + 1]
-                           )   # tolerance of z+1
-        add_coords = slice2_coords + z_trans
+            # mirror the 2nd slice if desired
+            if attach_type == 'mirror':
+                slice2 = self.rotate_astr(slice2,
+                                          rotate_type='mirror',
+                                          mirror_axis=axis)
 
-        if self.shape == "cluster" or self.shape == "molecule":
-            # center add_coords on slice1 i.e., align centers along x and y
-            range_x1, range_y1 = slice1_coords[:, 0], slice1_coords[:, 1]
-            range_x2, range_y2 = slice2_coords[:, 0], slice2_coords[:, 1]
-            cent_x1, cent_y1 = (max(range_x1) + min(range_x1))/2, \
-                (max(range_y1) + min(range_y1))/2
-            cent_x2, cent_y2 = (max(range_x2) + min(range_x2))/2, \
-                (max(range_y2) + min(range_y2))/2
-            xy_trans = np.array([(cent_x1 - cent_x2), (cent_y1 - cent_y2), 0])
-            add_coords = add_coords + xy_trans
+            slice1_coords = slice1.cart_coords
+            slice2_coords = slice2.cart_coords
 
-        # species of add_coords
-        add_species = new_slice2.species
-        # add each of add_coords to slice1
-        for specie, coord in zip(add_species, add_coords):
-            slice1.append(specie, coord, coords_are_cartesian=True)
-        slice1.sort()
+            min_coord_1 = min(slice1_coords[:, axis])
+            max_coord_1 = max(slice1_coords[:, axis])
+            min_coord_2 = min(slice2_coords[:, axis])
+            max_coord_2 = max(slice2_coords[:, axis])
 
-        return slice1
+            if self.shape == "cluster" or self.shape == "molecule":
+                translation_sep = 1
+            else:
+                translation_sep = 0.0
+
+            trans_vec = [0, 0, 0]
+            if slice_one_index == 0:
+                if slice_two_index == 0:
+                    translation = max_coord_1 - min_coord_2 + translation_sep
+                else:
+                    translation = translation_sep
+            else:
+                if slice_two_index == 0:
+                    translation = -translation_sep
+                else:
+                    translation = min_coord_1 - max_coord_2 - translation_sep
+            trans_vec[axis] = translation
+            coord_trans = np.array(trans_vec)
+            add_coords = slice2_coords + coord_trans
+
+            if self.shape == "cluster" or self.shape == "molecule":
+                axis1 = axis - 1
+                axis2 = (axis + 1) % 3
+                # center add_coords on slice1 i.e., align centers along plane
+                range_a1, range_b1 = slice1_coords[:, axis1],
+                slice1_coords[:, axis2]
+                range_a2, range_b2 = slice2_coords[:, axis1],
+                slice2_coords[:, axis2]
+                cent_a1, cent_b1 = (max(range_a1) + min(range_a1))/2, \
+                    (max(range_b1) + min(range_b1))/2
+                cent_a2, cent_b2 = (max(range_a2) + min(range_a2))/2, \
+                    (max(range_b2) + min(range_b2))/2
+                trans_vec = [0, 0, 0]
+                trans_vec[axis1] = (cent_a1 - cent_a2)
+                trans_vec[axis2] = (cent_b1 - cent_b2)
+                add_coords = add_coords = np.array(trans_vec)
+
+            # species of add_coords
+            add_species = slice2.species
+
+            # add each of the shifted slice2 coordinates to slice1
+            failed_dc = False
+            attached = False
+            for specie, coord in zip(add_species, add_coords):
+                slice1_species = [i.specie.symbol for i in slice1.sites]
+                inv_syms = {v: 'sp' + str(k)
+                            for k, v in self.element_syms.items()}
+
+                if dc.satisfies_all_dists_quick(coord,
+                                                slice1.cart_coords,
+                                                specie.symbol,
+                                                slice1_species,
+                                                inv_syms,
+                                                self.min_dist_dict,
+                                                lattice=slice1.lattice):
+                    slice1.append(specie, coord, coords_are_cartesian=True)
+                elif not remove_overlaps:
+                    failed_dc = True
+                    break
+                # otherwise it continues on, just not adding the overlapping atoms
+            failed_cc = False
+            if not failed_dc:
+                slice1.sort()
+                if remove_overlaps:
+                    slice1_comp = slice1.composition
+                    # DU
+                    all_ok = True
+                    for sp in range(self.num_species):
+                        species = self.species[sp]
+                        sym = species['name']
+                        min_sp = species['min_num']
+                        max_sp = species['max_num']
+                        if not min_sp <= slice1_comp[sym] <= max_sp:
+                            failed_cc = True
+                    cc_tries += 1
+                attached = True
+
+        if attached:
+            return slice1
+        else:
+            return None
 
     def mate_by_random_swap(self, select, pool, same_cluster=None):
         """
@@ -865,6 +1014,8 @@ class basinhopping(object):
                     target_astr.replace(i, species[i], new_cart,
                                         coords_are_cartesian=True)
                     replaced = True
+                    num_perturbed += 1
+            # print(target_astr)
 
         if num_perturbed >= jumps_needed:
             return target_astr, inheritance

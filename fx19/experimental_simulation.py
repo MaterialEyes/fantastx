@@ -7,7 +7,7 @@ from pymatgen.io.cif import CifWriter
 try:
     from pyobjcryst import loadCrystal
     from diffpy.srfit.pdf import PDFContribution
-    from diffpy.srfit.pdf import DebyePDFGenerator
+    from diffpy.srfit.pdf import DebyePDFGenerator, PDFGenerator
     from diffpy.srfit.fitbase import Profile
     from diffpy.srfit.fitbase import FitRecipe
     import matplotlib.pyplot as plt
@@ -38,6 +38,7 @@ from ase.data import atomic_numbers
 from fx19.fingerprinting import DistanceCalculator
 import re
 from collections import Counter
+from pymatgen.core.lattice import Lattice
 
 
 class xanes_of_model(object):
@@ -929,7 +930,7 @@ class pdf_of_model(object):
         self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
         self.qdamp = 0.043  # G(r) intensity decereases with r
-        self.fit_coords = True
+        self.fit_coords = False
         # default bounds_dict
         lb_ub_dict = {}
         lb_ub_dict['a'] = [19.0, 21.0]
@@ -995,10 +996,17 @@ class pdf_of_model(object):
             for a_key in vbs.keys():
                 self.var_bounds[a_key] = vbs[a_key]
 
+        self.min_box_abc = None
+        if 'min_box_abc' in pdf_params:
+            self.min_box_abc = pdf_params['min_box_abc']
+
         # tolerance to relax each x/y/z coordinate of an atom coordinates
         self.coord_tol = 0.1
         if 'coord_tol' in pdf_params:
             self.coord_tol = pdf_params['coord_tol']
+
+        self.make_supercell = True
+        self.periodic = False
 
     def write_temp_cif(self, model):
         """
@@ -1010,7 +1018,33 @@ class pdf_of_model(object):
             simulation will be done
         """
         # use the relaxed structure from energy calculation
-        astr = model.astr
+        astr = model.astr.copy()
+        if self.make_supercell:
+            astr.make_supercell((2, 2, 2))
+        if self.min_box_abc is not None:
+            for axis in range(3):
+                species = astr.species
+                if astr.lattice.abc[axis]/self.min_box_abc[axis] < 1:
+
+                    new_cart_coords = astr.cart_coords.copy().tolist()
+                    translate_to_center = self.min_box_abc[axis]/2 -\
+                        astr.lattice.abc[axis]/2
+                    for i in new_cart_coords:
+                        if i[axis] < 0:
+                            i[axis] += astr.lattice.abc[axis]
+                        i[axis] += translate_to_center
+
+                    latt_matrix = astr.lattice.matrix
+                    new_latt_matrix = latt_matrix.copy()
+                    new_latt_matrix[axis][axis] = self.min_box_abc[axis]
+                    new_latt = Lattice(new_latt_matrix)
+                    astr.lattice = new_latt
+
+                    for i, new_coords in enumerate(new_cart_coords):
+                        specie = species[i]
+                        astr.replace(i, specie, new_coords,
+                                     coords_are_cartesian=True)
+
         self.symbols = astr.symbol_set
 
         # write new_structure to a temporary cif file
@@ -1031,8 +1065,11 @@ class pdf_of_model(object):
 
         # Make generator object
         diffpy_str = loadCrystal(cif_file)
-        generator = DebyePDFGenerator('generator_name')
-        generator.setStructure(diffpy_str)
+        if self.periodic:
+            generator = PDFGenerator('generator_name')
+        else:
+            generator = DebyePDFGenerator('generator_name')
+        generator.setStructure(diffpy_str, periodic=self.periodic)
         generator.setQmax(self.Qmax)
         generator.setQmin(self.Qmin)
 

@@ -109,13 +109,24 @@ class make_random_model(object):
                          for k, v in self.element_syms.items()}
         self.shape = str_constraints['shape']
 
+        # defaults
+        self.box_abc = [20, 20, 20]  # angstroms
         if 'box_abc' in str_constraints:
             self.box_abc = str_constraints['box_abc']
 
-        # defaults
-        self.max_dia = 8
+        self.box_angles = [90, 90, 90]  # degrees
+        if 'box_angles' in str_constraints:
+            self.box_angles = str_constraints['box_angles']
+
+        self.max_dia = 8  # angstroms
         if 'max_dia' in str_constraints:
             self.max_dia = str_constraints['max_dia']
+
+        self.max_bonds = {}
+        for i in self.element_syms:
+            self.max_bonds[i] = 2
+        if 'max_bonds' in str_constraints:
+            self.max_bonds = str_constraints['max_bonds']
 
         self.num_species = str_constraints['num_species']
         self.allow_self_bonding = False
@@ -155,8 +166,6 @@ class make_random_model(object):
         #                 str_constraints[key]['min_num'])
         #         setattr(self, 'max_num_sp' + index,
         #                 str_constraints[key]['max_num'])
-
-        self.max_bonds = {"Ir": 8, "O": 2}
 
     def get_cluster_in_box(self):
         """
@@ -234,12 +243,13 @@ class make_random_model(object):
         # get species and make an empty lattice box
         species, _ = self.get_n_species()
         latt = Lattice.from_parameters(
-            side_len, side_len, side_len, 90, 90, 90)
+            self.box_abc[0], self.box_abc[1], self.box_abc[2],
+            self.box_angles[0], self.box_angles[1], self.box_angles[2])
 
         built_structure = False
         while not built_structure:
             cart_coords = self.get_n_coords_linear_bulk(
-                species, side_len, latt)
+                species, latt)
             if cart_coords is None:
                 continue
             bulk = Structure(latt, species, cart_coords,
@@ -672,11 +682,12 @@ class make_random_model(object):
             non_referenced_atoms = [i for i in range(coords_added - 1)]
             flipped_species = False
             failed_dist_attempts = 0
-            # failed_addition = False
 
-        # move coords relative to center of cube
-        # coords = np.array(coords)
-        # coords = np.full((3,), latt.a/2) + coords
+        # wrap coords into periodic box
+        for i in coords:
+            for j in range(3):
+                if i[j] < 0:
+                    i[j] += latt.abc[j]
 
         return np.array(coords)
 

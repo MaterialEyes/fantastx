@@ -610,18 +610,22 @@ class Select(object):
                 new_parent = self.get_a_linear_parent(pool)
                 if len(parents) == 0:
                     parents.append(new_parent)
+                duplicate_parent = False
+                passed_ab = True
                 for existing_parent in parents:
                     if existing_parent.label == new_parent.label:
-                        continue
+                        duplicate_parent = True
+                        break
                     if same_ab:
                         ab_1 = existing_parent.astr.lattice.matrix[:2]
                         ab_2 = new_parent.astr.lattice.matrix[:2]
                         diff = np.array(ab_1) - np.array(ab_2)
                         # return first match since keys are already shuffled
-                        if np.absolute(diff).sum() < abs_tol:
-                            parents.append(new_parent)
-                    else:
-                        parents.append(new_parent)
+                        if np.absolute(diff).sum() >= abs_tol:
+                            passed_ab = False
+                            break
+                if not duplicate_parent and passed_ab:
+                    parents.append(new_parent)
             return parents
         else:
             parents = []

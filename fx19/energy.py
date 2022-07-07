@@ -469,8 +469,6 @@ class vasp_code(object):
         for key, value in energy_params['element_syms'].items():
             self.sym_mu_dict[value] = energy_params['mu'][key]
 
-        self.count_hydrogen = True
-
         # default parameters for INCAR (only if necessary)
         # Or directly use the input files the user provided.
 
@@ -533,7 +531,7 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        if self.shape == 'cluster':
+        if self.shape == 'cluster' or self.shape == 'bulk':
             model.astr.to(filename=new_poscar, fmt='poscar')
 
         if self.shape == "molecule":
@@ -564,7 +562,7 @@ class vasp_code(object):
                         z_val = float(line.split()[5])
                         z_val_dict[sorted_syms[pot_i]] = z_val
                         pot_i += 1
-                        if pot_i == len(sorted_syms) - 1:
+                        if pot_i == len(sorted_syms):
                             break
 
                 total_electrons = 0
@@ -599,6 +597,10 @@ class vasp_code(object):
         self.prep_job_folder(model, reg_id)
         # start the vasp calculation
         self.run_vasp(model)
+        # en_mod = np.random.uniform(7, 13)
+        # model.tot_en = -40 + en_mod
+        # model.obj0_val = en_mod
+        # model.converged = True
 
     def re_relax(self, model):
         """

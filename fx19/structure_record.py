@@ -184,6 +184,7 @@ class structure_constraints(object):
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
+        self.max_bonds_per_atom_default = 2
 
         if 'max_bond_dist' in str_record:
             self.max_bond_dist = str_record['max_bond_dist']
@@ -203,6 +204,7 @@ class structure_constraints(object):
         element_syms = {}
         i = 1
         found_species = []
+        max_bonds = {}
         for species, values in species_dict.items():
             while species != "species" + str(i):
                 print('Error. Cannot find species ' + str(i) +
@@ -224,10 +226,17 @@ class structure_constraints(object):
                 values['max_num'] = self.max_num_atoms
             elif i == 1:
                 self.max_num_atoms = values['max_num']
+            if 'max_bonds' in values:
+                max_bonds[values['name']] = values['max_bonds']
+            else:
+                max_bonds[values['name']] = self.max_bonds_per_atom_default
+
             setattr(self, species, values)
             i += 1
 
         self.element_syms = element_syms
+
+        # grab max number of bonds if provided
 
         # DU
         # make a min_dist dictionary with default min_dist for all bonds
@@ -272,6 +281,12 @@ class structure_constraints(object):
             else:
                 print('The lattice angles of the box are not specified.'
                       ' Using default orthogonal angles of 90 degrees.')
+                self.box_angles = [90, 90, 90]
+
+            # grab max number of bonds
+            if len(max_bonds) != 0:
+                self.max_bonds = max_bonds
+                print(f"Max bonds: {self.max_bonds}")
         # ###################bulk parameters end###############################
 
         # ########################cluster parameters begin#####################
@@ -295,6 +310,9 @@ class structure_constraints(object):
             else:
                 self.origin = [i/2. for i in self.box_abc]
 
+            # grab max number of bonds
+            if len(max_bonds) != 0:
+                self.max_bonds = max_bonds
         # ###################cluster parameters ends###########################
 
         # ########################gb parameters begins#########################
