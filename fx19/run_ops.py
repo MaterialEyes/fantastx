@@ -3,6 +3,8 @@
 This module contains functions which are used in run_fx.py
 """
 
+import traceback
+
 
 def get_working_jobs(futures):
     """
@@ -71,6 +73,7 @@ def relax(model, reg_id, energy_code):
     try:
         energy_code.relax(model, reg_id)
     except:
+        traceback.print_exc()
         print('Duplicate label in parallel processes. Skipping..')
         return None
     resubmitted = 2

@@ -548,9 +548,8 @@ class vasp_code(object):
 
         shutil.copy(new_poscar, poscar)
         # copy INCAR, KPOINTS to the relax path. Modify the INCAR if the model is a molecule
+        shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
         if self.shape == "molecule":
-            shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
-
             if model.astr.charge != 0:
                 z_val_dict = {}
                 # grab default number of electrons and modify it by the charge
