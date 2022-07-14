@@ -114,10 +114,10 @@ class model(object):
         # How many times this structure is selected from get_parent()
         self.times_chosen_as_parent = 0
         # Selective dynamics z-coordinates for gb or slab models
-        # NOTE: If only sd_true_above is provided - 
+        # NOTE: If only sd_true_above is provided -
         # 1. sd_true_below is set to hollow_top_z for gb models
         # 2. all atoms above sd_true_above are set to True for slab models
-        self.sd_true_above = None 
+        self.sd_true_above = None
         self.sd_true_below = None
         # fingerprinting information
         self.fingerprint = {}
@@ -397,6 +397,16 @@ class structure_constraints(object):
                 print('No species were specified as being held fixed. '
                       'Using default setting of [].')
                 self.fixed_species = []
+
+            if 'counter_ions' in str_record['molecule']:
+                self.counter_ions = str_record['molecule']['counter_ions']
+                if len(self.counter_ions) != 2:
+                    print('Incorrect counter ion format. Counter ions should'
+                          ' be provided as a list of length two, where the'
+                          ' first item is the element name, and the second'
+                          ' item is the ion oxidation state (float or int).')
+            else:
+                print('No counter ions provided, none will be added.')
 
             if 'fragments_yaml' in str_record['molecule']:
                 self.fragments_yaml = str_record['molecule']['fragments_yaml']

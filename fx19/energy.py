@@ -544,10 +544,10 @@ class vasp_code(object):
             self.write_surface_poscar(model, new_poscar,
                                       sd_cut_off=self.sd_cut_off,
                                       sd_no_z=self.sd_no_z)
-        # TODO: implement selective dynamics for cluster & other geometries
+        # TODO: implement selective dynamics for cluster geometry
 
         shutil.copy(new_poscar, poscar)
-        # copy INCAR, KPOINTS to the relax path. Modify the INCAR if the model is a molecule
+        # copy INCAR, KPOINTS to the relax path. Modify the INCAR if molecule
         if self.shape == "molecule":
             shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
 
@@ -575,8 +575,28 @@ class vasp_code(object):
                 total_electrons -= model.astr.charge
 
                 incar_file = open(relax_path + '/INCAR', 'a')
-                incar_file.write("\nNELECT = " + str(total_electrons) + "\n")
+                incar_file.write(
+                    "\nNELECT = " + str(int(total_electrons)) + "\n")
                 incar_file.close()
+
+            incar_file = open(relax_path + '/INCAR', 'a')
+            # currently hard-coding in changes to MAGMOM
+            iron_sites = [i for i in range(model.astr.num_sites)
+                          if model.astr.sites[i].specie.symbol == "Fe"]
+            iron_magmoms = ["5.0" if model.astr.sites[i].specie.oxi_state >
+                            2.1 else "4.0" for i in iron_sites]
+            if iron_sites[0] == 0:
+                pre_iron_str = ""
+            else:
+                pre_iron_str = str(iron_sites[0]) + "*0.6 "
+            iron_str = " ".join(iron_magmoms) + " "
+            post_iron_str = str(model.astr.num_sites - iron_sites[-1] - 1)
+            post_iron_str += "*0.6\n"
+            incar_file.write(
+                "\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str
+            )
+            print("\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str)
+            incar_file.close()
 
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
@@ -736,8 +756,8 @@ class vasp_code(object):
         """
         mol = model.molecule_representation
         if 'fixed_atoms' in mol.keys():
-            sd_flags = [["T", "T", "T"] if i in mol['fixed_atoms']
-                        else ["F", "F", "F"] for i
+            sd_flags = [["F", "F", "F"] if i in mol['fixed_atoms']
+                        else ["T", "T", "T"] for i
                         in range(model.astr.num_sites)]
         else:
             sd_flags = [["T", "T", "T"] for i in range(model.astr.num_sites)]

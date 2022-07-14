@@ -559,181 +559,221 @@ class xanes_of_model(object):
             print("Created FDMNES input directory.")
         except FileExistsError:
             print("Error. Output directory already exists.")
-        fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
-        fdmnes_abbr_input_filename = fdmnes_input_filename
-        fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
+
+        #############################################
+        # Open the FDMNES input yaml file #
+        with open(self.input_yaml_filepath) as ifile:
+            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
+
+        # First, check to see if multiple screening values will be considered
+        number_screenings = 1
+        if "Screening" in fdmnes_dict["fdmnes_cards"].keys():
+            if type(fdmnes_dict["fdmnes_cards"]["Screening"]) is list:
+                number_screenings = len(
+                    fdmnes_dict["fdmnes_cards"]["Screening"])
+
+        #############################################
+        # Prepare all filenames #
+        fdmnes_input_filenames = []
+        fdmnes_abbr_input_filenames = []
+        fdmnes_output_filenames = []
+        for s in range(number_screenings):
+            fdmnes_input_filenames.append(
+                fdmnes_input_folder + "run_fdmnes_" + str(s) + ".inp")
+            fdmnes_abbr_input_filenames.append(
+                fdmnes_input_folder + "run_fdmnes_" + str(s) + ".inp")
+            fdmnes_output_filenames.append(
+                fdmnes_output_folder + "run_fdmnes_result_" + str(s)
+            )
         fdmfile_filename = model.relax_path + "/fdmfile.txt"
         fdmnes_mpirun_filename = model.relax_path + "/mpirun_fdmnes"
 
         #############################################
         #  Write the fdmfile.txt file #
         fdmfile = open(fdmfile_filename, "w+")
-        fdmfile.write("1\n")
-        fdmfile.write(fdmnes_abbr_input_filename + "\n")
+        fdmfile.write(str(number_screenings) + "\n")
+        for s in range(number_screenings):
+            fdmfile.write(fdmnes_abbr_input_filenames[s] + "\n")
         fdmfile.close()
 
+        ###################################################
+        # Remove counter ions from molecule if they exist #
+        fdmnes_astr = model.astr.copy()
+        if model.molecule_representation is not None:
+            if "counter_ions" in model.molecule_representation:
+                fdmnes_astr.remove_sites(
+                    model.molecule_representation["counter_ions"])
+
         #############################################
-        # Write the fdmnes input file #
-        with open(self.input_yaml_filepath) as ifile:
-            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
+        # Write the fdmnes input file(s) #
 
-        fdmnes_headers = {
-            "Filout": fdmnes_output_filename,
-            "Radius": fdmnes_dict["cluster_radius"],
-            "Edge": fdmnes_dict["edge"]
-        }
+        for s in range(number_screenings):
+            fdmnes_headers = {
+                "Filout": fdmnes_output_filenames[s],
+                "Radius": fdmnes_dict["cluster_radius"],
+                "Edge": fdmnes_dict["edge"]
+            }
 
-        # Absorber and core_hole_coords are determined based on structure
-        core_hole_index = 1
-        absorption_site = ""
-        core_hole_coords = [0, 0, 0]
-        for n, site in enumerate(model.astr.sites):
-            specie = site.specie.symbol
-            if specie == fdmnes_dict["core_hole_site_element"]:
-                if core_hole_index == fdmnes_dict["core_hole_site_id"]:
-                    core_hole_coords = np.copy(site.coords)
-                    absorption_site = str(n+1)
-                    fdmnes_headers['Absorber'] = absorption_site
-                core_hole_index += 1
+            # Absorber and core_hole_coords are determined based on structure
+            core_hole_index = 1
+            absorption_site = ""
+            core_hole_coords = [0, 0, 0]
+            for n, site in enumerate(fdmnes_astr.sites):
+                specie = site.specie.symbol
+                if specie == fdmnes_dict["core_hole_site_element"]:
+                    if core_hole_index == fdmnes_dict["core_hole_site_id"]:
+                        core_hole_coords = np.copy(site.coords)
+                        absorption_site = str(n+1)
+                        fdmnes_headers['Absorber'] = absorption_site
+                    core_hole_index += 1
 
-        inputfile = open(fdmnes_input_filename, "w+")
-        for key, value in fdmnes_headers.items():
-            inputfile.write(str(key) + "\n" + str(value) + "\n\n")
+            inputfile = open(fdmnes_input_filenames[s], "w+")
+            for key, value in fdmnes_headers.items():
+                inputfile.write(str(key) + "\n" + str(value) + "\n\n")
 
-        for key, value in fdmnes_dict["fdmnes_cards"].items():
-            print(f"key: {key}; value: {value}")
-            if value is not None:
-                if value == "include":
-                    inputfile.write(key + "\n")
-                else:
-                    if key == "Atom":
+            for key, value in fdmnes_dict["fdmnes_cards"].items():
+                print(f"key: {key}; value: {value}")
+                if value is not None:
+                    if value == "include":
                         inputfile.write(key + "\n")
-                        # create oxidation state separated substates
-                        oxi_confs = {}
-                        for sub_key, sub_value in value.items():
-                            # if key corresponds to central atom, check for
-                            # ionic charge
-                            underscore_index = sub_key.find("_")
-                            atomic_id = sub_key
-                            if underscore_index != -1:
-                                atomic_id = sub_key[:underscore_index]
-                                charge = int(sub_key[underscore_index + 1:])
-
-                                if atomic_id in oxi_confs:
-                                    oxi_confs[atomic_id][charge] = sub_value
-                                else:
-                                    oxi_confs[atomic_id] = {charge: sub_value}
-                            else:
-                                oxi_confs[atomic_id] = sub_value
-
-                        for atomic_id, val in oxi_confs.items():
-                            if type(val) is dict:
-                                # determine dominant oxidation state in the structure
-                                oxi_states = []
-                                for site in model.astr.sites:
-                                    number = site.specie.number
-                                    if number == int(atomic_id):
-                                        if hasattr(site.specie, 'oxi_state'):
-                                            oxi_states.append(
-                                                int(site.specie.oxi_state))
-                                if len(oxi_states) == 0:
-                                    key = list(val.keys())[0]
-                                    inputfile.write(
-                                        atomic_id + " " + val[key] + "\n")
-                                else:
-                                    oxi_state = Counter(
-                                        oxi_states).most_common(1)[0][0]
-                                    inputfile.write(
-                                        atomic_id + " " + val[oxi_state] + "\n")
-                            else:
-                                inputfile.write(atomic_id + " " + val + "\n")
-                    elif key == "Atom_conf":
-                        inputfile.write(key + "\n")
-                        all_atom_counts = {}
-                        all_atom_indices = {}
-                        atom_index = 1
-                        found_keys = []
-                        for site in model.astr.sites:
-                            an = str(site.specie.number)
-                            oxidized = hasattr(site.specie, 'oxi_state')
-                            if oxidized:
-                                ox_an = an + "_" + \
-                                    str(int(site.specie.oxi_state))
-                                if ox_an in value.keys():
-                                    an = ox_an
-                                else:
-                                    if an not in value.keys():
-                                        print("Note! No atom_conf for "
-                                              f"oxidation state {ox_an} and "
-                                              "no default state found for"
-                                              f" atomic number {an} either.")
-                            found_keys.append(an)
-                            if an in all_atom_counts:
-                                all_atom_counts[an] += 1
-                            else:
-                                all_atom_counts[an] = 1
-                            if an in all_atom_indices:
-                                all_atom_indices[an].append(str(atom_index))
-                            else:
-                                all_atom_indices[an] = [str(atom_index)]
-                            atom_index += 1
-
-                        for sub_key, sub_value in value.items():
-                            # Need to get number of atoms and their indices
-                            if sub_key in found_keys:
-                                atom_count = str(all_atom_counts[sub_key])
-                                atom_indices = " ".join(
-                                    all_atom_indices[sub_key])
-                                inputfile.write(
-                                    atom_count + " " +
-                                    atom_indices + " " +
-                                    sub_value + "\n")
-                    elif key == "Multipolar":
-                        if type(value) is str:
-                            inputfile.write(value + "\n")
-                        else:
-                            for sub_value in value:
-                                inputfile.write(sub_value + "\n")
                     else:
-                        inputfile.write(key + "\n")
-                        inputfile.write(value + "\n")
-                inputfile.write("\n")
+                        if key == "Atom":
+                            inputfile.write(key + "\n")
+                            # create oxidation state separated substates
+                            oxi_confs = {}
+                            for sub_key, sub_value in value.items():
+                                # if key corresponds to central atom, check for
+                                # ionic charge
+                                underscore_index = sub_key.find("_")
+                                atomic_id = sub_key
+                                if underscore_index != -1:
+                                    atomic_id = sub_key[:underscore_index]
+                                    charge = int(
+                                        sub_key[underscore_index + 1:])
 
-        # create atoms card
-        inputfile.write(fdmnes_dict["structure_type"] + "\n")
+                                    if atomic_id in oxi_confs:
+                                        oxi_confs[atomic_id][charge] = sub_value
+                                    else:
+                                        oxi_confs[atomic_id] = {
+                                            charge: sub_value}
+                                else:
+                                    oxi_confs[atomic_id] = sub_value
 
-        # grab cartesian coordinates of lattice
-        abc = model.astr.lattice.abc
-        angles = model.astr.lattice.angles
-        l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
-        angle_vals = str(angles[0]) + " " + \
-            str(angles[1]) + " " + str(angles[2])
-        inputfile.write("    " + l_vals + " " + angle_vals + "\n")
-        for site in model.astr.sites:
-            print(f"Old coords: {site.coords}")
-        for site in model.astr.sites:
-            specie = site.specie.symbol
-            an = atomic_numbers[specie]
-            coords = np.copy(site.coords)
-            mc = []
-            for i in range(3):
-                coords[i] -= core_hole_coords[i]
-                if coords[i] > abc[i]/2:
-                    mc.append((coords[i] - abc[i])/abc[i])
-                else:
-                    mc.append(coords[i]/abc[i])
-            inputfile.write(
-                str(an) + "  " + str(mc[0]) +
-                " " + str(mc[1]) +
-                " " + str(mc[2]) + "\n")
+                            for atomic_id, val in oxi_confs.items():
+                                if type(val) is dict:
+                                    # determine dominant oxidation state in the structure
+                                    oxi_states = []
+                                    for site in fdmnes_astr.sites:
+                                        number = site.specie.number
+                                        if number == int(atomic_id):
+                                            if hasattr(site.specie, 'oxi_state'):
+                                                oxi_states.append(
+                                                    int(site.specie.oxi_state))
+                                    if len(oxi_states) == 0:
+                                        key = list(val.keys())[0]
+                                        inputfile.write(
+                                            atomic_id + " " + val[key] + "\n")
+                                    else:
+                                        oxi_state = Counter(
+                                            oxi_states).most_common(1)[0][0]
+                                        inputfile.write(
+                                            atomic_id + " " + val[oxi_state] + "\n")
+                                else:
+                                    inputfile.write(
+                                        atomic_id + " " + val + "\n")
+                        elif key == "Atom_conf":
+                            inputfile.write(key + "\n")
+                            all_atom_counts = {}
+                            all_atom_indices = {}
+                            atom_index = 1
+                            found_keys = []
+                            for site in fdmnes_astr.sites:
+                                an = str(site.specie.number)
+                                oxidized = hasattr(site.specie, 'oxi_state')
+                                if oxidized:
+                                    ox_an = an + "_" + \
+                                        str(int(site.specie.oxi_state))
+                                    if ox_an in value.keys():
+                                        an = ox_an
+                                    else:
+                                        if an not in value.keys():
+                                            print("Note! No atom_conf for "
+                                                  f"oxidation state {ox_an} and "
+                                                  "no default state found for"
+                                                  f" atomic number {an} either.")
+                                        else:
+                                            print("Note! No atom_conf for "
+                                                  f"oxidation state {ox_an}. Using"
+                                                  "default state found.")
+                                found_keys.append(an)
+                                if an in all_atom_counts:
+                                    all_atom_counts[an] += 1
+                                else:
+                                    all_atom_counts[an] = 1
+                                if an in all_atom_indices:
+                                    all_atom_indices[an].append(
+                                        str(atom_index))
+                                else:
+                                    all_atom_indices[an] = [str(atom_index)]
+                                atom_index += 1
 
-        for site in model.astr.sites:
-            print(f"New coords: {site.coords}")
+                            for sub_key, sub_value in value.items():
+                                # Need to get number of atoms and their indices
+                                if sub_key in found_keys:
+                                    atom_count = str(all_atom_counts[sub_key])
+                                    atom_indices = " ".join(
+                                        all_atom_indices[sub_key])
+                                    inputfile.write(
+                                        atom_count + " " +
+                                        atom_indices + " " +
+                                        sub_value + "\n")
+                        elif key == "Multipolar":
+                            if type(value) is str:
+                                inputfile.write(value + "\n")
+                            else:
+                                for sub_value in value:
+                                    inputfile.write(sub_value + "\n")
+                        elif key == "Screening":
+                            if type(value) is str:
+                                inputfile.write(key + "\n")
+                                inputfile.write(value + "\n")
+                            else:
+                                inputfile.write(key + "\n")
+                                inputfile.write(value[s] + "\n")
+                        else:
+                            inputfile.write(key + "\n")
+                            inputfile.write(value + "\n")
+                    inputfile.write("\n")
 
-        inputfile.write("\n")
+            # create atoms card
+            inputfile.write(fdmnes_dict["structure_type"] + "\n")
 
-        inputfile.write("END\n")
-        inputfile.close()
+            # grab cartesian coordinates of lattice
+            abc = fdmnes_astr.lattice.abc
+            angles = fdmnes_astr.lattice.angles
+            l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
+            angle_vals = str(angles[0]) + " " + \
+                str(angles[1]) + " " + str(angles[2])
+            inputfile.write("    " + l_vals + " " + angle_vals + "\n")
+            for site in fdmnes_astr.sites:
+                specie = site.specie.symbol
+                an = atomic_numbers[specie]
+                coords = np.copy(site.coords)
+                mc = []
+                for i in range(3):
+                    coords[i] -= core_hole_coords[i]
+                    if coords[i] > abc[i]/2:
+                        mc.append((coords[i] - abc[i])/abc[i])
+                    else:
+                        mc.append(coords[i]/abc[i])
+                inputfile.write(
+                    str(an) + "  " + str(mc[0]) +
+                    " " + str(mc[1]) +
+                    " " + str(mc[2]) + "\n")
+            inputfile.write("\n")
+
+            inputfile.write("END\n")
+            inputfile.close()
 
         ######################################
         # Write the mpirun_fdmnes file. Only needed if on local computer.
@@ -752,6 +792,8 @@ class xanes_of_model(object):
         make_exc_string = "chmod +rx " + fdmnes_mpirun_filename
         make_exc_command = make_exc_string.split()
         sp.call(make_exc_command)
+
+        return number_screenings
 
     def evaluate_obj(self, model):
         """
@@ -785,7 +827,7 @@ class xanes_of_model(object):
         """
 
         # Prepare FDMNES input file and run simulation
-        self.prepare_fdmnes(model, self.code_folder)
+        num_files = self.prepare_fdmnes(model, self.code_folder)
 
         exec_cmd = self.exec_cmd.split()
         with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
@@ -801,92 +843,102 @@ class xanes_of_model(object):
         # wait for the calculation to finish
         fdmnes_job.wait()
 
-        # Reference XANES simulation against experiment
-        xanes_result_path = model.relax_path +\
-            "/FDMNES_out/run_fdmnes_result_tddft.txt"
-        reference_maxes = self.exp_base_maxes
-        if self.comparison_spectra_type == "difference":
-            reference_maxes = self.exp_exc_maxes
-        self.model_comp_arrays, (scale_factor, shift_factor) =\
-            self.read_in_calculated_spectra(xanes_result_path,
-                                            reference_maxes)
-        self.model_comp_spline = \
-            self.fit_spline(
-                self.model_comp_arrays[0], self.model_comp_arrays[1], "cubic")
+        # Reference XANES simulation(s) against experiment
+        results = []
+        for xanes_run in range(num_files):
+            xanes_result_path = model.relax_path +\
+                "/FDMNES_out/run_fdmnes_result_" +\
+                str(xanes_run) + "_tddft.txt"
+            reference_maxes = self.exp_base_maxes
+            if self.comparison_spectra_type == "difference":
+                reference_maxes = self.exp_exc_maxes
+            self.model_comp_arrays, (scale_factor, shift_factor) =\
+                self.read_in_calculated_spectra(xanes_result_path,
+                                                reference_maxes)
+            self.model_comp_spline = \
+                self.fit_spline(
+                    self.model_comp_arrays[0],
+                    self.model_comp_arrays[1],
+                    "cubic")
 
-        print("Read in calculated spectra.")
+            print("Read in calculated spectra.")
 
-        compare_indices = (self.spline_mesh <= self.comparison_window[1]) & (
-            self.spline_mesh >= self.comparison_window[0])
-        lowest_spectra_distance = np.inf
-        lowest_spline = None
-        if self.comparison_spectra_type == "difference":
-            if self.refine_alignment_using_difference_spectra:
-                scale_factor_og = scale_factor
-                for i in range(-50, 50):
-                    for j in range(-5, 5):
-                        y_array = self.model_comp_arrays[1] * \
-                            (1 + 0.01*j/scale_factor_og)
-                        x_array = self.model_comp_arrays[0] - i*0.01
-                        new_spline = self.fit_spline(
-                            x_array, y_array, "cubic")
-                        compare_spline = self.comp_base_spline[compare_indices]
-                        fdmnes_dif_spectra = new_spline[compare_indices] - \
-                            compare_spline
-                        fdmnes_dif_spectra_array = np.reshape(
-                            fdmnes_dif_spectra, (-1, 1))
-                        spectra_distance = self.distance_calculator.create(
-                            fdmnes_dif_spectra_array,
-                            self.exp_dif_reshaped_spline[compare_indices])
+            compare_indices = \
+                (self.spline_mesh <= self.comparison_window[1]) & (
+                    self.spline_mesh >= self.comparison_window[0])
+            lowest_spectra_distance = np.inf
+            lowest_spline = None
+            if self.comparison_spectra_type == "difference":
+                if self.refine_alignment_using_difference_spectra:
+                    scale_factor_og = scale_factor
+                    for i in range(-50, 50):
+                        for j in range(-5, 5):
+                            y_array = self.model_comp_arrays[1] * \
+                                (1 + 0.01*j/scale_factor_og)
+                            x_array = self.model_comp_arrays[0] - i*0.01
+                            new_spline = self.fit_spline(
+                                x_array, y_array, "cubic")
+                            compare_spline =\
+                                self.comp_base_spline[compare_indices]
+                            fdmnes_dif_spectra =\
+                                new_spline[compare_indices] - compare_spline
+                            fdmnes_dif_spectra_array = np.reshape(
+                                fdmnes_dif_spectra, (-1, 1))
+                            spectra_distance = self.distance_calculator.create(
+                                fdmnes_dif_spectra_array,
+                                self.exp_dif_reshaped_spline[compare_indices])
 
-                        if spectra_distance < lowest_spectra_distance:
-                            lowest_spectra_distance = spectra_distance
-                            lowest_spline = new_spline
+                            if spectra_distance < lowest_spectra_distance:
+                                lowest_spectra_distance = spectra_distance
+                                lowest_spline = new_spline
+                else:
+                    compare_spline = self.comp_base_spline[compare_indices]
+                    fdmnes_dif_spline =\
+                        self.model_comp_spline[compare_indices] - \
+                        compare_spline
+                    fdmnes_dif_reshaped_spline = np.reshape(
+                        fdmnes_dif_spline, (-1, 1))
+                    lowest_spectra_distance = self.distance_calculator.create(
+                        fdmnes_dif_reshaped_spline,
+                        self.exp_dif_reshaped_spline[compare_indices])
+                    lowest_spline = self.model_comp_spline
             else:
-                compare_spline = self.comp_base_spline[compare_indices]
-                fdmnes_dif_spline =\
-                    self.model_comp_spline[compare_indices] - \
-                    compare_spline
-                fdmnes_dif_reshaped_spline = np.reshape(
-                    fdmnes_dif_spline, (-1, 1))
+                fdmnes_compare_spline = self.model_comp_spline[compare_indices]
+                fdmnes_compare_array = np.reshape(
+                    fdmnes_compare_spline, (-1, 1)
+                )
                 lowest_spectra_distance = self.distance_calculator.create(
-                    fdmnes_dif_reshaped_spline,
-                    self.exp_dif_reshaped_spline[compare_indices])
+                    fdmnes_compare_array,
+                    self.exp_base_reshaped_spline[compare_indices]
+                )
                 lowest_spline = self.model_comp_spline
-        else:
-            fdmnes_compare_spline = self.model_comp_spline[compare_indices]
-            fdmnes_compare_array = np.reshape(
-                fdmnes_compare_spline, (-1, 1)
-            )
-            lowest_spectra_distance = self.distance_calculator.create(
-                fdmnes_compare_array,
-                self.exp_base_reshaped_spline[compare_indices]
-            )
-            lowest_spline = self.model_comp_spline
 
-        # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
-        # print(lowest_spline_array)
-        # print(lowest_spline)
-        print(f"RMS score: {float((lowest_spectra_distance)*100)}")
-        np.save(model.relax_path + "/model_sim_spectra.npy", lowest_spline)
+            print(f"RMS score for run {xanes_run}: "
+                  f"{float((lowest_spectra_distance)*100)}")
+            results.append(lowest_spectra_distance)
+            np.save(model.relax_path + "/model_sim_spectra_" +
+                    str(xanes_run) + ".npy", lowest_spline)
 
-        fig, axes = plt.subplots(1, 1)
-        fig.set_size_inches(10, 10)
-        axes.plot(self.spline_mesh, self.exp_base_spline, marker=".",
-                  linestyle="-", label="Experiment")
-        axes.plot(self.spline_mesh, lowest_spline, marker=".",
-                  linestyle="--", label="FDMNES")
-        axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
-        axes.set_xlabel(
-            "Energy (eV)", fontsize=24)
-        axes.set_xlim((self.spline_mesh[0], self.spline_mesh[-1]))
-        axes.set_ylim((0, 2.0))
-        axes.legend(bbox_to_anchor=(0.48, 0.85), loc="lower left", fontsize=20)
-        plt.setp(axes.get_xticklabels(), fontsize=20)
-        plt.setp(axes.get_yticklabels(), fontsize=16)
-        filename = model.relax_path + "/" + "experiment_vs_sim_spectra.png"
-        plt.savefig(filename, format="png", dpi=300)
+            fig, axes = plt.subplots(1, 1)
+            fig.set_size_inches(10, 10)
+            axes.plot(self.spline_mesh, self.exp_base_spline, marker=".",
+                      linestyle="-", label="Experiment")
+            axes.plot(self.spline_mesh, lowest_spline, marker=".",
+                      linestyle="--", label="FDMNES")
+            axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
+            axes.set_xlabel(
+                "Energy (eV)", fontsize=24)
+            axes.set_xlim((self.spline_mesh[0], self.spline_mesh[-1]))
+            axes.set_ylim((0, 2.0))
+            axes.legend(bbox_to_anchor=(0.48, 0.85),
+                        loc="lower left", fontsize=20)
+            plt.setp(axes.get_xticklabels(), fontsize=20)
+            plt.setp(axes.get_yticklabels(), fontsize=16)
+            filename = model.relax_path + "/" + "experiment_vs_sim_spectra_" +\
+                str(xanes_run) + ".png"
+            plt.savefig(filename, format="png", dpi=300)
 
+        lowest_spectra_distance = min(results)
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
         if model.Xsim1 == 'XANES':

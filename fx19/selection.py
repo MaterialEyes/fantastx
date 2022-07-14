@@ -116,7 +116,7 @@ class Pool(object):
         unique = True
         if len(self.all_models) >= 1 and self.comparator is not None:
             unique = self.comparator.check_model_uniqueness(
-                model, self.population.models)
+                model, self.all_models)
 
         # If model is unique, add to all_models and proceed
         # Otherwise, reject.
