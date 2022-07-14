@@ -283,10 +283,8 @@ class structure_constraints(object):
                       ' Using default orthogonal angles of 90 degrees.')
                 self.box_angles = [90, 90, 90]
 
-            # grab max number of bonds
             if len(max_bonds) != 0:
                 self.max_bonds = max_bonds
-                print(f"Max bonds: {self.max_bonds}")
         # ###################bulk parameters end###############################
 
         # ########################cluster parameters begin#####################
@@ -310,7 +308,6 @@ class structure_constraints(object):
             else:
                 self.origin = [i/2. for i in self.box_abc]
 
-            # grab max number of bonds
             if len(max_bonds) != 0:
                 self.max_bonds = max_bonds
         # ###################cluster parameters ends###########################

@@ -78,14 +78,12 @@ with open(data_file, 'w') as f:
 # Set up everything for calculations
 models_evald = 0
 evald_futures, simd_futures = [], []
-pool_status_update = 10
+pool_status_update = 2
 workers = i_dict['workers']
 max_workers = workers['max_workers']
 
 # Start Dask client
 if workers['cluster'] == 'SLURM':
-    job_script = '/home/dunruh/fantastx_vasp_xanes/sample_job_script.txt'
-    jobfile = open(job_script, "w+")
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                processes=workers['processes'],
@@ -94,15 +92,11 @@ if workers['cluster'] == 'SLURM':
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'],
-                               env_extra=workers['env_extra'],
+                               # env_extra=workers['env_extra'],
                                header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
-    # jobfile.write(cluster_job.job_script())
-    # jobfile.close()
 elif workers['cluster'] == 'PBS':
-    job_script = '/home/dunruh/sample_job_script.txt'
-    jobfile = open(job_script, "w+")
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
                              project=workers['project_name'],
@@ -243,14 +237,16 @@ while models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
             print("Submitting random job")
+            model_mech = "random"
             new_model = make_model(random_model_obj, evolve, select,
                                    pool, reg_id, model_type='random')
         else:
             print("Submitting evolved job")
-            new_model = make_model(random_model_obj, evolve, select,
-                                   pool, reg_id, model_type='evolved')
+            model_mech = "evolved"
 
-        # relax the model in dask-workers
+        # create the model then send it to the dask-workers for evaluation
+        new_model = make_model(random_model_obj, evolve, select,
+                               pool, reg_id, model_type=model_mech)
         out = client.submit(full_eval, new_model)
         evald_futures.append(out)
         evald_futures, models_evald, pool, select = update_pool(evald_futures,
