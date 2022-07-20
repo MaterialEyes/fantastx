@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # coding: utf-8
-import tracemalloc
 import traceback
 import os
 import yaml
@@ -133,7 +132,6 @@ def full_eval(model, energy_obj, Xsim):
     Uses reg_id, Xsim_1, energy_code objects which were stored as global
     parameters in all workers and master
     """
-    tracemalloc.start()
     # submit model to energy relaxation
     try:
         energy_obj.relax(model, reg_id)
@@ -152,11 +150,7 @@ def full_eval(model, energy_obj, Xsim):
                 except:
                     continue
 
-    print(f"Model converged: {model.converged}")
-
-    print(
-        f"Memory usage for energy relaxation was: {tracemalloc.get_traced_memory()}")
-    tracemalloc.stop()
+    # print(f"Model converged: {model.converged}")
 
     # separate gb_iface for the energy evaluated futures
     # separate_gb(energy_obj, gb_ops_obj, model)
@@ -173,16 +167,11 @@ def full_eval(model, energy_obj, Xsim):
             print('Relaxed structure not available. Skipping Xsim..')
             return None
         else:
-            print("Doing experimental simulation!!")
+            # print("Doing experimental simulation!!")
             # if relaxed structure exists
             model.Xsim1 = Xsim.name
-            print(f"Experimental simulation is: {model.Xsim1}")
-            tracemalloc.start()
             model, Xsim_val = Xsim.evaluate_obj(model)
             model.num_of_obj += 1
-            print(
-                f"Memory usage for experimental simulation was: {tracemalloc.get_traced_memory()}")
-            tracemalloc.stop()
             return model
     else:
         return model
@@ -253,12 +242,8 @@ while models_evald < total_models_needed:
             model_mech = "evolved"
 
         # create the model then send it to the dask-workers for evaluation
-        tracemalloc.start()
         new_model = make_model(random_model_obj, evolve, select,
                                pool, reg_id, model_type=model_mech)
-        print(
-            f"In creating the new model, the memory used was: {tracemalloc.get_traced_memory()}")
-        tracemalloc.stop()
         out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         evald_futures, models_evald, pool, select = update_pool(evald_futures,

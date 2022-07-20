@@ -31,7 +31,6 @@ parent structure. Currently, these parent structures can be:
 """
 
 from __future__ import division, unicode_literals, print_function
-from typing import AnyStr
 from pymatgen.core.structure import Structure, Lattice
 from pymatgen.core.composition import Composition
 from pymatgen.transformations.standard_transformations import \
@@ -107,13 +106,11 @@ class Evolve(object):
         correct_comp = False
         tries = 0
         if operator == "perturb_sites" or operator == "perturb_comp":
-            print(f"Selecting a parent for {operator}")
             parent_model = select.get_a_parent(pool)
             label = parent_model.label
         while correct_comp is False and tries <= 10:
             tries += 1
             try:
-                print(f"Trying operator {operator} on try {tries}")
                 if operator == "perturb_sites":
                     new_astr, inheritance = hop.perturb_sites(
                         select, pool, model_id=label)
@@ -237,7 +234,7 @@ class mating(object):
         self.species_dict = mating_params['species_dict']
         self.min_dist_dict = mating_params['min_dist_dict']
 
-        self.mating_attempts = 20  # ensure that most orientations are explored
+        self.mating_attempts = 1000
 
         # DU
         # If storing all species in a list, and they are all in order
@@ -381,8 +378,6 @@ class mating(object):
                     lattice=child_lattice,
                     remove_overlaps=True)
 
-                del temp1
-                del temp2
                 if child is None:
                     continue
                 else:
@@ -492,18 +487,6 @@ class mating(object):
         for i in range(3):
             new_latt1_matrix[args2[i]] = latt1[args1[i]]
             new_coords1[args2[i]] = astr1.frac_coords[:, args1[i]]
-
-        # new_latt1_matrix = [[], [], []]
-        # new_coords1 = [[], [], []]
-        # for i in range(3):
-        #     latt1_row = latt1[i]
-        #     dists = np.linalg.norm(latt2 - latt1_row, axis=1)
-        #     sorted_rows = np.argsort(dists)
-        #     for j in range(3):
-        #         if len(new_latt1_matrix[sorted_rows[j]]) == 0:
-        #             new_latt1_matrix[sorted_rows[j]] = latt1_row
-        #             new_coords1[sorted_rows[j]] = astr1.frac_coords[:, i]
-        #             break
 
         new_latt1 = Lattice(new_latt1_matrix)
         new_coords1 = np.array(new_coords1).T
@@ -820,7 +803,8 @@ class mating(object):
                     # if too few of a specie, attempt to add atoms from the
                     # slices that were discarded
                     discarded_indices = [i for i in range(
-                        len(discarded_species)) if discarded_species[i].symbol == sym]
+                        len(discarded_species)) if
+                        discarded_species[i].symbol == sym]
                     max_cc = len(discarded_indices)
                     cc_tries = 0
                     while child.composition[sym] < min_sp and\
@@ -972,7 +956,7 @@ class mating(object):
              child object. `None` if 4 or more atoms are outside the max
              diameter.
         """
-        radius, abc = self.max_dia/2, self.box_abc
+        radius = self.max_dia/2
 
         # get atom indices that needs to be moved
         child_sites = child.sites

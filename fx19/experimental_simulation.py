@@ -1361,7 +1361,6 @@ class pdf_of_model(object):
         # NOTE: First fit the main four variables only. Second fit main four +
         # coords as variables. This is to get best solution wrt main variables.
         # Then some local solution with second fitting..
-
         fitted_params, residual, recipe = self.fit_variables_recipe(
             contribution, cif_file)
         # write initial fitted parameters to a file
