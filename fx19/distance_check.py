@@ -335,7 +335,7 @@ def dist_pbc_pymatgen(p1, p2, lattice):
 
     # get distance between the two fractional coordinates, returning the
     # distance and number of lattice translations required to shift the image
-    (d, jimage) = lattice.get_distance_and_image(f1, f2, None)
+    d, _ = lattice.get_distance_and_image(f1, f2, None)
 
     return d
 
@@ -361,7 +361,7 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
 
 def satisfies_all_dists_quick(one_point, many_points, one_species,
                               many_species, inv_syms, min_dist_dict,
-                              lattice=None):
+                              lattice=None, coords_are_cartesian=True):
     """
     Function to check that a new coordinate being added to an existing
     structure satisfies all minimum distance constraints. To be used with
@@ -391,13 +391,28 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
         lattice (obj): Pymatgen `Lattice` object which contains the species.
          If provided, all distances are calculated using periodic boundary
          conditions.
+
+        coords_are_cartesian (bool): True if the provided coordinates are
+         cartesian, False, if the provided coordinates are fractional
     """
     sym1 = inv_syms[one_species]
     for index, each_point in enumerate(many_points):
         if lattice is None:
-            d = dist(one_point, each_point)
+            if coords_are_cartesian:
+                d = dist(one_point, each_point)
+            else:
+                print("Error! Provided coordinates are not cartesian, but"
+                      " no lattice was provided.")
+                return None
         else:
-            d = dist_pbc(one_point, each_point, lattice)
+            if coords_are_cartesian:
+                d = dist_pbc_pymatgen(one_point, each_point, lattice)
+                # d = dist_pbc(one_point, each_point, lattice)
+            else:
+                d, _ = lattice.get_distance_and_image(one_point,
+                                                      each_point,
+                                                      None)
+
         # d = dist(one_point, each_point)
         sym2 = inv_syms[many_species[index]]
         key1 = sym1 + '_' + sym2

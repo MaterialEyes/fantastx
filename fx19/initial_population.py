@@ -237,7 +237,6 @@ class make_random_model(object):
             `structure`: the pymatgen structure object corresponding to the
              bulk.
         """
-        side_len = self.max_dia
         max_bond_dist = max(self.max_dist_dict.values())
 
         # get species and make an empty lattice box

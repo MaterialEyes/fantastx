@@ -238,8 +238,6 @@ while models_evald < total_models_needed:
         if models_evald < num_initial_pop:
             print("Submitting random job")
             model_mech = "random"
-            new_model = make_model(random_model_obj, evolve, select,
-                                   pool, reg_id, model_type='random')
         else:
             print("Submitting evolved job")
             model_mech = "evolved"
