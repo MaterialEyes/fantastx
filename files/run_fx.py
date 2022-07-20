@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+import tracemalloc
 import traceback
 import os
 import yaml
@@ -120,7 +121,7 @@ if workers['cluster'] == 'SLURM' or workers['cluster'] == 'PBS':
 # full_eval function which uses global variables
 
 
-def full_eval(model):
+def full_eval(model, energy_obj, Xsim):
     """
     A wrapper function around energy_eval and Xsim_eval.
     Both these are done one after the other as one job by worker
@@ -132,9 +133,10 @@ def full_eval(model):
     Uses reg_id, Xsim_1, energy_code objects which were stored as global
     parameters in all workers and master
     """
+    tracemalloc.start()
     # submit model to energy relaxation
     try:
-        energy_code.relax(model, reg_id)
+        energy_obj.relax(model, reg_id)
     except:
         traceback.print_exc()
         print('Duplicate label in parallel processes. Skipping..')
@@ -142,21 +144,25 @@ def full_eval(model):
 
     resubmitted = 2
     if not model.converged:
-        for i in range(energy_code.resubmit):
-            if resubmitted < energy_code.resubmit and not model.converged:
+        for i in range(energy_obj.resubmit):
+            if resubmitted < energy_obj.resubmit and not model.converged:
                 resubmitted += 1
                 try:
-                    energy_code.re_relax(model)
+                    energy_obj.re_relax(model)
                 except:
                     continue
 
     print(f"Model converged: {model.converged}")
 
+    print(
+        f"Memory usage for energy relaxation was: {tracemalloc.get_traced_memory()}")
+    tracemalloc.stop()
+
     # separate gb_iface for the energy evaluated futures
-    separate_gb(energy_code, gb_ops_obj, model)
+    # separate_gb(energy_obj, gb_ops_obj, model)
 
     # Do Xsim if required
-    if Xsim_1:
+    if Xsim:
         if not model.converged:
             print('Energy calculation of model {} is not'
                   ' converged'.format(model.label))
@@ -169,10 +175,14 @@ def full_eval(model):
         else:
             print("Doing experimental simulation!!")
             # if relaxed structure exists
-            model.Xsim1 = Xsim_1.name
+            model.Xsim1 = Xsim.name
             print(f"Experimental simulation is: {model.Xsim1}")
-            model, Xsim_val = Xsim_1.evaluate_obj(model)
+            tracemalloc.start()
+            model, Xsim_val = Xsim.evaluate_obj(model)
             model.num_of_obj += 1
+            print(
+                f"Memory usage for experimental simulation was: {tracemalloc.get_traced_memory()}")
+            tracemalloc.stop()
             return model
     else:
         return model
@@ -197,7 +207,7 @@ if input_model_obj is not None:
                                reg_id, model_type='inputs',
                                model=input_model)
         # relax the model in dask-workers
-        out = client.submit(full_eval, new_model)
+        out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         print(
             f"Successfully submitted input model {new_model.label}")
@@ -243,9 +253,13 @@ while models_evald < total_models_needed:
             model_mech = "evolved"
 
         # create the model then send it to the dask-workers for evaluation
+        tracemalloc.start()
         new_model = make_model(random_model_obj, evolve, select,
                                pool, reg_id, model_type=model_mech)
-        out = client.submit(full_eval, new_model)
+        print(
+            f"In creating the new model, the memory used was: {tracemalloc.get_traced_memory()}")
+        tracemalloc.stop()
+        out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                                 models_evald,

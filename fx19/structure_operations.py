@@ -172,7 +172,6 @@ class Evolve(object):
             print('Failed to produce model in 10 attempts '
                   'with {} operator'.format(operator))
             return None
-
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
         new_model.made_by = operator
@@ -238,7 +237,7 @@ class mating(object):
         self.species_dict = mating_params['species_dict']
         self.min_dist_dict = mating_params['min_dist_dict']
 
-        self.mating_attempts = 1000  # ensure that most orientations are explored
+        self.mating_attempts = 20  # ensure that most orientations are explored
 
         # DU
         # If storing all species in a list, and they are all in order
@@ -302,11 +301,26 @@ class mating(object):
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
 
-        not_attached = True
+        parent_one_astr = parent1.astr.copy()
+        parent_two_astr = parent2.astr.copy()
+        child_lattice = None
+
+        # check to make sure that the parents have the same lattice
+        # parameters. If not, then make the smaller one have the same
+        # lattice parameters as the larger one
+        if not np.allclose(parent_one_astr.lattice.matrix,
+                           parent_two_astr.lattice.matrix):
+            parent_one_astr, parent_two_astr = self._orient_two_astrs(
+                parent_one_astr,
+                parent_two_astr
+            )
+            child_lattice = self._generate_child_lattice(
+                parent_one_astr.lattice,
+                parent_two_astr.lattice,
+                False
+            )
 
         if self.shape == "cluster" or self.shape == "molecule":
-            parent_one_astr = parent1.astr.copy()
-            parent_two_astr = parent2.astr.copy()
             # rotate all parents randomly and slice them
             temp1 = self.rotate_astr(parent_one_astr)
             temp1_slices = self.fraction_slice(temp1, axis=2)
@@ -326,51 +340,33 @@ class mating(object):
                                        remove_overlaps=False)
         else:
             tries = 0
+            not_attached = True
             while not_attached and tries < self.mating_attempts:
                 tries += 1
                 slice_axis = random.randint(0, 2)
 
-                parent_one_astr = parent1.astr.copy()
-                parent_two_astr = parent2.astr.copy()
-                child_lattice = None
-
-                # check to make sure that the parents have the same lattice
-                # parameters. If not, then make the smaller one have the same
-                # lattice parameters as the larger one
-                if not np.allclose(parent_one_astr.lattice.matrix,
-                                   parent_two_astr.lattice.matrix):
-                    parent_one_astr, parent_two_astr = self._orient_two_astrs(
-                        parent_one_astr,
-                        parent_two_astr
-                    )
-                    child_lattice = self._generate_child_lattice(
-                        parent_one_astr.lattice,
-                        parent_two_astr.lattice,
-                        False
-                    )
-
                 # translate the bulk structures
                 translation_probs = [self.translation_probs[1]]*3
                 translation_probs[slice_axis] = self.translation_probs[0]
-                self._translate_along_latt_vectors(
+                temp1 = self._translate_along_latt_vectors(
                     parent_one_astr,
                     translation_probs)
-                self._translate_along_latt_vectors(
+                temp2 = self._translate_along_latt_vectors(
                     parent_two_astr,
                     translation_probs)
 
                 # determine the cutting point for the two structures
                 average_coord_one = np.average(
-                    parent_one_astr.frac_coords[:, slice_axis])
+                    temp1.frac_coords[:, slice_axis])
                 average_coord_two = np.average(
-                    parent_two_astr.frac_coords[:, slice_axis])
+                    temp2.frac_coords[:, slice_axis])
                 cut_point = 0.5 * (average_coord_one + average_coord_two)
 
                 # cut the two structures
                 temp1_slices = self.fraction_slice(
-                    parent_one_astr, slice_axis, cut_point)
+                    temp1, slice_axis, cut_point)
                 temp2_slices = self.fraction_slice(
-                    parent_two_astr, slice_axis, cut_point)
+                    temp2, slice_axis, cut_point)
 
                 # Attach the two slices either with mirroring or directly
                 if random.randint(0, 1) == 0:
@@ -384,10 +380,13 @@ class mating(object):
                     axis=slice_axis,
                     lattice=child_lattice,
                     remove_overlaps=True)
+
+                del temp1
+                del temp2
                 if child is None:
-                    print(f"On attempt {tries} the child was none")
                     continue
                 else:
+                    print(f"Succeeded in mating on attempt {tries}")
                     not_attached = False
             if not_attached:
                 return None, inheritance
@@ -408,7 +407,7 @@ class mating(object):
             selection_probs (iterable): the probabilities of selecting each
              lattice vector for translating along.
         """
-
+        temp = astr.copy()
         translation_vector = np.zeros(3)
         for i in range(3):
             r1 = np.random.uniform()
@@ -418,13 +417,15 @@ class mating(object):
 
         all_sites = [i for i in range(astr.num_sites)]
         # first, ensure that all sites lie in the unit cell already
-        astr.translate_sites(all_sites, [0, 0, 0],
+        temp.translate_sites(all_sites, [0, 0, 0],
                              frac_coords=True,
                              to_unit_cell=True)
         # then translate by the vector
-        astr.translate_sites(all_sites, translation_vector,
+        temp.translate_sites(all_sites, translation_vector,
                              frac_coords=True,
                              to_unit_cell=True)
+
+        return temp
 
     def _align_cell_with_principal_axes(self, astr):
         """
@@ -454,12 +455,10 @@ class mating(object):
 
         # make sure lattice vector `c` pointing in +z direction
         if astr.lattice.matrix[2][2] < 0:
-            a = astr.lattice.matrix[0]
-            b = astr.lattice.matrix[1]
-            cx = astr.lattice.matrix[2][0]
-            cy = astr.lattice.matrix[2][1]
-            cz = -1*astr.lattice.matrix[2][2]
-            astr.lattice = Lattice([a, b, [cx, cy, cz]])
+            a = astr.lattice.matrix.tolist()
+            a[2][2] *= -1
+            astr.lattice = Lattice(a)
+
         return astr
 
     def _orient_two_astrs(self, astr1, astr2):
@@ -512,10 +511,10 @@ class mating(object):
 
         astr1 = Structure(new_latt1, species1, new_coords1)
 
-        aligned_astr1 = self._align_cell_with_principal_axes(astr1)
-        aligned_astr2 = self._align_cell_with_principal_axes(astr2)
+        astr1 = self._align_cell_with_principal_axes(astr1)
+        astr2 = self._align_cell_with_principal_axes(astr2)
 
-        return aligned_astr1, aligned_astr2
+        return astr1, astr2
 
     def _generate_child_lattice(self, latt1, latt2, random=False):
         """
