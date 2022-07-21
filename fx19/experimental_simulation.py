@@ -933,7 +933,10 @@ class pdf_of_model(object):
         self.fit_coords = False
         # default bounds_dict
         lb_ub_dict = {}
-        lb_ub_dict['a'] = [19.0, 21.0]
+        # note: can alternately define bounds by [a_low_bound, a_high_bound]
+        lb_ub_dict['a'] = 0.02
+        lb_ub_dict['b'] = 0.02
+        lb_ub_dict['c'] = 0.02
         # Biso_val = 8*pi**2 * Uiso_val
         lb_ub_dict['Biso_val'] = [78.96*0.00001, 200.096*0.01]
         lb_ub_dict['scale'] = [0.5, 1.5]
@@ -1005,8 +1008,8 @@ class pdf_of_model(object):
         if 'coord_tol' in pdf_params:
             self.coord_tol = pdf_params['coord_tol']
 
-        self.make_supercell = True
-        self.periodic = False
+        self.make_supercell = False
+        self.periodic = True
 
     def write_temp_cif(self, model):
         """
@@ -1081,7 +1084,7 @@ class pdf_of_model(object):
 
         return contribution
 
-    def fit_variables_recipe(self, contribution, cif_file, fitted_params=None):
+    def fit_variables_recipe(self, contribution, fitted_params=None):
         """
         Performs optimization of PDF variables like qdamp, delta2, scale and
         ADP (Bisos) using diffpy.srfit.fitbase.FitRecipe object.
@@ -1117,11 +1120,28 @@ class pdf_of_model(object):
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
         lattice = contribution.generator_name.phase.getLattice()
-        lattice.constrain(lattice.b, lattice.a)
-        lattice.constrain(lattice.c, lattice.a)
-        lattice.alpha.setConst(True, np.pi/2.)
-        lattice.beta.setConst(True, np.pi/2.)
-        lattice.gamma.setConst(True, np.pi/2.)
+
+        a = lattice.a.getValue()
+        b = lattice.b.getValue()
+        c = lattice.c.getValue()
+
+        # If we have a cubic lattice then constrain it to remain cubic
+        cubic_lattice = False
+        alpha = lattice.alpha.getValue()
+        beta = lattice.beta.getValue()
+        gamma = lattice.gamma.getValue()
+        if np.isclose(a, b) and np.isclose(a, c):
+            if np.isclose(alpha, np.pi/2) and\
+                np.isclose(beta, np.pi/2) and\
+                    np.isclose(gamma, np.pi/2):
+                cubic_lattice = True
+                lattice.constrain(lattice.b, lattice.a)
+                lattice.constrain(lattice.c, lattice.a)
+                lattice.alpha.setConst(True, np.pi/2.)
+                lattice.beta.setConst(True, np.pi/2.)
+                lattice.gamma.setConst(True, np.pi/2.)
+
+        # allow diffpy to shift the lattice parameters
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1152,9 +1172,24 @@ class pdf_of_model(object):
         recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
-        recipe.a.bounds = self.var_bounds['a']
-        # recipe.b.bounds = self.var_bounds['a']
-        # recipe.c.bounds = self.var_bounds['a']
+        # For lattice parameters, set bound for each parameter
+        if type(self.var_bounds['a']) is list:
+            recipe.a.bounds = self.var_bounds['a']
+        else:
+            recipe.a.bounds = [a - self.var_bounds['a']*a,
+                               a + self.var_bounds['a']*a]
+
+        if not cubic_lattice:
+            if type(self.var_bounds['b']) is list:
+                recipe.b.bounds = self.var_bounds['b']
+            else:
+                recipe.b.bounds = [b - self.var_bounds['b']*b,
+                                   b + self.var_bounds['b']*b]
+            if type(self.var_bounds['c']) is list:
+                recipe.c.bounds = self.var_bounds['c']
+            else:
+                recipe.c.bounds = [c - self.var_bounds['c']*c,
+                                   c + self.var_bounds['c']*c]
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1202,11 +1237,26 @@ class pdf_of_model(object):
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
         lattice = contribution.generator_name.phase.getLattice()
-        lattice.constrain(lattice.b, lattice.a)
-        lattice.constrain(lattice.c, lattice.a)
-        lattice.alpha.setConst(True, np.pi/2.)
-        lattice.beta.setConst(True, np.pi/2.)
-        lattice.gamma.setConst(True, np.pi/2.)
+
+        a = lattice.a.getValue()
+        b = lattice.b.getValue()
+        c = lattice.c.getValue()
+        # If we have a cubic lattice then constrain it to remain cubic
+        cubic_lattice = False
+        alpha = lattice.alpha.getValue()
+        beta = lattice.beta.getValue()
+        gamma = lattice.gamma.getValue()
+        if np.isclose(a, b) and np.isclose(a, c):
+            if np.isclose(alpha, np.pi/2) and\
+                np.isclose(beta, np.pi/2) and\
+                    np.isclose(gamma, np.pi/2):
+                cubic_lattice = True
+                lattice.constrain(lattice.b, lattice.a)
+                lattice.constrain(lattice.c, lattice.a)
+                lattice.alpha.setConst(True, np.pi/2.)
+                lattice.beta.setConst(True, np.pi/2.)
+                lattice.gamma.setConst(True, np.pi/2.)
+
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1232,9 +1282,24 @@ class pdf_of_model(object):
         recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
-        recipe.a.bounds = self.var_bounds['a']
-        # recipe.b.bounds = self.var_bounds['a']
-        # recipe.c.bounds = self.var_bounds['a']
+        # For lattice parameters, set bound for each parameter
+        if type(self.var_bounds['a']) is list:
+            recipe.a.bounds = self.var_bounds['a']
+        else:
+            recipe.a.bounds = [a - self.var_bounds['a']*a,
+                               a + self.var_bounds['a']*a]
+
+        if not cubic_lattice:
+            if type(self.var_bounds['b']) is list:
+                recipe.b.bounds = self.var_bounds['b']
+            else:
+                recipe.b.bounds = [b - self.var_bounds['b']*b,
+                                   b + self.var_bounds['b']*b]
+            if type(self.var_bounds['c']) is list:
+                recipe.c.bounds = self.var_bounds['c']
+            else:
+                recipe.c.bounds = [c - self.var_bounds['c']*c,
+                                   c + self.var_bounds['c']*c]
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1362,7 +1427,7 @@ class pdf_of_model(object):
         # coords as variables. This is to get best solution wrt main variables.
         # Then some local solution with second fitting..
         fitted_params, residual, recipe = self.fit_variables_recipe(
-            contribution, cif_file)
+            contribution)
         # write initial fitted parameters to a file
         with open(pdf_sim + '/initial_fitted_params.txt', 'w') as f:
             for item in fitted_params:
@@ -1382,9 +1447,6 @@ class pdf_of_model(object):
                     f.write(str(item) + '\n')
                 f.write('Residual: {}'.format(residual))
             self.plot_pdf(recipe, 'final')
-            # use the new cif file created with optimized coords
-            #cif_file = pdf_sim + '/temp_opt.cif'
-            #contribution = self.get_PDF_obj(cif_file)
 
         # fit the PDF variables
         # fitted_params, residual, Fit = self.fit_variables_recipe(PDF,
