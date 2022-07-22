@@ -1506,56 +1506,70 @@ class gb_ingrained(object):
             print('Provide ingrained optimization progress as progress_file'
                   ' or sim params of optimized solution')
 
-        # self.dm3_path = gb_ingrained_params['dm3_path']
-        # if not self.dm3_path:
-        #     print('Provide path (dm3_path) to experimental image')
-
-        # # Prepare experimental image
-        # # (make sure this procedure matches the procedure in 'run.py')
-        # image_data = iop.image_open(self.dm3_path)
-        # exp_img = iop.apply_rotation(image_data['Pixels'], 1)
-        # exp_img = iop.scale_pixels(exp_img, mode='rescale')
-        # exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
-        # exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
-
-        # bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
-        # congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
-
-        # Get solutions from text file
-        # if self.progress_file:
-        #     progress = np.genfromtxt(self.progress_file, delimiter=',')
-        #     best_idx = int(np.argmin(progress[:, -1]))
-        #     x = progress[best_idx]
-        #     xfit = x[1:-1]
-        #     xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
-
-        # TODO: Find why we set self.opt_params[1] = 0
-        # if not self.opt_params:
-        #     self.opt_params = xfit.copy()
-        #     self.opt_params[1] = 0
-        # else:
-        #     xfit = self.opt_params.copy()
-        # xfit[1] = 0
-        # sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
-        #     congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
-
-        # sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
-
-        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
-
-        # Temporarily "hard-coded" exp interface region for VASP runs
-        # Load prev_whole_exp.npy that is from the LAMMPS runs
-        exp_prev = np.load('inputs/whole_exp.npy')
-        if exp_prev.ndim == 3:
-            exp_prev = np.mean(exp_prev, axis=2)
-            self.im_ref = exp_prev[:, :-1]
+        self.dm3_path = gb_ingrained_params['dm3_path']
+        if self.dm3_path is None:
+            print('Error! No path (dm3_path) provided to experimental image')
+            print('Trying to refer to hard-coded reference ')
+            print('"inputs/whole_exp.npy" instead.')
+            if os.path.exists(self.main_path + '/inputs/whole_exp.npy'):
+                exp_prev = np.load(self.main_path + '/inputs/whole_exp.npy')
+                if exp_prev.ndim == 3:
+                    exp_prev = np.mean(exp_prev, axis=2)
+                    self.im_ref = exp_prev[:, :-1]
+                else:
+                    self.im_ref = exp_prev
+            else:
+                print('No hard coded reference file found.')
         else:
-            self.im_ref = exp_prev
+            # Prepare experimental image
+            # (make sure this procedure matches the procedure in 'run.py')
+            image_data = iop.image_open(self.dm3_path)
+            exp_img = iop.apply_rotation(image_data['Pixels'], 1)
+            exp_img = iop.scale_pixels(exp_img, mode='rescale')
+            exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
+            exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
 
-        # in y & x directions # TODO: remove hard-coded values
-        # exp_patch_for_vasp = exp_img[459:584,
-        #                              249:374]  # exp_prev[152:279, 12:]
+            bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
+            congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
+
+            # Get ingrained optimization parameters from the best fit in
+            # the ingrained progress file
+            if self.progress_file:
+                progress = np.genfromtxt(self.progress_file, delimiter=',')
+                best_idx = int(np.argmin(progress[:, -1]))
+                x = progress[best_idx]
+                xfit = x[1:-1]
+                xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
+
+            # TODO: Find why we set self.opt_params[1] = 0
+            if self.opt_params is None:
+                if self.progress_file is None:
+                    print("Error! No ingrained optimization parameters"
+                          " provided, and no ingrained progress file found!")
+                    xfit = None
+                else:
+                    self.opt_params = xfit.copy()
+                    self.opt_params[1] = 0
+            else:
+                xfit = self.opt_params.copy()
+            xfit[1] = 0
+            sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
+                congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+
+            sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
+
+            np.save(self.main_path + '/whole_exp.npy', exp_patch)
+            np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+
+            # in y & x directions # TODO: remove hard-coded values
+            # exp_patch_for_vasp = exp_img[459:584,
+            #                              249:374]  # exp_prev[152:279, 12:]
+
+            if exp_prev.ndim == 3:
+                exp_prev = np.mean(exp_prev, axis=2)
+                self.im_ref = exp_prev[:, :-1]
+            else:
+                self.im_ref = exp_prev
 
         self.do_scell = True   # Set to False if using a 1x3 supercell
         # Make sim TEM from init_gb
