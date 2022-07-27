@@ -1794,7 +1794,7 @@ class xrd_of_model(object):
         # Simulate histogram
         hist1 = gpx.add_simulated_powder_histogram(
             f'{basename} XRD simulation',
-            paramFile,
+            self.instr_param_file,
             self.xmin, self.xmax, Npoints=self.npoints,
             phases=gpx.phases(),scale=self.scale
             )
