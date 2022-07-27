@@ -1711,7 +1711,7 @@ class xrd_of_model(object):
         if 'xmax_fit' in xrd_params:
             self.xmax = xrd_params['xmax_fit']
         if 'npoints' in xrd_params:
-            self.npoints = xrd_params['npoints']
+            self.npoints = int(xrd_params['npoints']) # make sure it is a integer
         if 'scale' in xrd_params:
             self.scale = xrd_params['scale']
         
@@ -1774,17 +1774,18 @@ class xrd_of_model(object):
             - the SSIM score which is the objective
         """
         main_path = self.main_path
-        xrd_sim = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
-        os.mkdir(xrd_sim)
-        self.xrd_sim_dir = xrd_sim
+        xrd_sim_dir = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
+        os.mkdir(xrd_sim_dir)
+        tmp_dir = os.cwd()
+        os.chdir(xrd_sim_dir)
 
         # write the structure as cif file in the simulation dir
-        temp_init = self.xrd_sim_dir + '/temp_init.cif'
+        temp_init = xrd_sim_dir + '/temp_init.cif'
         cif_writer = CifWriter(model.astr.copy())
         cif_writer.write_file(temp_init)
 
         # Create GSASII project
-        gpx = G2sc.G2Project(filename=f'{xrd_sim}/{model.label}.gpx')
+        gpx = G2sc.G2Project(filename=f'{xrd_sim_dir}/{model.label}.gpx')
         phase0 = gpx.add_phase(
             temp_init, # path to cif file
             phasename=str(model.label),
@@ -1792,18 +1793,21 @@ class xrd_of_model(object):
             )
 
         # Simulate histogram
+        tmp_dir = os.cwd()
+        os.chdir(xrd_sim_dir)
         hist1 = gpx.add_simulated_powder_histogram(
-            f'{basename} XRD simulation',
+            f'{model.label} XRD simulation',
             self.instr_param_file,
             self.xmin, self.xmax, Npoints=self.npoints,
             phases=gpx.phases(),scale=self.scale
             )
         gpx.do_refinements()   # calculate pattern
         gpx.save()
+        os.chdir(tmp_dir)
 
         # post-processing of histogram data
         # and calculate the desired scoring function
-        data_sim = read_histogram(f'{xrd_sim}/data_{model.label}.csv')
+        data_sim = read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
         data_exp = np.loadtxt(self.exp_xrd_file)
         res_sim, res_fit, emd_sim, emd_fit = self.xrd_similarity_metrics(data_exp, data_sim)
         if self.score_method == 'res_sim':
