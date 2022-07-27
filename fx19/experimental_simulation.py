@@ -28,6 +28,12 @@ except ImportError:
     print('Install scikit-image, Ingrained, opencv for TEM simulation.'
           ' Otherwise ignore..')
 
+try:
+    import GSASIIscriptable as G2sc
+except ImportError:
+    print('Install GSASIIscriptable for powder diffraction simulation.'
+          ' Otherwise ignore..')
+
 from math import floor
 import numpy as np
 import os
@@ -1677,7 +1683,6 @@ class xrd_of_model(object):
     def __init__(self, xrd_params):
         """
         """
-        import GSASIIscriptable as G2sc
 
         # main path as in energy.py
         self.name = 'XRD'

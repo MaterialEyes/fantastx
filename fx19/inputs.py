@@ -550,6 +550,14 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
     return gb_ingrained_params
 
 
+def get_xrd_params(i_dict, exp_sim_params_id):
+    """
+    """
+    xrd_params = i_dict[exp_sim_params_id]
+    xrd_params['main_path'] = i_dict['main_path']
+    return xrd_params
+
+
 def get_mating_params(i_dict, str_constraints):
     """
     Function to conveniently combine different parameters provided by user and
