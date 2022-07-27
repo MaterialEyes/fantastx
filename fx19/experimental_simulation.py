@@ -1793,7 +1793,7 @@ class xrd_of_model(object):
             )
 
         # Simulate histogram
-        tmp_dir = os.cwd()
+        tmp_dir = os.get_cwd()
         os.chdir(xrd_sim_dir)
         hist1 = gpx.add_simulated_powder_histogram(
             f'{model.label} XRD simulation',
