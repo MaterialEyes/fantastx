@@ -84,6 +84,19 @@ python setup.py develop
 ## Usage
 Find the usage of Fantastx [here] (https://github.com/MaterialEyes/fantastx/blob/master/USAGE.md)
 
+## Documentation
+```sh
+pip install mkdocs-plugin
+pip install mkdocs-jupyter
+pip install mkdocs-material
+pip install innerscope
+pip install more_itertools
+pip install git-revision-date
+pip install mkdocstrings-python
+
+mkdocs serve
+```
+
 ## Citation
 If you find this code useful, please consider citing our [paper](#paper)
 ```sh
