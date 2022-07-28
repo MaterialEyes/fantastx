@@ -34,7 +34,7 @@ def write_data(model, data_file):
     try:
         with open(data_file, 'a') as f:
             if model.obj1_val:
-                line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6f}\t{5}\n'.format(
+                line = '{0}\t{1:<14}\t{2:.6f}\t{3:.6f}\t{4:.6e}\t{5}\n'.format(
                     model.label, str(model.inheritance), model.tot_en,
                     model.obj0_val, model.obj1_val, model.made_by)
             else:
