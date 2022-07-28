@@ -39,14 +39,19 @@ extra_javascript:
 extra_css:
   - custom.css
 
+site_url: https://fantastx.github.io/
+
 nav:
-  - Home: home.md
+  - Home: index.md
   - Installation: installation.md
-  - FAQs: FAQs.md
-  - Usage: USAGE.md
-  - Citation: citation.md
   - FANTASTX YAML Preparation: YAML_PREP.md
   - XANES YAML inputs: xanes.md
+  - Examples:
+      - Grain Boundary TEM: gb_tem_example.md
+      # - Bulk PDF: bulk_pdf_example.md
+      # - Molecule XANES: mol_xanes_example.md
+  - FAQs: FAQs.md
+  - Citation: citation.md
   - API:
       - run_ops: run_ops-reference.md
       - inputs: inputs-reference.md
