@@ -1687,7 +1687,10 @@ class xrd_of_model(object):
         # main path as in energy.py
         self.name = 'XRD'
         self.main_path = xrd_params['main_path']
-        self.pdf_sim_dir = None
+        self.xrd_sim_dir = None
+        
+        print(xrd_params)
+        open('params', 'w').write(str(xrd_params))
 
         # path to provided files
         self.exp_xrd_file = xrd_params['exp_xrd_file']
@@ -1696,9 +1699,10 @@ class xrd_of_model(object):
         # GSAS related arguments
         self.xmin = 15
         self.xmax = 65
-        self.xmin_fit = 20
-        self.xmax_fit = 20
         self.npoints = 1250
+        self.xmin_fit = 20
+        self.xmax_fit = 60
+        self.npoints_fit = 2001
         self.scale = 100
         self.score_method = 'res_fit'
 
@@ -1707,11 +1711,13 @@ class xrd_of_model(object):
         if 'xmax' in xrd_params:
             self.xmax = xrd_params['xmax']
         if 'xmin_fit' in xrd_params:
-            self.xmin = xrd_params['xmin_fit']
+            self.xmin_fit = xrd_params['xmin_fit']
         if 'xmax_fit' in xrd_params:
-            self.xmax = xrd_params['xmax_fit']
+            self.xmax_fit = xrd_params['xmax_fit']
         if 'npoints' in xrd_params:
             self.npoints = int(xrd_params['npoints']) # make sure it is a integer
+        if 'npoints_fit' in xrd_params:
+            self.npoints_fit = int(xrd_params['npoints_fit']) # make sure it is a integer
         if 'scale' in xrd_params:
             self.scale = xrd_params['scale']
         
@@ -1723,7 +1729,7 @@ class xrd_of_model(object):
         flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
         data_raw = data_raw[flag+1:]
         data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
-        return np.array(data_raw)
+        return np.array(data_raw)[:,:2]
 
 
     def xrd_similarity_metrics(self, data_exp, data_sim):
@@ -1740,8 +1746,7 @@ class xrd_of_model(object):
         from scipy import interpolate, optimize, stats
         f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
         f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
-        x = np.linspace(self.xmin_fit, self.xmax_fit, int(self.xmax_fit - self.xmin_fit)*10+1)
-        
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
         f_fit = lambda x, a, b: f_sim(x)*a + b
         popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
 
@@ -1776,8 +1781,6 @@ class xrd_of_model(object):
         main_path = self.main_path
         xrd_sim_dir = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
         os.mkdir(xrd_sim_dir)
-        tmp_dir = os.cwd()
-        os.chdir(xrd_sim_dir)
 
         # write the structure as cif file in the simulation dir
         temp_init = xrd_sim_dir + '/temp_init.cif'
@@ -1787,14 +1790,12 @@ class xrd_of_model(object):
         # Create GSASII project
         gpx = G2sc.G2Project(filename=f'{xrd_sim_dir}/{model.label}.gpx')
         phase0 = gpx.add_phase(
-            temp_init, # path to cif file
+            f'{xrd_sim_dir}/temp_init.cif',
             phasename=str(model.label),
             fmthint='CIF'
             )
 
         # Simulate histogram
-        tmp_dir = os.get_cwd()
-        os.chdir(xrd_sim_dir)
         hist1 = gpx.add_simulated_powder_histogram(
             f'{model.label} XRD simulation',
             self.instr_param_file,
@@ -1803,13 +1804,17 @@ class xrd_of_model(object):
             )
         gpx.do_refinements()   # calculate pattern
         gpx.save()
-        os.chdir(tmp_dir)
+        gpx.histogram(0).Export(f'{xrd_sim_dir}/data_{model.label}','.csv','hist') # data
+        gpx.histogram(0).Export(f'{xrd_sim_dir}/refl_{model.label}','.csv','refl') # reflections
 
         # post-processing of histogram data
         # and calculate the desired scoring function
-        data_sim = read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
+        data_sim = self.read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
         data_exp = np.loadtxt(self.exp_xrd_file)
         res_sim, res_fit, emd_sim, emd_fit = self.xrd_similarity_metrics(data_exp, data_sim)
+        open(f'{xrd_sim_dir}/log', 'a').write(
+            f'res_sim: {res_sim}\nres_fit: {res_fit}\nemd_sim: {emd_sim}\nemd_fit: {emd_fit}\n')
+
         if self.score_method == 'res_sim':
             score = float(res_sim)
         if self.score_method == 'res_fit':
