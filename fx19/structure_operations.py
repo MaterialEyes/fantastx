@@ -1428,7 +1428,9 @@ class gb_ops(object):
             self.iface_z_mid = str_constraints['iface_z_mid']
 
         if 'num_slices' not in str_constraints:
-            print('Error: NUmber of slices to cut for mating not provided. ')
+            print('Error: Number of slices to cut for mating not provided. '
+                  'Using a default of 2.')
+            self.num_slices = 2
         else:
             self.num_slices = str_constraints['num_slices']
 

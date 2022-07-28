@@ -10,6 +10,7 @@ def get_working_jobs(futures):
     """
     Checks if any jobs in futures is still running and returns number of
     running jobs
+
     Arguments:
         futures (list): list of future objects (`concurrent.futures`)
     """
@@ -27,6 +28,7 @@ def get_working_jobs(futures):
 def write_data(model, data_file):
     """
     Writes the model data to data_file
+
     Arguments:
         model (obj): `structure_record.model()` object
         data_file (str): path to the `data_file`
@@ -64,7 +66,8 @@ def temp_selection_probs(pool):
 
 def relax(model, reg_id, energy_code):
     """
-    Does energy relaxation of the given model
+    Performs energy relaxation of the given model.
+
     Arguments:
         model (obj): `structure_record.model()` object
         reg_id (obj): `structure_record.register_id()` object
@@ -92,19 +95,23 @@ def relax(model, reg_id, energy_code):
 def make_model(random_model_obj, evolve, select, pool, reg_id,
                model_type='random', model=None):
     """
-    Makes a random model or a child model
+    Makes a model from input, at random, or inherited from parents.
+
     Arguments:
-        random_model_obj : make_random_model for cluster or gb_ops obj for gb
-          or surface_ops for surface geometry object
-        evolve : structure_operations.evolve() object
-        select : select object from selection.py
-        pool : pool object from selection.py
-        reg_id : structure_record.register_id() object
+        random_model_obj (obj): object which makes random structural
+         models for the given structural geometry.
+        evolve (obj): `structure_operations.evolve()` object
+        select (obj): `select` object from one of the selection algorithms
+        pool (obj): `pool` object from one of the selection algorithms
+        reg_id (obj): `structure_record.register_id()` object
         model_type (str): `random` or `evolved`.
-            `random` - make random model for initial population
-            `evolved` - make child model by evolution
-        model (model obj): if a model object is provided as inputs model_type
+         - `random` - make random model for initial population
+         - `evolved` - make child model by evolution
+        model (obj): `structure_record.model()` object. If provided,
           it is directly taken to energy evaluation step.
+
+    Returns:
+        (obj): new (and fully evaluated) `structure_record.model()` object
     """
     # read models from input files (if any)
     if model_type == 'inputs':
@@ -155,11 +162,12 @@ def separate_gb(energy_code, gb_ops_obj, model):
 
 def do_Xsim(model, Xsim_1):
     """
-    Do Xsim if needed and assign the corresponding objective function value. If
-    no experimental simulation needed or Xsim_1 is None, does nothing.
-    Args:
-    model : structure_record.model() object
-    Xsim_1 : experimental simulation object (pdf_of_model or gb_ingrained)
+    Do Xsim if needed and assign the corresponding objective function value.
+    If no experimental simulation needed or Xsim_1 is None, does nothing.
+    Arguments:
+        model (obj): structure_record.model() object
+        Xsim_1 (obj): experimental simulation object (such as pdf_of_model or
+         gb_ingrained)
     """
     if Xsim_1:
         if not model.converged:
@@ -185,17 +193,23 @@ def do_Xsim(model, Xsim_1):
 def update_pool(evald_futures, models_evald, pool, select,
                 data_file, sim_ids):
     """
-    Calculates the obejctive values for all models and updates pool with
+    Calculates the objective values for all models and updates pool with
     best models
-    Returns:
-        Updated `evald_futures`, `models_evald`, `pool`, `select`
+
     Arguments:
-        evald_futures : (list) list of submitted energy evaluation futures objects
-        models_evald : (int) count of number of fully evaluated models
-        pool : `pool` object from `selection.py`
-        select : `select` object from `selection.py`
-        data_file : path to `data_file` to write model data
-        sim_ids : (bool) True if experimental simulation is used
+        evald_futures (list): submitted energy evaluation futures objects
+        models_evald (int): count of number of fully evaluated models
+        pool (obj): `pool` object from `selection.py`
+        select (obj): `select` object from `selection.py`
+        data_file (str): path to `data_file` to write model data
+        sim_ids (bool): True if experimental simulation is used
+
+    Returns:
+        (list, int, obj, obj):
+        - Updated evald_futures
+        - Updated models_evald
+        - Updated `pool` object
+        - Updated `select` object
     """
     # remove all futures with an exception
     rem_inds, process_inds = [], []
@@ -230,14 +244,21 @@ def update_nonparallel_pool(models_evald, model_evaled, pool, select,
     """
     Calculates the obejctive values for all models and updates pool with
     best models
-    Returns updated (evald_futures, pool, models_evald)
-    Args:
-    evald_futures - (list) list of submitted energy evaluation futures objects
-    models_evald - (int) count of number of fully evaluated models
-    pool - pool object from selection.py
-    select - select object from selection.py
-    data_file - path to data_file to write model data
-    sim_ids - (bool) True if experimental simulation is used
+
+    Arguments:
+        evald_futures (list): list of submitted energy evaluation futures
+         objects
+        models_evald (int): count of number of fully evaluated models
+        pool (obj): `pool` object from `selection.py`
+        select (obj): `select` object from `selection.py`
+        data_file (str): path to `data_file` to write model data
+        sim_ids (bool): True if experimental simulation is used
+
+    Returns:
+        (int, obj, obj):
+        - Updated models_evald
+        - Updated `pool` object
+        - Updated `select` object
     """
     model = model_evaled
     # Add to either good_pool or bad_pool
@@ -250,19 +271,20 @@ def update_nonparallel_pool(models_evald, model_evaled, pool, select,
     return models_evald, pool, select
 
 
-def cluster_models(pool, data_file, xsim, cluster_obj):
+def cluster_models(pool, data_file, xsim, cluster_obj, visualize=False):
     '''
-    Clusters models using hierarchical clustering of STEM SSIM scores.
+    Clusters models using hierarchical clustering of experimental 
+    objective scores. Can output images of the cluster dendrogram,
+    and the clustering in objective function space.
+
     Arguments:
-    pool - pool of models.
-    data_file - file containing the objective function values for all
-                evaluated models.
-    xsim - the experimental_simulation object which will calculate the
-            SSIM scores for each model pair.
-    cluster_obj - the clustering object which will perform all clustering
-                    operations.
-    Outputs images of the cluster dendrogram, and the clustering in objective
-    function space.
+        pool (obj): `pool` object from `selection.py`
+        data_file (str):  file containing the objective function values for all
+         evaluated models.
+        xsim (obj): the experimental_simulation object which will calculate the
+         similarity scores for each model pair.
+        cluster_obj (obj): the clustering object which will perform all clustering
+         operations.
     '''
     models = pool.all_models
     obj_fncs = cluster_obj.read_in_objective_functions(data_file)
@@ -271,3 +293,6 @@ def cluster_models(pool, data_file, xsim, cluster_obj):
             models, xsim)
     cluster_obj.calculate_clustering(
         sorted_models, sorted_labels, obj_fncs, distance_matrix)
+
+    if visualize:
+        cluster_obj.visualize_clusters()
