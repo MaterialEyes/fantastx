@@ -28,6 +28,12 @@ except ImportError:
     print('Install scikit-image, Ingrained, opencv for TEM simulation.'
           ' Otherwise ignore..')
 
+try:
+    import GSASIIscriptable as G2sc
+except ImportError:
+    print('Install GSASIIscriptable for powder diffraction simulation.'
+          ' Otherwise ignore..')
+
 from math import floor
 import numpy as np
 import os
@@ -1737,3 +1743,183 @@ class gb_ingrained(object):
             img = img[:, floor(diff_pix_y/2): floor(-1*diff_pix_y/2)]
 
         return img, ref
+
+class xrd_of_model(object):
+    """
+    This class contains functions to calculate the powder diffraction pattern (neutron or X-ray) of a crystal structure and calculate the similarity descriptor against experimental data.
+
+    Arguments:
+
+        xrd_params (dict): A dictionary of parameters used for simulating XRD
+         using **GSASII scriptable**.
+    """
+
+    def __init__(self, xrd_params):
+        """
+        """
+
+        # main path as in energy.py
+        self.name = 'XRD'
+        self.main_path = xrd_params['main_path']
+        self.xrd_sim_dir = None
+        
+        print(xrd_params)
+        open('params', 'w').write(str(xrd_params))
+
+        # path to provided files
+        self.exp_xrd_file = xrd_params['exp_xrd_file']
+        self.instr_param_file = xrd_params['instr_param_file']
+
+        # GSAS related arguments
+        self.xmin = 15
+        self.xmax = 65
+        self.npoints = 1250
+        self.xmin_fit = 20
+        self.xmax_fit = 60
+        self.npoints_fit = 2001
+        self.scale = 100
+        self.score_method = 'res_fit'
+
+        if 'xmin' in xrd_params:
+            self.xmin = xrd_params['xmin'] # min x value for simulation
+        if 'xmax' in xrd_params:
+            self.xmax = xrd_params['xmax'] # max x value for simulation
+        if 'npoints' in xrd_params:
+            self.npoints = int(xrd_params['npoints']) # make sure it is a integer
+        if 'xmin_fit' in xrd_params:
+            self.xmin_fit = xrd_params['xmin_fit'] # min x value for fitting/normalization
+        if 'xmax_fit' in xrd_params:
+            self.xmax_fit = xrd_params['xmax_fit'] # min x value for fitting/normalization
+        if 'npoints_fit' in xrd_params:
+            self.npoints_fit = int(xrd_params['npoints_fit']) # make sure it is a integer
+        if 'scale' in xrd_params:
+            self.scale = xrd_params['scale'] # scaling factor for histogram
+        
+    def read_histogram(self, filename):
+        """
+        Read the simulated histogram data from GSASII-genrated file
+
+        Args:
+            filename (string): absolute path to the histogram data file
+
+        Returns:
+            Array: (N,2) array of floats
+        """
+        data_raw = open(filename).readlines()
+        flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
+        data_raw = data_raw[flag+1:]
+        data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
+        return np.array(data_raw)[:,:2]
+
+
+    def xrd_similarity_metrics(self, data_exp, data_sim):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, optimize, stats
+
+        f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
+        f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        f_fit = lambda x, a, b: f_sim(x)*a + b # transforming the raw simulated data to align
+        popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
+
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        return (f_exp(x)-f_sim(x)).mean(),\
+            (f_exp(x)-f_fit(x, *popt)).mean(),\
+            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+            stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
+
+
+    def evaluate_obj(self, model):
+        """
+        This function simulated the powder diffraction pattern of a crystal structure. Then, compares it with the experimental pattern (target). A objective functions, measuring similarity with target, is assigned as a model attribute (obj1_val).
+
+        This function is a part of the API for all classes in
+        experimental_simulation module.
+
+        Arguments:
+
+            model (obj): structure_record.model() object for which TEM
+             simulation is obtained and a mismatch score is assigned
+
+        Returns:
+
+            (structure_record.model(), float):
+            - The model object being evaluated
+            - the similarity metric (score) which is the objective
+        """
+        main_path = self.main_path
+        xrd_sim_dir = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
+        os.mkdir(xrd_sim_dir)
+
+        # write the structure as cif file in the simulation dir
+        temp_init = xrd_sim_dir + '/temp_init.cif'
+        cif_writer = CifWriter(model.astr.copy())
+        cif_writer.write_file(temp_init)
+
+        # Create GSASII project
+        gpx = G2sc.G2Project(filename=f'{xrd_sim_dir}/{model.label}.gpx')
+        phase0 = gpx.add_phase(
+            f'{xrd_sim_dir}/temp_init.cif',
+            phasename=str(model.label),
+            fmthint='CIF'
+            )
+
+        # Simulate power diffraction histogram and write the data
+        hist1 = gpx.add_simulated_powder_histogram(
+            f'{model.label} XRD simulation',
+            self.instr_param_file,
+            self.xmin, self.xmax, Npoints=self.npoints,
+            phases=gpx.phases(),scale=self.scale
+            )
+        gpx.do_refinements()   # calculate pattern
+        gpx.save()
+        gpx.histogram(0).Export(f'{xrd_sim_dir}/data_{model.label}','.csv','hist') # data
+        gpx.histogram(0).Export(f'{xrd_sim_dir}/refl_{model.label}','.csv','refl') # reflections
+
+        # post-processing of histogram data
+        # calculate and report the desired scoring function
+        data_sim = self.read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
+        data_exp = np.loadtxt(self.exp_xrd_file)
+        res_sim, res_fit, emd_sim, emd_fit = self.xrd_similarity_metrics(data_exp, data_sim)
+        open(f'{xrd_sim_dir}/log', 'a').write(
+            f'res_sim: {res_sim}\nres_fit: {res_fit}\nemd_sim: {emd_sim}\nemd_fit: {emd_fit}\n')
+
+        if self.score_method == 'res_sim': # residual vs. raw simulated data
+            score = float(res_sim)
+        if self.score_method == 'res_fit': # residual vs. fitted/normalized simulated data
+            score = float(res_fit)
+        if self.score_method == 'med_sim': # Earth mover's distance vs. raw sim. data
+            score = float(med_sim)
+        if self.score_method == 'med_fit': # Earth mover's distance vs. fitted sim. data
+            score = float(med_fit)
+
+        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+        # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
+        if model.Xsim1 == 'XRD':
+            model.obj1_val = score
+        elif model.Xsim2 == 'XRD':
+            model.obj2_val = score
+        elif model.Xsim3 == 'XRD':
+            model.obj3_val = score
+        elif model.Xsim4 == 'XRD':
+            model.obj4_val = score  
+
+        return model, score
+
+
+      
