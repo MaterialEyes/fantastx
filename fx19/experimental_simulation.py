@@ -1838,8 +1838,8 @@ class xrd_of_model(object):
 
         # residual or earth mover's distance
         # between exp & sim or sim with transformation
-        return (f_exp(x)-f_sim(x)).mean(),\
-            (f_exp(x)-f_fit(x, *popt)).mean(),\
+        return ((f_exp(x)-f_sim(x)).abs()).mean(),\
+            ((f_exp(x)-f_fit(x, *popt)).abs()).mean(),\
             stats.wasserstein_distance(f_sim(x), f_exp(x)),\
             stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
 
