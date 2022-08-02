@@ -2,7 +2,7 @@
 
 ## Grain boundary search
 
-FANTASTX grain boundary (gb) geometry search investigates multiple grain boundary structures to find the low energy interface structure. In this search, the atomic configuration of the grains on both sides of the boundary are kept fixed, taken from a reference structure. The atomic configuration of these reference grains can be determined either by hand, or by using the [Ingrained](https://github.com/MaterialEyes/ingrained-lite) package.
+FANTASTX grain boundary (gb) geometry search investigates multiple grain boundary structures to find the best-matched interface structure. In this search, the atomic configuration of the grains on both sides of the boundary are kept fixed, taken from a reference structure. The atomic configuration of these reference grains can be determined either by hand, or by using the [Ingrained](https://github.com/MaterialEyes/ingrained-lite) package.
 
 With the grains fixed, only the configuration of the interface is subject to the search process. The interface is frequently non-stoichiometric, subject to strain induced defects, vacancies, and other defects which make capturing the configuration difficult. This necessitates the use of an approach such as the evolutionary algorithm approach of FANTASTX.
 
@@ -10,8 +10,8 @@ Currently FANTASTX supports the following genetic operations for grain boundarie
 
 1. Basin hopping (the *perturb_sites* operator)
 2. Cut-and-splice mating (the *fraction_slice* operator)
-  a. Same fingerprint cluster cut-and-splice mating (*fraction_slice_same_cluster*)
-  b. Different fingerprint cluster cut-and-splice mating (*fraction_slice_dif_cluster*)
+    a. Same fingerprint cluster cut-and-splice mating (*fraction_slice_same_cluster*)
+    b. Different fingerprint cluster cut-and-splice mating (*fraction_slice_dif_cluster*)
 3. Compositional mutation (the *perturb_comp* operator)
 
 While grain boundary search in principal works with any of the experimental methods that FANTASTX supports, and can also be conducted using energy-only (single objective) search, only one of these experimental methods is commonly used to investigate grain boundaries: transmission electron microscopy (TEM).
