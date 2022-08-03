@@ -6,6 +6,22 @@ This module contains functions which are used in run_fx.py
 import traceback
 
 
+def initialize_remote_database(CRI):
+    launchpad = LaunchPad(
+        host=CRI,
+        port=None,
+        name=None,
+        username=None,
+        password=None,
+        authsource='admin',
+        uri_mode=True,
+        user_indices=[],
+        wf_user_indices=[],
+    )
+    launchpad.reset("", require_password=False)
+    return launchpad
+
+
 def get_working_jobs(futures):
     """
     Checks if any jobs in futures is still running and returns number of
