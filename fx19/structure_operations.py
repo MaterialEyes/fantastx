@@ -764,6 +764,7 @@ class mating(object):
                                                 child_species,
                                                 inv_syms,
                                                 self.min_dist_dict,
+                                                max_dist_dict=None,
                                                 lattice=new_lattice,
                                                 coords_are_cartesian=False):
                     child.append(specie, coord, coords_are_cartesian=False)
@@ -813,14 +814,16 @@ class mating(object):
                         specie = discarded_species[ds].symbol
                         coord = discarded_coords[ds]
                         child_species = [i.specie.symbol for i in child.sites]
-                        if dc.satisfies_all_dists_quick(coord,
-                                                        child.frac_coords,
-                                                        specie,
-                                                        child_species,
-                                                        inv_syms,
-                                                        self.min_dist_dict,
-                                                        new_lattice,
-                                                        False):
+                        if dc.satisfies_all_dists_quick(
+                                coord,
+                                child.frac_coords,
+                                specie,
+                                child_species,
+                                inv_syms,
+                                self.min_dist_dict,
+                                max_dist_dict=None,
+                                lattice=new_lattice,
+                                coords_are_cartesian=False):
                             child.append(specie, coord,
                                          coords_are_cartesian=False)
 
@@ -1185,6 +1188,7 @@ class basinhopping(object):
                                           target_astr,
                                           self.element_syms,
                                           self.min_dist_dict,
+                                          self.max_dist_dict,
                                           atom_index_in_astr=i):
                     target_astr.replace(i, species[i], new_cart,
                                         coords_are_cartesian=True)
@@ -1277,6 +1281,63 @@ class basinhopping(object):
         else:
             return None, None
 
+    def _get_unit_comp(self, parent_comp):
+        """
+        Function to get the unit composition which will be either added or
+        removed from the structure.
+
+        Arguments:
+            parent_comp (dict): the composition of the parent structure in
+             dictionary form.
+
+        Returns:
+            (dict, int):
+            - the unit composition in dictionary form
+            - 0 if the unit comp is to be removed, 1 if it is to be added
+        """
+        # if delta comps list exists
+        # select a unit composition from the delta comps list
+        if len(self.delta_comps) > 0:
+            unit = np.random.choice(self.delta_comps)
+            unit_comp = Composition(unit).as_dict()
+        else:  # else select random unit compositon
+            unit_comp = {}
+            while True:
+                for sym in self.element_syms.values():
+                    species = self.species[sym]
+                    min_sp = species['min_num']
+                    max_sp = species['max_num']
+                    c_sp = parent_comp[sym]
+                    max_unit = max(abs(max_sp - c_sp), abs(min_sp - c_sp))
+                    unit_comp[sym] = np.random.randint(min(3, max_unit))
+                if sum(unit_comp.values()) > 0:
+                    break
+
+        addable = True
+        removable = True
+        for sym in unit_comp.keys():
+            species = self.species[sym]
+            min_sp = species['min_num']
+            max_sp = species['max_num']
+            c_sp = parent_comp[sym]
+            max_remove = c_sp - min_sp
+            max_add = max_sp - c_sp
+            if unit_comp[sym] > max_remove:
+                removable = False
+            if unit_comp[sym] > max_add:
+                addable = False
+
+        # choose whether to add or remove the unit composition
+        if random.random() < self.add_rem_comp_frac and addable:
+            return (unit_comp, 0)
+        elif removable:
+            return (unit_comp, 1)
+        else:
+            print("Error! Unit comp was neither removable nor addable. Make"
+                  " sure that there is a valid range for species occupation if"
+                  " using the perturb_comp operator.")
+            return None
+
     def perturb_comp(self, select, pool,
                      z_bounds=None, dc_astr=None, model=None):
         """
@@ -1304,29 +1365,16 @@ class basinhopping(object):
         parent_comp = parent_astr.composition.as_dict()
         inheritance = [parent.label]
 
-        # if delta comps list exists
-        # select a unit composition from the delta comps list
-        if len(self.delta_comps) > 0:
-            unit = np.random.choice(self.delta_comps)
-            unit_comp = Composition(unit).as_dict()
-        else:  # else select random unit compositon
-            unit_comp = {}
-            while True:
-                for sym in self.element_syms.values():
-                    unit_comp[sym] = np.random.randint(3)
-                if sum(unit_comp.values()) > 0:
-                    break
-
-        # choose whether to add or remove the unit composition
-        add_unit_comp = False
-        if random.random() < self.add_rem_comp_frac:
-            add_unit_comp = True
+        unit_comp, add_comp = self._get_unit_comp(parent_comp)
 
         # Add random sites to the parent
-        if add_unit_comp:
+        if add_comp == 1:
             for sps in unit_comp.keys():
                 num_added = 0
                 while num_added < unit_comp[sps]:
+                    # species = sps
+
+                    # get coordinates
                     fracs = [unif(0, 1), unif(0, 1), unif(0, 1)]
                     if z_bounds is None:
                         carts = parent_astr.lattice.get_cartesian_coords(fracs)
@@ -1337,11 +1385,13 @@ class basinhopping(object):
                         z_cart = fracs[2]*z_bounds[1] + \
                             (1-fracs[2])*z_bounds[0]
                         carts = (x_cart, y_cart, z_cart)
+
                     # Check dists with rest of the atoms in parent_astr
                     if dc.satisfies_all_dists(carts,
                                               parent.astr,
                                               self.element_syms,
                                               self.min_dist_dict,
+                                              self.max_dist_dict,
                                               new_carts_species=sps):
                         if dc_astr:
                             # check with dc_astr as well (if gb geometry)
@@ -1349,6 +1399,7 @@ class basinhopping(object):
                                                       dc_astr,
                                                       self.element_syms,
                                                       self.min_dist_dict,
+                                                      self.max_dist_dict,
                                                       new_carts_species=sps):
                                 dc_astr.append(sps, carts,
                                                coords_are_cartesian=True)
@@ -1817,9 +1868,8 @@ class gb_ops(object):
         gb. If any atom does not satisfy distance check, tries to move that
         atom within max_perturbation.
 
-        Args:
-
-        iface_to_implant (obj): pymatgen structure object to be implanted
+        Arguments:
+            iface_to_implant (obj): pymatgen structure object to be implanted
         """
         hollow_init_gb = self.hollow_init_gb
         astr_for_dist_check = self.astr_for_dist_check

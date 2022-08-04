@@ -512,7 +512,8 @@ class make_random_model(object):
             # prevent too many repetitive attempts if this check keeps failing
             if not dc.satisfies_all_dists_quick(new_point, coords, new_sps,
                                                 species_added, inv_syms,
-                                                self.min_dist_dict):
+                                                self.min_dist_dict,
+                                                self.max_dist_dict):
                 failed_dist_attempts += 1
                 if failed_dist_attempts > 10:
                     failed_addition = True
@@ -654,7 +655,9 @@ class make_random_model(object):
             # prevent too many repetitive attempts if this check keeps failing
             if not dc.satisfies_all_dists_quick(new_point, coords, new_sps,
                                                 species_added, inv_syms,
-                                                self.min_dist_dict, latt):
+                                                self.min_dist_dict,
+                                                self.max_dist_dict,
+                                                latt):
                 failed_dist_attempts += 1
                 if failed_dist_attempts > 10:
                     failed_addition = True
