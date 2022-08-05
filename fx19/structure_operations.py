@@ -1295,43 +1295,40 @@ class basinhopping(object):
             - the unit composition in dictionary form
             - 0 if the unit comp is to be removed, 1 if it is to be added
         """
-        # if delta comps list exists
-        # select a unit composition from the delta comps list
+        # get unit_comp from choices or make it randomly
+        comp_dict = {info['name']: [info['min_num'], info['max_num']]
+                     for info in self.species_dict.values()}
         if len(self.delta_comps) > 0:
             unit = np.random.choice(self.delta_comps)
             unit_comp = Composition(unit).as_dict()
-        else:  # else select random unit compositon
+        else:
             unit_comp = {}
             while True:
-                for sym in self.element_syms.values():
-                    species = self.species[sym]
-                    min_sp = species['min_num']
-                    max_sp = species['max_num']
+                for sym, nums in comp_dict.items():
                     c_sp = parent_comp[sym]
-                    max_unit = max(abs(max_sp - c_sp), abs(min_sp - c_sp))
-                    unit_comp[sym] = np.random.randint(min(3, max_unit))
+                    max_unit = max(abs(nums[1] - c_sp), abs(nums[0] - c_sp))
+                    unit_comp[sym] = np.random.randint(min(3, max_unit) + 1)
                 if sum(unit_comp.values()) > 0:
                     break
 
         addable = True
         removable = True
         for sym in unit_comp.keys():
-            species = self.species[sym]
-            min_sp = species['min_num']
-            max_sp = species['max_num']
+            nums = comp_dict[sym]
             c_sp = parent_comp[sym]
-            max_remove = c_sp - min_sp
-            max_add = max_sp - c_sp
+            max_remove = c_sp - nums[0]
+            max_add = nums[1] - c_sp
             if unit_comp[sym] > max_remove:
                 removable = False
             if unit_comp[sym] > max_add:
                 addable = False
 
         # choose whether to add or remove the unit composition
-        if random.random() < self.add_rem_comp_frac and addable:
-            return (unit_comp, 0)
-        elif removable:
+        add = random.random() < self.add_rem_comp_frac
+        if addable and (add or not removable):
             return (unit_comp, 1)
+        elif removable:
+            return (unit_comp, 0)
         else:
             print("Error! Unit comp was neither removable nor addable. Make"
                   " sure that there is a valid range for species occupation if"
@@ -1372,13 +1369,10 @@ class basinhopping(object):
             for sps in unit_comp.keys():
                 num_added = 0
                 while num_added < unit_comp[sps]:
-                    # species = sps
-
                     # get coordinates
                     fracs = [unif(0, 1), unif(0, 1), unif(0, 1)]
                     if z_bounds is None:
                         carts = parent_astr.lattice.get_cartesian_coords(fracs)
-                        print(type(carts))
                     else:
                         x_cart = parent_astr.lattice.a*fracs[0]
                         y_cart = parent_astr.lattice.b*fracs[1]
@@ -1410,13 +1404,13 @@ class basinhopping(object):
                                                coords_are_cartesian=True)
                         num_added += 1
         else:  # remove random sites from the parent
-            rem_inds = []
-            for sps in unit_comp.keys():
-                n_sps = int(parent_comp[sps])
-                n_rem_sps = int(unit_comp[sps])
-                inds = np.random.choice(n_sps, n_rem_sps, replace=False)
-                rem_inds += list(inds)
-            parent_astr.remove_sites(rem_inds)
+            for sym in unit_comp.keys():
+                # get all parent sites for that species
+                inds = [n for n, i in enumerate(parent_astr.species)
+                        if i.name == sym]
+                # randomly select the sites to remove
+                rem_inds = np.random.choice(inds, unit_comp[sym])
+                parent_astr.remove_sites(rem_inds)
 
         return parent_astr, inheritance
 
