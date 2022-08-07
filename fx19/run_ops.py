@@ -190,6 +190,63 @@ def do_Xsim(model, Xsim_1):
         return model
 
 
+def update_info(jobs, p_jobs):
+    for i in reversed(range(len(jobs))):
+        if not jobs[i].is_alive():
+            jobs.pop(i)
+            p_jobs += 1
+
+    return p_jobs
+
+
+def get_working_mp_jobs(jobs):
+    """
+    Get all working multiprocessing jobs
+    """
+    working_jobs = 0
+    for i in jobs:
+        if i.is_alive():
+            working_jobs += 1
+    return working_jobs
+
+
+def update_pool_mp(returned_models, processed_models, models_evald,
+                   pool, select, data_file, sim_ids):
+    """
+    Calculates the objective values for all models and updates pool with
+    best models
+
+    Arguments:
+        returned_models (list): models which have finished with evaluation
+        processed_models (int): number of models which already have been
+         processed by update_pool_mp
+        models_evald (int): count of number of fully evaluated models
+        pool (obj): `pool` object from `selection.py`
+        select (obj): `select` object from `selection.py`
+        data_file (str): path to `data_file` to write model data
+        sim_ids (bool): True if experimental simulation is used
+
+    Returns:
+        (int, int, obj, obj):
+        - Updated processed_models
+        - Updated models_evald
+        - Updated `pool` object
+        - Updated `select` object
+    """
+    for n, model in enumerate(returned_models):
+        if n > processed_models:
+            if model is not None:
+                select = pool.add_to_pool(model, select, sim_ids=sim_ids)
+                if model.made_by is not None and model.made_by != "random":
+                    select.all_parent_labels += model.inheritance
+                # write data to file
+                write_data(model, data_file)
+                models_evald += 1
+            processed_models += 1
+
+    return processed_models, models_evald, pool, select
+
+
 def update_pool(evald_futures, models_evald, pool, select,
                 data_file, sim_ids):
     """
