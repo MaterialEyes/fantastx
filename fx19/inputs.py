@@ -132,6 +132,7 @@ def make_objects(i_dict):
                     if 'cluster_params' in i_dict:
                         selection_mod = clusteredSelection
                         mod_str = 'clusteredSelection.py'
+                        ob_fn = 'Clustered Selection'
                         cl_bool = True
                     else:
                         print('Error. Chose clustered_selection, but either '

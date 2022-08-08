@@ -209,6 +209,7 @@ class Pool(object):
                 # operator probabilities
                 if added_to_archive:
                     if select.operator_assignment == "auto-adaptive":
+                        print("Updated operator frequencies.")
                         # update operator probabilities in select
                         # Formula:
                         # P_i=(C_i+epsilon)/Sum_j=1->N_operators(C_j+epsilon)
@@ -229,7 +230,8 @@ class Pool(object):
                             (count + 1)/divisor for count in operator_counts]
 
                         print(
-                            f"Operator frequencies: \
+                            "Updated operator frequencies. New "
+                            f"operator frequencies: \
                                 {select.operator_frequencies}")
 
                     if self.cluster_obj is not None:
@@ -348,12 +350,6 @@ class Select(object):
 
         self.all_parent_labels = []
 
-        if 'archive_pop_bh_ratio' not in select_obj_params:
-            self.archive_pop_bh_ratio = 0.7
-        else:
-            self.archive_pop_bh_ratio = \
-                select_obj_params['archive_pop_bh_ratio']
-
         # Information required for single objective optimization:
         # store optimized k; gets updated every 100th model
         self.optimum_k = -1  # default
@@ -375,6 +371,8 @@ class Select(object):
         else:
             self.operator_assignment = "fixed"
 
+        print(f"Set operator assignment to be: {self.operator_assignment}")
+
         self.operator_hashmap = {
             key: index for index, key in enumerate(self.operators)}
         if 'operator_frequencies' in select_obj_params:
@@ -383,6 +381,8 @@ class Select(object):
         else:
             self.operator_frequencies = [
                 1/len(self.operators)]*len(self.operators)
+
+        print(f"Set operator frequencies to be: {self.operator_frequencies}")
 
     def linear_update_selection_probs(self, models, good_pool_capacity,
                                       sim_ids=None):
@@ -691,16 +691,7 @@ class Select(object):
             new_parent = pool.population.produce_model()
         else:
             new_parent = pool.archive.produce_model()
-            # r = np.random.uniform()
-            # if r < self.archive_pop_bh_ratio:
-            #     # should weight selection from archive and from pool
-            #     print("Producing archive model")
-            #     new_parent = pool.archive.produce_model()
-            #     print(f"Archive model is {new_parent.label}")
-            # else:
-            #     print("Producing population model")
-            #     new_parent = pool.population.produce_model()
-            #     print(f"Population model is {new_parent.label}")
+
         self.all_parent_labels.append(new_parent.label)
         return new_parent
 
@@ -1042,7 +1033,11 @@ class Population(object):
         '''
         if len(self.models) >= 2:
             if cluster is None:
-                [model_one, model_two] = np.random.choice(self.models, 2)
+                [model_one, model_two] = np.random.choice(
+                    self.models,
+                    size=2,
+                    replace=False
+                )
             else:
                 # Refer to cluster dictionary to get models
                 if same:
@@ -1059,9 +1054,17 @@ class Population(object):
                                 f"{self.multi_model_clusters}")
                             other_cluster = cluster
                         models = self.cluster_models[other_cluster]
-                        [model_one, model_two] = np.random.choice(models, 2)
+                        [model_one, model_two] = np.random.choice(
+                            models,
+                            size=2,
+                            replace=False
+                        )
                     else:
-                        [model_one, model_two] = np.random.choice(models, 2)
+                        [model_one, model_two] = np.random.choice(
+                            models,
+                            size=2,
+                            replace=False
+                        )
                         if len(models) == 2:
                             # return the dominated model, because it is the
                             # model which does not live in the archive.
@@ -1082,7 +1085,10 @@ class Population(object):
                                 f"{self.multi_model_clusters}")
                             other_cluster = cluster
                     models = self.cluster_models[other_cluster]
-                    [model_one, model_two] = np.random.choice(models, 2)
+                    [model_one, model_two] = np.random.choice(
+                        models,
+                        size=2,
+                        replace=False)
             return self._dominance.choose_non_dominated(model_one, model_two)
         else:
             return self.models[0]

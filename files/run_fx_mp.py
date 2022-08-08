@@ -8,7 +8,9 @@ from fx19 import inputs
 from fx19.run_ops import *
 import time
 import multiprocessing as mp
-
+import numpy as np
+import scipy
+import random
 
 main_path = os.getcwd()
 # read input file and make input dictionary
@@ -72,7 +74,8 @@ job_file = main_path + "/job_log.txt"
 # function which creates and evaluates models
 
 
-def create_and_eval(model_obj, evolve, select, pool, reg_id, Xsim, model_type, model, m_list):
+def create_and_eval(seed, model_obj, evolve, select, pool, reg_id, Xsim,
+                    model_type, model, m_list):
     """
     A wrapper function around energy_eval and Xsim_eval.
     Both these are done one after the other as one job by worker
@@ -84,6 +87,11 @@ def create_and_eval(model_obj, evolve, select, pool, reg_id, Xsim, model_type, m
     Uses reg_id, Xsim_1, energy_code objects which were stored as global
     parameters in all workers and master
     """
+    # First, set all possible random number generators with the provided
+    # random number seed (important with multiprocessing!)
+    np.random.seed(seed)
+    scipy.random.seed(seed)
+    random.seed(seed)
     # create model
     new_model = make_model(model_obj, evolve, select,
                            pool, reg_id, model_type, model)
@@ -113,6 +121,7 @@ processed_models = 0
 models_evald = 0
 evald_futures, simd_futures = [], []
 pool_status_update = 2
+seed_index = 0
 
 ###########################
 #  RUN INPUT CALCULATIONS #
@@ -128,13 +137,24 @@ if input_model_obj is not None:
 
     # evaluate the input models
     for input_model in input_models:
-        while get_working_mp_jobs(jobs) > max_running_jobs:
+        time.sleep(1)
+        while get_working_mp_jobs(jobs) >= max_running_jobs:
             continue
-        out = mp.Process(target=create_and_eval, args=(
-            input_model_obj, evolve, select, pool, reg_id, Xsim_1, 'inputs', input_model, model_list))
+        seed_index += 1
+        seed = seed_index * 1736 + 1
+        out = mp.Process(target=create_and_eval, args=(seed,
+                                                       input_model_obj,
+                                                       evolve,
+                                                       select,
+                                                       pool,
+                                                       reg_id,
+                                                       Xsim_1,
+                                                       'inputs',
+                                                       input_model,
+                                                       model_list))
         jobs.append(out)
         out.start()
-        print(f"Successfully submitted input model {new_model.label}")
+        print(f"Successfully submitted input model {input_model.label}")
 
 
 num_initial_pop = i_dict['population_limits']['initial_population']
@@ -168,6 +188,7 @@ print('Input models are finished. Making random models..')
 start_time = time.time()
 # Make random models & evolved models
 while models_evald < total_models_needed:
+    time.sleep(1)
     working_jobs = get_working_mp_jobs(jobs)
     # In some cases (lammps based), working_jobs always < max_workers
     # Ensure some structures are always in the queue for each worker so that
@@ -181,9 +202,19 @@ while models_evald < total_models_needed:
             print("Submitting evolved job")
             model_mech = "evolved"
 
+        seed_index += 1
+        seed = seed_index * 1736 + 1
         # Create the job and send it to multiprocessing for evaluation
-        out = mp.Process(target=create_and_eval, args=(
-            random_model_obj, evolve, select, pool, reg_id, Xsim_1, model_mech, None, model_list))
+        out = mp.Process(target=create_and_eval, args=(seed,
+                                                       random_model_obj,
+                                                       evolve,
+                                                       select,
+                                                       pool,
+                                                       reg_id,
+                                                       Xsim_1,
+                                                       model_mech,
+                                                       None,
+                                                       model_list))
         jobs.append(out)
         out.start()
 
