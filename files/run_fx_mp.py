@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 # coding: utf-8
-import traceback
 import os
 import yaml
 import datetime
@@ -8,9 +7,21 @@ from fx19 import inputs
 from fx19.run_ops import *
 import time
 import multiprocessing as mp
+import scipy as sp
 import numpy as np
-import scipy
 import random
+
+# start database
+config = {
+    "database": {
+        "username": None,  # "user",
+        "password": None,  # os.environ.get("MONGODB_PASSWORD"),
+        "host": "localhost",
+        "port": 27017,
+        "database": "science",
+    },
+}
+db = connect_to_mongodb(**config["database"])
 
 main_path = os.getcwd()
 # read input file and make input dictionary
@@ -71,11 +82,13 @@ with open(data_file, 'w') as f:
 # Initialize job log file
 job_file = main_path + "/job_log.txt"
 
-# function which creates and evaluates models
+##############################
+# Set up evaluation function #
+##############################
 
 
-def create_and_eval(seed, model_obj, evolve, select, pool, reg_id, Xsim,
-                    model_type, model, m_list):
+def create_and_eval(seed, model_obj, evolve, select, pool, reg_id, energy_code,
+                    Xsim, model_type, model, m_list):
     """
     A wrapper function around energy_eval and Xsim_eval.
     Both these are done one after the other as one job by worker
@@ -90,7 +103,7 @@ def create_and_eval(seed, model_obj, evolve, select, pool, reg_id, Xsim,
     # First, set all possible random number generators with the provided
     # random number seed (important with multiprocessing!)
     np.random.seed(seed)
-    scipy.random.seed(seed)
+    sp.random.seed(seed)
     random.seed(seed)
     # create model
     new_model = make_model(model_obj, evolve, select,
@@ -148,6 +161,7 @@ if input_model_obj is not None:
                                                        select,
                                                        pool,
                                                        reg_id,
+                                                       energy_code,
                                                        Xsim_1,
                                                        'inputs',
                                                        input_model,
@@ -164,6 +178,7 @@ processed_models, models_evald, pool, select = update_pool_mp(model_list,
                                                               models_evald,
                                                               pool, select,
                                                               data_file,
+                                                              db,
                                                               sim_ids)
 working_jobs = get_working_mp_jobs(jobs)
 
@@ -175,6 +190,7 @@ if all_objects['constraints_obj'].shape == 'molecule':
                                                                   models_evald,
                                                                   pool, select,
                                                                   data_file,
+                                                                  db,
                                                                   sim_ids)
     while models_evald < min(len(input_models), num_initial_pop):
         processed_models, models_evald, pool, select = update_pool_mp(model_list,
@@ -182,6 +198,7 @@ if all_objects['constraints_obj'].shape == 'molecule':
                                                                       models_evald,
                                                                       pool, select,
                                                                       data_file,
+                                                                      db,
                                                                       sim_ids)
 
 print('Input models are finished. Making random models..')
@@ -211,6 +228,7 @@ while models_evald < total_models_needed:
                                                        select,
                                                        pool,
                                                        reg_id,
+                                                       energy_code,
                                                        Xsim_1,
                                                        model_mech,
                                                        None,
@@ -224,6 +242,7 @@ while models_evald < total_models_needed:
                                                                       models_evald,
                                                                       pool, select,
                                                                       data_file,
+                                                                      db,
                                                                       sim_ids)
         working_jobs = get_working_mp_jobs(jobs)
 
@@ -288,7 +307,9 @@ while get_working_mp_jobs(jobs) > 0:
                                                                 processed_jobs,
                                                                 models_evald,
                                                                 pool, select,
-                                                                data_file, sim_ids)
+                                                                data_file,
+                                                                db,
+                                                                sim_ids)
 
 # print statements which output visualization information
 job_log = open(job_file, "a+")

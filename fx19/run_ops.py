@@ -4,6 +4,7 @@ This module contains functions which are used in run_fx.py
 """
 
 import traceback
+from pymongo import MongoClient
 
 
 def get_working_jobs(futures):
@@ -47,12 +48,31 @@ def write_data(model, data_file):
     except:
         print(f"Couldn't find data_file {data_file}")
 
-# Temporary selection probs based on overall_value
+
+def send_model_to_db(model, db):
+    """
+    Adds the model data to the mongodb database
+    """
+
+    model_data = {
+        'id': model.label,
+        'inheritance': model.inheritance,
+        'total_energy': model.tot_en,
+        'obj0_val': model.obj0_val,
+        'obj1_val': model.obj1_val,
+        'made_by': model.made_by
+        # 'fingerprint': model.fingerprint,
+        # 'features': model.features,
+        # 'structure': model.astr
+    }
+
+    db.models.insert_one(model_data)
 
 
 def temp_selection_probs(pool):
     """
     (Deprecated)
+    Temporary selection probs based on overall_value
     Always the minimum overall value gets selevtion_prob of 1.
     """
     ov = [model.overall_val for model in pool.good_pool]
@@ -211,7 +231,7 @@ def get_working_mp_jobs(jobs):
 
 
 def update_pool_mp(returned_models, processed_models, models_evald,
-                   pool, select, data_file, sim_ids):
+                   pool, select, data_file, db, sim_ids):
     """
     Calculates the objective values for all models and updates pool with
     best models
@@ -241,6 +261,7 @@ def update_pool_mp(returned_models, processed_models, models_evald,
                     select.all_parent_labels += model.inheritance
                 # write data to file
                 write_data(model, data_file)
+                send_model_to_db(model, db)
                 models_evald += 1
             processed_models += 1
 
@@ -248,7 +269,7 @@ def update_pool_mp(returned_models, processed_models, models_evald,
 
 
 def update_pool(evald_futures, models_evald, pool, select,
-                data_file, sim_ids):
+                data_file, db, sim_ids):
     """
     Calculates the objective values for all models and updates pool with
     best models
@@ -291,6 +312,7 @@ def update_pool(evald_futures, models_evald, pool, select,
                 select.all_parent_labels += model.inheritance
             # write data to file
             write_data(model, data_file)
+            send_model_to_db(model, db)
             models_evald += 1
 
     return evald_futures, models_evald, pool, select
@@ -353,3 +375,12 @@ def cluster_models(pool, data_file, xsim, cluster_obj, visualize=False):
 
     if visualize:
         cluster_obj.visualize_clusters()
+
+
+def connect_to_mongodb(host=None, port=None, username=None, password=None, database=None):
+    return MongoClient(
+        host,
+        port,
+        username,
+        password
+    )[database]
