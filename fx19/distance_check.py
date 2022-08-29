@@ -439,6 +439,7 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
                     dists_ok = True
         else:
             dists_ok = True
+
     return dists_ok
 
 

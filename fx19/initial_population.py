@@ -130,6 +130,15 @@ class make_random_model(object):
 
         self.num_species = str_constraints['num_species']
         self.allow_self_bonding = False
+        if 'allow_random_model_self_bonding' in str_constraints:
+            self.allow_self_bonding = str_constraints[
+                'allow_random_model_self_bonding']
+
+        if self.num_species == 1:
+            if not self.allow_self_bonding:
+                print("'allow_random_model_self_bonding' was set to False,"
+                      " but only one species is present. Setting to True.")
+                self.allow_self_bonding = True
         # save species1 data
         # DU:
         # If species are all properly labeled in order,
@@ -431,7 +440,7 @@ class make_random_model(object):
         # Iterate through each of the remaining species and add them in turn
         ref_atom = 0
         non_referenced_atoms = []
-        flipped_species = False
+        flipped_species = (self.num_species == 1)
         failed_addition = False
         outside_cluster_attempts = 0
         failed_dist_attempts = 0
@@ -538,7 +547,7 @@ class make_random_model(object):
             old_sps = new_sps
             ref_atom = coords_added - 1
             non_referenced_atoms = [i for i in range(coords_added - 1)]
-            flipped_species = False
+            flipped_species = (self.num_species == 1)
             outside_cluster_attempts = 0
             failed_dist_attempts = 0
             # failed_addition = False
@@ -584,7 +593,7 @@ class make_random_model(object):
         # Iterate through each of the remaining species and add them in turn
         ref_atom = 0
         non_referenced_atoms = []
-        flipped_species = False
+        flipped_species = (self.num_species == 1)
         failed_addition = False
         failed_dist_attempts = 0
         while coords_added < num_atoms:
@@ -634,7 +643,7 @@ class make_random_model(object):
 
             # Make sure that the coordinate is
             if coords_added > 1:
-                min_distance = 3*np.pi/8
+                min_distance = 3 * np.pi / 8
                 new_point, failed_addition = self.get_max_sep_point_on_sphere(
                     radius,
                     min_distance,
@@ -659,7 +668,7 @@ class make_random_model(object):
                                                 self.max_dist_dict,
                                                 latt):
                 failed_dist_attempts += 1
-                if failed_dist_attempts > 10:
+                if failed_dist_attempts > 25:
                     failed_addition = True
                     failed_dist_attempts = 0
                 continue
@@ -682,7 +691,7 @@ class make_random_model(object):
             old_sps = new_sps
             ref_atom = coords_added - 1
             non_referenced_atoms = [i for i in range(coords_added - 1)]
-            flipped_species = False
+            flipped_species = (self.num_species == 1)
             failed_dist_attempts = 0
 
         # wrap coords into periodic box
@@ -743,7 +752,7 @@ class make_random_model(object):
             - whether or not the point achieved the desired ang. separation
         """
 
-        farthest_distance = 0
+        farthest_distance = -1
         new_point_attempt = 0
         failed_addition = False
         while new_point_attempt <= n_attempts and\

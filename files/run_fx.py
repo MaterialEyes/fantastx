@@ -31,6 +31,7 @@ all_objects = inputs.make_objects(i_dict)
 # Assign objects from all_objects to local variables
 reg_id = all_objects['reg_id']
 input_model_obj = all_objects['input_model_obj']
+db = all_objects['database']
 gb_ops_obj = None
 if 'gb_ops_obj' in all_objects:
     gb_ops_obj = all_objects['gb_ops_obj']
@@ -207,6 +208,7 @@ evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                         models_evald,
                                                         pool, select,
                                                         data_file,
+                                                        db,
                                                         sim_ids)
 working_jobs = get_working_jobs(evald_futures)
 
@@ -217,12 +219,14 @@ if all_objects['constraints_obj'].shape == 'molecule':
                                                             models_evald,
                                                             pool, select,
                                                             data_file,
+                                                            db,
                                                             sim_ids)
     while models_evald < min(len(input_models), num_initial_pop):
         evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                                 models_evald,
                                                                 pool, select,
                                                                 data_file,
+                                                                db,
                                                                 sim_ids)
 print('Input models are finished. Making random models..')
 start_time = time.time()
@@ -250,6 +254,7 @@ while models_evald < total_models_needed:
                                                                 models_evald,
                                                                 pool, select,
                                                                 data_file,
+                                                                db,
                                                                 sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
@@ -294,7 +299,9 @@ while len(evald_futures) > 0:
     evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                             models_evald,
                                                             pool, select,
-                                                            data_file, sim_ids)
+                                                            data_file,
+                                                            db,
+                                                            sim_ids)
 
 # print statements which output visualization information
 if "selection_algorithm" in i_dict["select_params"]:
