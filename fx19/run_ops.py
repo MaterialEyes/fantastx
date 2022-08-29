@@ -312,7 +312,8 @@ def update_pool(evald_futures, models_evald, pool, select,
                 select.all_parent_labels += model.inheritance
             # write data to file
             write_data(model, data_file)
-            send_model_to_db(model, db)
+            if db is not None:
+                send_model_to_db(model, db)
             models_evald += 1
 
     return evald_futures, models_evald, pool, select
@@ -375,12 +376,3 @@ def cluster_models(pool, data_file, xsim, cluster_obj, visualize=False):
 
     if visualize:
         cluster_obj.visualize_clusters()
-
-
-def connect_to_mongodb(host=None, port=None, username=None, password=None, database=None):
-    return MongoClient(
-        host,
-        port,
-        username,
-        password
-    )[database]

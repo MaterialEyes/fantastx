@@ -365,6 +365,14 @@ class mating(object):
                 temp2_slices = self.fraction_slice(
                     temp2, slice_axis, cut_point)
 
+                # make sure that all the slices contain at least one atom
+                slices_ok = True
+                for slice in [*temp1_slices, *temp2_slices]:
+                    if slice.num_sites == 0:
+                        slices_ok = False
+                if not slices_ok:
+                    continue
+
                 # Attach the two slices either with mirroring or directly
                 if random.randint(0, 1) == 0:
                     attach_type = 'direct'

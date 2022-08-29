@@ -184,7 +184,7 @@ class structure_constraints(object):
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
-        self.max_bonds_per_atom_default = 2
+        self.max_bonds_per_atom_default = 6
 
         if 'max_bond_dist' in str_record:
             self.max_bond_dist = str_record['max_bond_dist']
@@ -283,6 +283,10 @@ class structure_constraints(object):
                       ' Using default orthogonal angles of 90 degrees.')
                 self.box_angles = [90, 90, 90]
 
+            if 'allow_random_model_self_bonding' in str_record['bulk']:
+                self.allow_random_model_self_bonding = str_record[
+                    'bulk']['allow_random_model_self_bonding']
+
             if len(max_bonds) != 0:
                 self.max_bonds = max_bonds
         # ###################bulk parameters end###############################
@@ -307,6 +311,10 @@ class structure_constraints(object):
                 self.origin = str_record['cluster']['origin']
             else:
                 self.origin = [i/2. for i in self.box_abc]
+
+            if 'allow_random_model_self_bonding' in str_record['cluster']:
+                self.allow_random_model_self_bonding = str_record[
+                    'cluster']['allow_random_model_self_bonding']
 
             if len(max_bonds) != 0:
                 self.max_bonds = max_bonds

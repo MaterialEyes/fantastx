@@ -11,18 +11,6 @@ import scipy as sp
 import numpy as np
 import random
 
-# start database
-config = {
-    "database": {
-        "username": None,  # "user",
-        "password": None,  # os.environ.get("MONGODB_PASSWORD"),
-        "host": "localhost",
-        "port": 27017,
-        "database": "science",
-    },
-}
-db = connect_to_mongodb(**config["database"])
-
 main_path = os.getcwd()
 # read input file and make input dictionary
 with open('input.yaml') as ifile:
@@ -35,6 +23,7 @@ all_objects = inputs.make_objects(i_dict)
 # Assign objects from all_objects to local variables
 reg_id = all_objects['reg_id']
 input_model_obj = all_objects['input_model_obj']
+db = all_objects['database']
 gb_ops_obj = None
 if 'gb_ops_obj' in all_objects:
     gb_ops_obj = all_objects['gb_ops_obj']

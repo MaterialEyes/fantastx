@@ -31,6 +31,13 @@ def make_objects(i_dict):
     reg_id = structure_record.register_id()
     all_objects['reg_id'] = reg_id
 
+    # Make MongoDB database object
+    if 'database' in i_dict:
+        from pymongo import MongoClient
+        all_objects['database'] = connect_to_mongodb(**i_dict["database"])
+    else:
+        all_objects['database'] = None
+
     # make structure_constraints object
     str_record = i_dict['structure_record']
     constraints_obj = structure_record.structure_constraints(str_record)
@@ -630,3 +637,9 @@ def get_evolve_params(str_constraints):
         if species in str_constraints:
             evolve_params[species] = str_constraints[species]
     return evolve_params
+
+
+def connect_to_mongodb(host='localhost', port=27017, username=None,
+                       password=None, database='science'):
+    client = MongoClient(f'mongodb://{username}:{password}@{host}:{port}')
+    return client[database]
