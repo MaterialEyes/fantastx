@@ -4,7 +4,6 @@ This module contains functions which are used in run_fx.py
 """
 
 import traceback
-from pymongo import MongoClient
 
 
 def get_working_jobs(futures):
