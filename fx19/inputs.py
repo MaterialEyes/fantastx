@@ -31,6 +31,13 @@ def make_objects(i_dict):
     reg_id = structure_record.register_id()
     all_objects['reg_id'] = reg_id
 
+    # Make MongoDB database object
+    if 'database' in i_dict:
+        from pymongo import MongoClient
+        all_objects['database'] = connect_to_mongodb(**i_dict["database"])
+    else:
+        all_objects['database'] = None
+
     # make structure_constraints object
     str_record = i_dict['structure_record']
     constraints_obj = structure_record.structure_constraints(str_record)
@@ -48,7 +55,8 @@ def make_objects(i_dict):
     all_objects['input_model_obj'] = input_model_obj
 
     # For cluster, initial population module is used for random models
-    if str_constraints['shape'] == 'cluster':
+    if str_constraints['shape'] == 'bulk' or\
+            str_constraints['shape'] == 'cluster':
         # make_random_model object from initial_population
         random_model_obj = initial_population.make_random_model(
             str_constraints)
@@ -77,7 +85,7 @@ def make_objects(i_dict):
     print(f"Energy code: {energy_pkg}")
 
     # make experimental_simulation object(s)
-    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'XANES']
+    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'XANES', 'XRD']
     if 'exp_sim_1' in i_dict:
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
@@ -93,6 +101,9 @@ def make_objects(i_dict):
             if method_1 == "XANES":
                 Xsim1_params = get_xanes_params(i_dict, 'exp_sim_1_params')
                 Xsim_1 = experimental_simulation.xanes_of_model(Xsim1_params)
+            if method_1 == "XRD":
+                Xsim1_params = get_xrd_params(i_dict, 'exp_sim_1_params')
+                Xsim_1 = experimental_simulation.xrd_of_model(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
     # Get the MOEA and search mode based on provided inputs
@@ -128,6 +139,7 @@ def make_objects(i_dict):
                     if 'cluster_params' in i_dict:
                         selection_mod = clusteredSelection
                         mod_str = 'clusteredSelection.py'
+                        ob_fn = 'Clustered Selection'
                         cl_bool = True
                     else:
                         print('Error. Chose clustered_selection, but either '
@@ -350,9 +362,10 @@ def make_objects(i_dict):
         all_objects['energy_code'] = energy_code
 
     # Evolve object - wrapper on mating and basinhopping
-    evolve_params = get_evolve_params(i_dict, str_constraints)
+    evolve_params = get_evolve_params(str_constraints)
     if str_constraints['shape'] == 'cluster' or\
-            str_constraints['shape'] == 'molecule':
+            str_constraints['shape'] == 'molecule' or\
+            str_constraints['shape'] == 'bulk':
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
 
@@ -545,6 +558,14 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
     return gb_ingrained_params
 
 
+def get_xrd_params(i_dict, exp_sim_params_id):
+    """
+    """
+    xrd_params = i_dict[exp_sim_params_id]
+    xrd_params['main_path'] = i_dict['main_path']
+    return xrd_params
+
+
 def get_mating_params(i_dict, str_constraints):
     """
     Function to conveniently combine different parameters provided by user and
@@ -593,14 +614,11 @@ def get_mating_params(i_dict, str_constraints):
     return mating_params
 
 
-def get_evolve_params(i_dict, str_constraints):
+def get_evolve_params(str_constraints):
     """
     Determines parameters to be used for the `'evolve'` class
 
     Args:
-
-        i_dict (dict): dictionary of all the user-provided input parameters
-         read from yaml file
 
         str_constraints (dict): dictionary of all the constraints for making
          random models
@@ -610,6 +628,7 @@ def get_evolve_params(i_dict, str_constraints):
         dict: all the determined parameters
     """
     evolve_params = {}
+    evolve_params['shape'] = str_constraints['shape']
     evolve_params['num_species'] = str_constraints['num_species']
     # species dicts
     # DU
@@ -618,3 +637,9 @@ def get_evolve_params(i_dict, str_constraints):
         if species in str_constraints:
             evolve_params[species] = str_constraints[species]
     return evolve_params
+
+
+def connect_to_mongodb(host='localhost', port=27017, username=None,
+                       password=None, database='science'):
+    client = MongoClient(f'mongodb://{username}:{password}@{host}:{port}')
+    return client[database]

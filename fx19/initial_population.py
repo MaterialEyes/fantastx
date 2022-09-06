@@ -109,16 +109,36 @@ class make_random_model(object):
                          for k, v in self.element_syms.items()}
         self.shape = str_constraints['shape']
 
+        # defaults
+        self.box_abc = [20, 20, 20]  # angstroms
         if 'box_abc' in str_constraints:
             self.box_abc = str_constraints['box_abc']
 
-        # defaults
-        self.max_dia = 8
+        self.box_angles = [90, 90, 90]  # degrees
+        if 'box_angles' in str_constraints:
+            self.box_angles = str_constraints['box_angles']
+
+        self.max_dia = 8  # angstroms
         if 'max_dia' in str_constraints:
             self.max_dia = str_constraints['max_dia']
 
+        self.max_bonds = {}
+        for i in self.element_syms:
+            self.max_bonds[i] = 2
+        if 'max_bonds' in str_constraints:
+            self.max_bonds = str_constraints['max_bonds']
+
         self.num_species = str_constraints['num_species']
         self.allow_self_bonding = False
+        if 'allow_random_model_self_bonding' in str_constraints:
+            self.allow_self_bonding = str_constraints[
+                'allow_random_model_self_bonding']
+
+        if self.num_species == 1:
+            if not self.allow_self_bonding:
+                print("'allow_random_model_self_bonding' was set to False,"
+                      " but only one species is present. Setting to True.")
+                self.allow_self_bonding = True
         # save species1 data
         # DU:
         # If species are all properly labeled in order,
@@ -156,8 +176,6 @@ class make_random_model(object):
         #         setattr(self, 'max_num_sp' + index,
         #                 str_constraints[key]['max_num'])
 
-        self.max_bonds = {"Ir": 8, "O": 2}
-
     def get_cluster_in_box(self):
         """
         Creates a new model for the initial population with a random structure
@@ -165,7 +183,7 @@ class make_random_model(object):
         follows are:
 
         1. Makes lattice with maximum diameter cube
-        2. Get the random cooridnates
+        2. Get the random coordinates
         3. Add vacuum in all three directions
 
         Returns:
@@ -214,6 +232,48 @@ class make_random_model(object):
 
         return cluster
 
+    def get_bulk_structure(self):
+        """
+        Creates a new model for the initial population with a random structure
+        of bulk geometry. The steps that it
+        follows are:
+
+        1. Makes lattice with maximum diameter cube
+        2. Get the random coordinates
+
+        Returns:
+
+            `structure`: the pymatgen structure object corresponding to the
+             bulk.
+        """
+        max_bond_dist = max(self.max_dist_dict.values())
+
+        # get species and make an empty lattice box
+        species, _ = self.get_n_species()
+        latt = Lattice.from_parameters(
+            self.box_abc[0], self.box_abc[1], self.box_abc[2],
+            self.box_angles[0], self.box_angles[1], self.box_angles[2])
+
+        built_structure = False
+        while not built_structure:
+            cart_coords = self.get_n_coords_linear_bulk(
+                species, latt)
+            if cart_coords is None:
+                continue
+            bulk = Structure(latt, species, cart_coords,
+                             coords_are_cartesian=True)
+
+            # check if atleast one nearest neighbor (nn) less
+            # than max_bond_dist
+            for i in range(len(bulk.sites)):
+                nn = bulk.get_neighbors(bulk.sites[i], max_bond_dist)
+                if len(nn) < 1:
+                    continue
+
+            built_structure = True
+
+        return bulk
+
     def random_model(self, reg_id):
         """
         Creates a random structure and make it into a `Model` object
@@ -227,7 +287,10 @@ class make_random_model(object):
 
             `model`: the random `model` object
         """
-        astr = self.get_cluster_in_box()
+        if self.shape == "bulk":
+            astr = self.get_bulk_structure()
+        else:
+            astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
         rand_model.inheritance = 'random'
         rand_model.made_by = 'random'
@@ -353,6 +416,9 @@ class make_random_model(object):
 
             max_dia (float) - maximum diameter of the cluster
 
+            latt (obj): pymatgen `Lattice` object which gives all lattice
+             information for the atoms
+
         Returns:
 
             list: the cartesian coordinates
@@ -374,7 +440,7 @@ class make_random_model(object):
         # Iterate through each of the remaining species and add them in turn
         ref_atom = 0
         non_referenced_atoms = []
-        flipped_species = False
+        flipped_species = (self.num_species == 1)
         failed_addition = False
         outside_cluster_attempts = 0
         failed_dist_attempts = 0
@@ -455,7 +521,8 @@ class make_random_model(object):
             # prevent too many repetitive attempts if this check keeps failing
             if not dc.satisfies_all_dists_quick(new_point, coords, new_sps,
                                                 species_added, inv_syms,
-                                                self.min_dist_dict, latt):
+                                                self.min_dist_dict,
+                                                self.max_dist_dict):
                 failed_dist_attempts += 1
                 if failed_dist_attempts > 10:
                     failed_addition = True
@@ -480,7 +547,7 @@ class make_random_model(object):
             old_sps = new_sps
             ref_atom = coords_added - 1
             non_referenced_atoms = [i for i in range(coords_added - 1)]
-            flipped_species = False
+            flipped_species = (self.num_species == 1)
             outside_cluster_attempts = 0
             failed_dist_attempts = 0
             # failed_addition = False
@@ -490,6 +557,150 @@ class make_random_model(object):
         coords = np.full((3,), max_dia/2) + coords
 
         return coords
+
+    def get_n_coords_linear_bulk(self, species, latt):
+        """
+        Given lattice information, this function adds random coordinates to
+        the box in a chain like fashion. Each new atom is connected to the
+        previously added atoms, automatically satisfying (periodic) distance
+        constraints with other atoms present.
+
+        Arguments:
+
+            num_atoms (int) - number of atoms needed in the structure
+
+            latt (obj): pymatgen `Lattice` object which gives all lattice
+             information for the atoms
+
+        Returns:
+
+            list: the cartesian coordinates
+        """
+        # shuffle the species prior to assembly
+        np.random.shuffle(species)
+        num_atoms = len(species)
+        inv_syms = self.inv_syms
+
+        # start with the first site placed at the origin
+        old_sps = species[0]
+        old_point = np.array([0, 0, 0])
+        species_added = [species[0]]
+        available_bonds = [self.max_bonds[species[0]]]
+        attached_bonds = [[]]
+        coords = [old_point]
+        coords_added = 1
+
+        # Iterate through each of the remaining species and add them in turn
+        ref_atom = 0
+        non_referenced_atoms = []
+        flipped_species = (self.num_species == 1)
+        failed_addition = False
+        failed_dist_attempts = 0
+        while coords_added < num_atoms:
+            new_sps = species[coords_added]
+
+            # Check if same-species bonding is allowed
+            bond_ok = True
+            if not self.allow_self_bonding:
+                bond_ok = (new_sps != old_sps)
+
+            target_bonds_avail = available_bonds[ref_atom]
+
+            # If all checks fail, then first attempt to add the atom to a
+            # different atom. If iterated through all atoms, then swap
+            # atomic species if possible and repeat.
+            # If neither is possible, then return None
+            if failed_addition or not bond_ok or target_bonds_avail == 0:
+                if len(non_referenced_atoms) == 0 and not flipped_species:
+                    # attempt to flip the species
+                    for n, sp in enumerate(species[coords_added:]):
+                        if sp != new_sps:
+                            species[coords_added] = sp
+                            species[coords_added + n] = new_sps
+                            break
+                        if n == len(species[coords_added:]) - 1:
+                            return None
+                    flipped_species = True
+                    non_referenced_atoms = [i for i in range(coords_added)]
+                elif len(non_referenced_atoms) == 0 and flipped_species:
+                    return None
+
+                # choose a new atom at random to add to
+                ref_atom = np.random.choice(non_referenced_atoms)
+                non_referenced_atoms.remove(ref_atom)
+                old_sps = species[ref_atom]
+                old_point = coords[ref_atom]
+                failed_addition = False
+                continue
+
+            # Draw the bond length from a uniform distribution
+            dist_key = inv_syms[old_sps] + '_' + inv_syms[new_sps]
+            if inv_syms[old_sps] > inv_syms[new_sps]:
+                dist_key = inv_syms[new_sps] + '_' + inv_syms[old_sps]
+            min_bond_dist = self.min_dist_dict[dist_key]
+            max_bond_dist = self.max_dist_dict[dist_key]
+            radius = unif(min_bond_dist, max_bond_dist)
+
+            # Make sure that the coordinate is
+            if coords_added > 1:
+                min_distance = 3 * np.pi / 8
+                new_point, failed_addition = self.get_max_sep_point_on_sphere(
+                    radius,
+                    min_distance,
+                    attached_bonds[ref_atom],
+                    100)
+
+                if failed_addition:
+                    continue
+            else:
+                new_point = self.get_point_on_sphere(radius)
+
+            # translate the point near the old_point
+            new_point = new_point + old_point
+
+            # check distances with all previous points, accounting for the
+            # presence of multiple species. This is important to account for
+            # neighbors of neighbors.
+            # prevent too many repetitive attempts if this check keeps failing
+            if not dc.satisfies_all_dists_quick(new_point, coords, new_sps,
+                                                species_added, inv_syms,
+                                                self.min_dist_dict,
+                                                self.max_dist_dict,
+                                                latt):
+                failed_dist_attempts += 1
+                if failed_dist_attempts > 25:
+                    failed_addition = True
+                    failed_dist_attempts = 0
+                continue
+
+            # add the new_point
+            coords.append(new_point)
+            coords_added += 1
+            species_added.append(new_sps)
+
+            # update all bond information
+            available_bonds[ref_atom] -= 1
+            bond_vector = (new_point - old_point)
+            bond_vector = bond_vector/np.linalg.norm(bond_vector)
+            attached_bonds[ref_atom].append(bond_vector)
+            attached_bonds.append([-bond_vector])
+            available_bonds.append(self.max_bonds[new_sps] - 1)
+
+            # newest atom will be first atom to try to add other new atoms to
+            old_point = new_point
+            old_sps = new_sps
+            ref_atom = coords_added - 1
+            non_referenced_atoms = [i for i in range(coords_added - 1)]
+            flipped_species = (self.num_species == 1)
+            failed_dist_attempts = 0
+
+        # wrap coords into periodic box
+        for i in coords:
+            for j in range(3):
+                if i[j] < 0:
+                    i[j] += latt.abc[j]
+
+        return np.array(coords)
 
     def get_point_on_sphere(self, r):
         """
@@ -541,7 +752,7 @@ class make_random_model(object):
             - whether or not the point achieved the desired ang. separation
         """
 
-        farthest_distance = 0
+        farthest_distance = -1
         new_point_attempt = 0
         failed_addition = False
         while new_point_attempt <= n_attempts and\

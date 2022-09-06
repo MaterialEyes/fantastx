@@ -531,7 +531,7 @@ class vasp_code(object):
         with open(potcar, 'w') as pot:
             pot.writelines(all_lines)
 
-        if self.shape == 'cluster':
+        if self.shape == 'cluster' or self.shape == 'bulk':
             model.astr.to(filename=new_poscar, fmt='poscar')
 
         if self.shape == "molecule":
@@ -547,10 +547,9 @@ class vasp_code(object):
         # TODO: implement selective dynamics for cluster geometry
 
         shutil.copy(new_poscar, poscar)
-        # copy INCAR, KPOINTS to the relax path. Modify the INCAR if molecule
+        # copy INCAR, KPOINTS to the relax path. Modify the INCAR if the model is a molecule
+        shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
         if self.shape == "molecule":
-            shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
-
             if model.astr.charge != 0:
                 z_val_dict = {}
                 # grab default number of electrons and modify it by the charge

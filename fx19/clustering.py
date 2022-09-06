@@ -474,14 +474,6 @@ class HierarchicalClusterer(object):
         Method to calculate and visualize hierarchical clustering of
         structures. Will create a cluster dendrogram, as well as a
         visualization of the clusters in objective function space.
-
-        Arguments:
-
-            labels (list): the labels of each model contained in the
-             distance matrix
-
-            obj_fncs (dict): maps each label to the set of objective
-             functions for that model
         '''
         print(f"Max distance in matrix: {np.amax(self.distance_matrix)}")
         print(f"Min distance in matrix: {np.amin(self.distance_matrix)}")

@@ -184,6 +184,7 @@ class structure_constraints(object):
         self.min_num_atoms = 30
         self.max_num_atoms = 101
         self.max_bond_dist = 4
+        self.max_bonds_per_atom_default = 6
 
         if 'max_bond_dist' in str_record:
             self.max_bond_dist = str_record['max_bond_dist']
@@ -203,6 +204,7 @@ class structure_constraints(object):
         element_syms = {}
         i = 1
         found_species = []
+        max_bonds = {}
         for species, values in species_dict.items():
             while species != "species" + str(i):
                 print('Error. Cannot find species ' + str(i) +
@@ -224,10 +226,17 @@ class structure_constraints(object):
                 values['max_num'] = self.max_num_atoms
             elif i == 1:
                 self.max_num_atoms = values['max_num']
+            if 'max_bonds' in values:
+                max_bonds[values['name']] = values['max_bonds']
+            else:
+                max_bonds[values['name']] = self.max_bonds_per_atom_default
+
             setattr(self, species, values)
             i += 1
 
         self.element_syms = element_syms
+
+        # grab max number of bonds if provided
 
         # DU
         # make a min_dist dictionary with default min_dist for all bonds
@@ -244,7 +253,7 @@ class structure_constraints(object):
                 if 'max_dist' in str_record:
                     if key in str_record['max_dist'].keys():
                         self.max_dist_dict[key] = str_record['max_dist'][key]
-        # ########################cluster parameters###########################
+
         # shape and related
         if 'cluster' in str_record:
             self.shape = 'cluster'
@@ -254,8 +263,35 @@ class structure_constraints(object):
             self.shape = 'surface'
         elif 'molecule' in str_record:
             self.shape = 'molecule'
+        elif 'bulk' in str_record:
+            self.shape = 'bulk'
         # TODO: add other shapes here
 
+        # ########################bulk parameters begin########################
+        if self.shape == 'bulk':
+            if 'box_abc' in str_record['bulk']:
+                self.box_abc = str_record['bulk']['box_abc']
+            else:
+                print('The lattice lengths of the box are not specified.'
+                      ' Using default equal side lengths of a=b=c=10Å')
+                self.box_abc = [10, 10, 10]
+
+            if 'box_angles' in str_record['bulk']:
+                self.box_angles = str_record['bulk']['box_angles']
+            else:
+                print('The lattice angles of the box are not specified.'
+                      ' Using default orthogonal angles of 90 degrees.')
+                self.box_angles = [90, 90, 90]
+
+            if 'allow_random_model_self_bonding' in str_record['bulk']:
+                self.allow_random_model_self_bonding = str_record[
+                    'bulk']['allow_random_model_self_bonding']
+
+            if len(max_bonds) != 0:
+                self.max_bonds = max_bonds
+        # ###################bulk parameters end###############################
+
+        # ########################cluster parameters begin#####################
         if self.shape == 'cluster':
             if 'box_abc' in str_record['cluster']:
                 self.box_abc = str_record['cluster']['box_abc']
@@ -276,6 +312,12 @@ class structure_constraints(object):
             else:
                 self.origin = [i/2. for i in self.box_abc]
 
+            if 'allow_random_model_self_bonding' in str_record['cluster']:
+                self.allow_random_model_self_bonding = str_record[
+                    'cluster']['allow_random_model_self_bonding']
+
+            if len(max_bonds) != 0:
+                self.max_bonds = max_bonds
         # ###################cluster parameters ends###########################
 
         # ########################gb parameters begins#########################

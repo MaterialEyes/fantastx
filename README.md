@@ -81,8 +81,25 @@ git clone https://github.com/MaterialEyes/fantastx.git
 python setup.py develop
 ```
 
+6. If performing powder diffraction simulations, follow instructions [here](https://gsas-ii.readthedocs.io/en/latest/packages.html) to install GSASIIscriptable.
+ - In some cases, you may need to roll back the version of numpy.
+ - The path to ```GSASII``` directory needs to be added to PYTHONPATH.
+
 ## Usage
 Find the usage of Fantastx [here] (https://github.com/MaterialEyes/fantastx/blob/master/USAGE.md)
+
+## Documentation
+```sh
+pip install mkdocs-plugin
+pip install mkdocs-jupyter
+pip install mkdocs-material
+pip install innerscope
+pip install more_itertools
+pip install git-revision-date
+pip install mkdocstrings-python
+
+mkdocs serve
+```
 
 ## Citation
 If you find this code useful, please consider citing our [paper](#paper)

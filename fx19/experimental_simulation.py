@@ -7,7 +7,7 @@ from pymatgen.io.cif import CifWriter
 try:
     from pyobjcryst import loadCrystal
     from diffpy.srfit.pdf import PDFContribution
-    from diffpy.srfit.pdf import DebyePDFGenerator
+    from diffpy.srfit.pdf import DebyePDFGenerator, PDFGenerator
     from diffpy.srfit.fitbase import Profile
     from diffpy.srfit.fitbase import FitRecipe
     import matplotlib.pyplot as plt
@@ -28,6 +28,12 @@ except ImportError:
     print('Install scikit-image, Ingrained, opencv for TEM simulation.'
           ' Otherwise ignore..')
 
+try:
+    import GSASIIscriptable as G2sc
+except ImportError:
+    print('Install GSASIIscriptable for powder diffraction simulation.'
+          ' Otherwise ignore..')
+
 from math import floor
 import numpy as np
 import os
@@ -38,6 +44,7 @@ from ase.data import atomic_numbers
 from fx19.fingerprinting import DistanceCalculator
 import re
 from collections import Counter
+from pymatgen.core.lattice import Lattice
 
 
 class xanes_of_model(object):
@@ -631,7 +638,7 @@ class xanes_of_model(object):
             print("Error. Input directory already exists.")
         try:
             os.mkdir(fdmnes_output_folder)
-            print("Created FDMNES input directory.")
+            print("Created FDMNES output directory.")
         except FileExistsError:
             print("Error. Output directory already exists.")
 
@@ -1056,10 +1063,13 @@ class pdf_of_model(object):
         self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
         self.qdamp = 0.043  # G(r) intensity decereases with r
-        self.fit_coords = True
+        self.fit_coords = False
         # default bounds_dict
         lb_ub_dict = {}
-        lb_ub_dict['a'] = [19.0, 21.0]
+        # note: can alternately define bounds by [a_low_bound, a_high_bound]
+        lb_ub_dict['a'] = 0.02
+        lb_ub_dict['b'] = 0.02
+        lb_ub_dict['c'] = 0.02
         # Biso_val = 8*pi**2 * Uiso_val
         lb_ub_dict['Biso_val'] = [78.96*0.00001, 200.096*0.01]
         lb_ub_dict['scale'] = [0.5, 1.5]
@@ -1122,10 +1132,17 @@ class pdf_of_model(object):
             for a_key in vbs.keys():
                 self.var_bounds[a_key] = vbs[a_key]
 
+        self.min_box_abc = None
+        if 'min_box_abc' in pdf_params:
+            self.min_box_abc = pdf_params['min_box_abc']
+
         # tolerance to relax each x/y/z coordinate of an atom coordinates
         self.coord_tol = 0.1
         if 'coord_tol' in pdf_params:
             self.coord_tol = pdf_params['coord_tol']
+
+        self.make_supercell = False
+        self.periodic = True
 
     def write_temp_cif(self, model):
         """
@@ -1137,7 +1154,33 @@ class pdf_of_model(object):
             simulation will be done
         """
         # use the relaxed structure from energy calculation
-        astr = model.astr
+        astr = model.astr.copy()
+        if self.make_supercell:
+            astr.make_supercell((2, 2, 2))
+        if self.min_box_abc is not None:
+            for axis in range(3):
+                species = astr.species
+                if astr.lattice.abc[axis]/self.min_box_abc[axis] < 1:
+
+                    new_cart_coords = astr.cart_coords.copy().tolist()
+                    translate_to_center = self.min_box_abc[axis]/2 -\
+                        astr.lattice.abc[axis]/2
+                    for i in new_cart_coords:
+                        if i[axis] < 0:
+                            i[axis] += astr.lattice.abc[axis]
+                        i[axis] += translate_to_center
+
+                    latt_matrix = astr.lattice.matrix
+                    new_latt_matrix = latt_matrix.copy()
+                    new_latt_matrix[axis][axis] = self.min_box_abc[axis]
+                    new_latt = Lattice(new_latt_matrix)
+                    astr.lattice = new_latt
+
+                    for i, new_coords in enumerate(new_cart_coords):
+                        specie = species[i]
+                        astr.replace(i, specie, new_coords,
+                                     coords_are_cartesian=True)
+
         self.symbols = astr.symbol_set
 
         # write new_structure to a temporary cif file
@@ -1158,8 +1201,11 @@ class pdf_of_model(object):
 
         # Make generator object
         diffpy_str = loadCrystal(cif_file)
-        generator = DebyePDFGenerator('generator_name')
-        generator.setStructure(diffpy_str)
+        if self.periodic:
+            generator = PDFGenerator('generator_name')
+        else:
+            generator = DebyePDFGenerator('generator_name')
+        generator.setStructure(diffpy_str, periodic=self.periodic)
         generator.setQmax(self.Qmax)
         generator.setQmin(self.Qmin)
 
@@ -1171,7 +1217,7 @@ class pdf_of_model(object):
 
         return contribution
 
-    def fit_variables_recipe(self, contribution, cif_file, fitted_params=None):
+    def fit_variables_recipe(self, contribution, fitted_params=None):
         """
         Performs optimization of PDF variables like qdamp, delta2, scale and
         ADP (Bisos) using diffpy.srfit.fitbase.FitRecipe object.
@@ -1207,11 +1253,28 @@ class pdf_of_model(object):
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
         lattice = contribution.generator_name.phase.getLattice()
-        lattice.constrain(lattice.b, lattice.a)
-        lattice.constrain(lattice.c, lattice.a)
-        lattice.alpha.setConst(True, np.pi/2.)
-        lattice.beta.setConst(True, np.pi/2.)
-        lattice.gamma.setConst(True, np.pi/2.)
+
+        a = lattice.a.getValue()
+        b = lattice.b.getValue()
+        c = lattice.c.getValue()
+
+        # If we have a cubic lattice then constrain it to remain cubic
+        cubic_lattice = False
+        alpha = lattice.alpha.getValue()
+        beta = lattice.beta.getValue()
+        gamma = lattice.gamma.getValue()
+        if np.isclose(a, b) and np.isclose(a, c):
+            if np.isclose(alpha, np.pi/2) and\
+                np.isclose(beta, np.pi/2) and\
+                    np.isclose(gamma, np.pi/2):
+                cubic_lattice = True
+                lattice.constrain(lattice.b, lattice.a)
+                lattice.constrain(lattice.c, lattice.a)
+                lattice.alpha.setConst(True, np.pi/2.)
+                lattice.beta.setConst(True, np.pi/2.)
+                lattice.gamma.setConst(True, np.pi/2.)
+
+        # allow diffpy to shift the lattice parameters
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1242,9 +1305,24 @@ class pdf_of_model(object):
         recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
-        recipe.a.bounds = self.var_bounds['a']
-        # recipe.b.bounds = self.var_bounds['a']
-        # recipe.c.bounds = self.var_bounds['a']
+        # For lattice parameters, set bound for each parameter
+        if type(self.var_bounds['a']) is list:
+            recipe.a.bounds = self.var_bounds['a']
+        else:
+            recipe.a.bounds = [a - self.var_bounds['a']*a,
+                               a + self.var_bounds['a']*a]
+
+        if not cubic_lattice:
+            if type(self.var_bounds['b']) is list:
+                recipe.b.bounds = self.var_bounds['b']
+            else:
+                recipe.b.bounds = [b - self.var_bounds['b']*b,
+                                   b + self.var_bounds['b']*b]
+            if type(self.var_bounds['c']) is list:
+                recipe.c.bounds = self.var_bounds['c']
+            else:
+                recipe.c.bounds = [c - self.var_bounds['c']*c,
+                                   c + self.var_bounds['c']*c]
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1292,11 +1370,26 @@ class pdf_of_model(object):
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
         lattice = contribution.generator_name.phase.getLattice()
-        lattice.constrain(lattice.b, lattice.a)
-        lattice.constrain(lattice.c, lattice.a)
-        lattice.alpha.setConst(True, np.pi/2.)
-        lattice.beta.setConst(True, np.pi/2.)
-        lattice.gamma.setConst(True, np.pi/2.)
+
+        a = lattice.a.getValue()
+        b = lattice.b.getValue()
+        c = lattice.c.getValue()
+        # If we have a cubic lattice then constrain it to remain cubic
+        cubic_lattice = False
+        alpha = lattice.alpha.getValue()
+        beta = lattice.beta.getValue()
+        gamma = lattice.gamma.getValue()
+        if np.isclose(a, b) and np.isclose(a, c):
+            if np.isclose(alpha, np.pi/2) and\
+                np.isclose(beta, np.pi/2) and\
+                    np.isclose(gamma, np.pi/2):
+                cubic_lattice = True
+                lattice.constrain(lattice.b, lattice.a)
+                lattice.constrain(lattice.c, lattice.a)
+                lattice.alpha.setConst(True, np.pi/2.)
+                lattice.beta.setConst(True, np.pi/2.)
+                lattice.gamma.setConst(True, np.pi/2.)
+
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1322,9 +1415,24 @@ class pdf_of_model(object):
         recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
-        recipe.a.bounds = self.var_bounds['a']
-        # recipe.b.bounds = self.var_bounds['a']
-        # recipe.c.bounds = self.var_bounds['a']
+        # For lattice parameters, set bound for each parameter
+        if type(self.var_bounds['a']) is list:
+            recipe.a.bounds = self.var_bounds['a']
+        else:
+            recipe.a.bounds = [a - self.var_bounds['a']*a,
+                               a + self.var_bounds['a']*a]
+
+        if not cubic_lattice:
+            if type(self.var_bounds['b']) is list:
+                recipe.b.bounds = self.var_bounds['b']
+            else:
+                recipe.b.bounds = [b - self.var_bounds['b']*b,
+                                   b + self.var_bounds['b']*b]
+            if type(self.var_bounds['c']) is list:
+                recipe.c.bounds = self.var_bounds['c']
+            else:
+                recipe.c.bounds = [c - self.var_bounds['c']*c,
+                                   c + self.var_bounds['c']*c]
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1451,9 +1559,8 @@ class pdf_of_model(object):
         # NOTE: First fit the main four variables only. Second fit main four +
         # coords as variables. This is to get best solution wrt main variables.
         # Then some local solution with second fitting..
-
         fitted_params, residual, recipe = self.fit_variables_recipe(
-            contribution, cif_file)
+            contribution)
         # write initial fitted parameters to a file
         with open(pdf_sim + '/initial_fitted_params.txt', 'w') as f:
             for item in fitted_params:
@@ -1473,9 +1580,6 @@ class pdf_of_model(object):
                     f.write(str(item) + '\n')
                 f.write('Residual: {}'.format(residual))
             self.plot_pdf(recipe, 'final')
-            # use the new cif file created with optimized coords
-            #cif_file = pdf_sim + '/temp_opt.cif'
-            #contribution = self.get_PDF_obj(cif_file)
 
         # fit the PDF variables
         # fitted_params, residual, Fit = self.fit_variables_recipe(PDF,
@@ -1535,56 +1639,70 @@ class gb_ingrained(object):
             print('Provide ingrained optimization progress as progress_file'
                   ' or sim params of optimized solution')
 
-        # self.dm3_path = gb_ingrained_params['dm3_path']
-        # if not self.dm3_path:
-        #     print('Provide path (dm3_path) to experimental image')
-
-        # # Prepare experimental image
-        # # (make sure this procedure matches the procedure in 'run.py')
-        # image_data = iop.image_open(self.dm3_path)
-        # exp_img = iop.apply_rotation(image_data['Pixels'], 1)
-        # exp_img = iop.scale_pixels(exp_img, mode='rescale')
-        # exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
-        # exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
-
-        # bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
-        # congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
-
-        # Get solutions from text file
-        # if self.progress_file:
-        #     progress = np.genfromtxt(self.progress_file, delimiter=',')
-        #     best_idx = int(np.argmin(progress[:, -1]))
-        #     x = progress[best_idx]
-        #     xfit = x[1:-1]
-        #     xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
-
-        # TODO: Find why we set self.opt_params[1] = 0
-        # if not self.opt_params:
-        #     self.opt_params = xfit.copy()
-        #     self.opt_params[1] = 0
-        # else:
-        #     xfit = self.opt_params.copy()
-        # xfit[1] = 0
-        # sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
-        #     congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
-
-        # sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
-
-        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
-
-        # Temporarily "hard-coded" exp interface region for VASP runs
-        # Load prev_whole_exp.npy that is from the LAMMPS runs
-        exp_prev = np.load('inputs/whole_exp.npy')
-        if exp_prev.ndim == 3:
-            exp_prev = np.mean(exp_prev, axis=2)
-            self.im_ref = exp_prev[:, :-1]
+        self.dm3_path = gb_ingrained_params['dm3_path']
+        if self.dm3_path is None:
+            print('Error! No path (dm3_path) provided to experimental image')
+            print('Trying to refer to hard-coded reference ')
+            print('"inputs/whole_exp.npy" instead.')
+            if os.path.exists(self.main_path + '/inputs/whole_exp.npy'):
+                exp_prev = np.load(self.main_path + '/inputs/whole_exp.npy')
+                if exp_prev.ndim == 3:
+                    exp_prev = np.mean(exp_prev, axis=2)
+                    self.im_ref = exp_prev[:, :-1]
+                else:
+                    self.im_ref = exp_prev
+            else:
+                print('No hard coded reference file found.')
         else:
-            self.im_ref = exp_prev
+            # Prepare experimental image
+            # (make sure this procedure matches the procedure in 'run.py')
+            image_data = iop.image_open(self.dm3_path)
+            exp_img = iop.apply_rotation(image_data['Pixels'], 1)
+            exp_img = iop.scale_pixels(exp_img, mode='rescale')
+            exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
+            exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
 
-        # in y & x directions # TODO: remove hard-coded values
-        # exp_patch_for_vasp = exp_img[459:584,
-        #                              249:374]  # exp_prev[152:279, 12:]
+            bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
+            congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
+
+            # Get ingrained optimization parameters from the best fit in
+            # the ingrained progress file
+            if self.progress_file:
+                progress = np.genfromtxt(self.progress_file, delimiter=',')
+                best_idx = int(np.argmin(progress[:, -1]))
+                x = progress[best_idx]
+                xfit = x[1:-1]
+                xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
+
+            # TODO: Find why we set self.opt_params[1] = 0
+            if self.opt_params is None:
+                if self.progress_file is None:
+                    print("Error! No ingrained optimization parameters"
+                          " provided, and no ingrained progress file found!")
+                    xfit = None
+                else:
+                    self.opt_params = xfit.copy()
+                    self.opt_params[1] = 0
+            else:
+                xfit = self.opt_params.copy()
+            xfit[1] = 0
+            sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
+                congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+
+            sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
+
+            np.save(self.main_path + '/whole_exp.npy', exp_patch)
+            np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+
+            # in y & x directions # TODO: remove hard-coded values
+            # exp_patch_for_vasp = exp_img[459:584,
+            #                              249:374]  # exp_prev[152:279, 12:]
+
+            if exp_prev.ndim == 3:
+                exp_prev = np.mean(exp_prev, axis=2)
+                self.im_ref = exp_prev[:, :-1]
+            else:
+                self.im_ref = exp_prev
 
         self.do_scell = True   # Set to False if using a 1x3 supercell
         # Make sim TEM from init_gb
@@ -1752,3 +1870,183 @@ class gb_ingrained(object):
             img = img[:, floor(diff_pix_y/2): floor(-1*diff_pix_y/2)]
 
         return img, ref
+
+class xrd_of_model(object):
+    """
+    This class contains functions to calculate the powder diffraction pattern (neutron or X-ray) of a crystal structure and calculate the similarity descriptor against experimental data.
+
+    Arguments:
+
+        xrd_params (dict): A dictionary of parameters used for simulating XRD
+         using **GSASII scriptable**.
+    """
+
+    def __init__(self, xrd_params):
+        """
+        """
+
+        # main path as in energy.py
+        self.name = 'XRD'
+        self.main_path = xrd_params['main_path']
+        self.xrd_sim_dir = None
+        
+        print(xrd_params)
+        open('params', 'w').write(str(xrd_params))
+
+        # path to provided files
+        self.exp_xrd_file = xrd_params['exp_xrd_file']
+        self.instr_param_file = xrd_params['instr_param_file']
+
+        # GSAS related arguments
+        self.xmin = 15
+        self.xmax = 65
+        self.npoints = 1250
+        self.xmin_fit = 20
+        self.xmax_fit = 60
+        self.npoints_fit = 2001
+        self.scale = 100
+        self.score_method = 'res_fit'
+
+        if 'xmin' in xrd_params:
+            self.xmin = xrd_params['xmin'] # min x value for simulation
+        if 'xmax' in xrd_params:
+            self.xmax = xrd_params['xmax'] # max x value for simulation
+        if 'npoints' in xrd_params:
+            self.npoints = int(xrd_params['npoints']) # make sure it is a integer
+        if 'xmin_fit' in xrd_params:
+            self.xmin_fit = xrd_params['xmin_fit'] # min x value for fitting/normalization
+        if 'xmax_fit' in xrd_params:
+            self.xmax_fit = xrd_params['xmax_fit'] # min x value for fitting/normalization
+        if 'npoints_fit' in xrd_params:
+            self.npoints_fit = int(xrd_params['npoints_fit']) # make sure it is a integer
+        if 'scale' in xrd_params:
+            self.scale = xrd_params['scale'] # scaling factor for histogram
+        
+    def read_histogram(self, filename):
+        """
+        Read the simulated histogram data from GSASII-genrated file
+
+        Args:
+            filename (string): absolute path to the histogram data file
+
+        Returns:
+            Array: (N,2) array of floats
+        """
+        data_raw = open(filename).readlines()
+        flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
+        data_raw = data_raw[flag+1:]
+        data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
+        return np.array(data_raw)[:,:2]
+
+
+    def xrd_similarity_metrics(self, data_exp, data_sim):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, optimize, stats
+
+        f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
+        f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        f_fit = lambda x, a, b: f_sim(x)*a + b # transforming the raw simulated data to align
+        popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
+
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        return (abs(f_exp(x)-f_sim(x))).mean(),\
+            (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
+            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+            stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
+
+
+    def evaluate_obj(self, model):
+        """
+        This function simulated the powder diffraction pattern of a crystal structure. Then, compares it with the experimental pattern (target). A objective functions, measuring similarity with target, is assigned as a model attribute (obj1_val).
+
+        This function is a part of the API for all classes in
+        experimental_simulation module.
+
+        Arguments:
+
+            model (obj): structure_record.model() object for which TEM
+             simulation is obtained and a mismatch score is assigned
+
+        Returns:
+
+            (structure_record.model(), float):
+            - The model object being evaluated
+            - the similarity metric (score) which is the objective
+        """
+        main_path = self.main_path
+        xrd_sim_dir = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
+        os.mkdir(xrd_sim_dir)
+
+        # write the structure as cif file in the simulation dir
+        temp_init = xrd_sim_dir + '/temp_init.cif'
+        cif_writer = CifWriter(model.astr.copy())
+        cif_writer.write_file(temp_init)
+
+        # Create GSASII project
+        gpx = G2sc.G2Project(filename=f'{xrd_sim_dir}/{model.label}.gpx')
+        phase0 = gpx.add_phase(
+            f'{xrd_sim_dir}/temp_init.cif',
+            phasename=str(model.label),
+            fmthint='CIF'
+            )
+
+        # Simulate power diffraction histogram and write the data
+        hist1 = gpx.add_simulated_powder_histogram(
+            f'{model.label} XRD simulation',
+            self.instr_param_file,
+            self.xmin, self.xmax, Npoints=self.npoints,
+            phases=gpx.phases(),scale=self.scale
+            )
+        gpx.do_refinements()   # calculate pattern
+        gpx.save()
+        gpx.histogram(0).Export(f'{xrd_sim_dir}/data_{model.label}','.csv','hist') # data
+        gpx.histogram(0).Export(f'{xrd_sim_dir}/refl_{model.label}','.csv','refl') # reflections
+
+        # post-processing of histogram data
+        # calculate and report the desired scoring function
+        data_sim = self.read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
+        data_exp = np.loadtxt(self.exp_xrd_file)
+        res_sim, res_fit, emd_sim, emd_fit = self.xrd_similarity_metrics(data_exp, data_sim)
+        open(f'{xrd_sim_dir}/log', 'a').write(
+            f'res_sim: {res_sim}\nres_fit: {res_fit}\nemd_sim: {emd_sim}\nemd_fit: {emd_fit}\n')
+
+        if self.score_method == 'res_sim': # residual vs. raw simulated data
+            score = float(res_sim)
+        if self.score_method == 'res_fit': # residual vs. fitted/normalized simulated data
+            score = float(res_fit)
+        if self.score_method == 'med_sim': # Earth mover's distance vs. raw sim. data
+            score = float(med_sim)
+        if self.score_method == 'med_fit': # Earth mover's distance vs. fitted sim. data
+            score = float(med_fit)
+
+        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+        # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
+        if model.Xsim1 == 'XRD':
+            model.obj1_val = score
+        elif model.Xsim2 == 'XRD':
+            model.obj2_val = score
+        elif model.Xsim3 == 'XRD':
+            model.obj3_val = score
+        elif model.Xsim4 == 'XRD':
+            model.obj4_val = score  
+
+        return model, score
+
+
+      
