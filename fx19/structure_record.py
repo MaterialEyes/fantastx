@@ -440,6 +440,16 @@ class structure_constraints(object):
                       'Using default setting of [].')
                 self.fixed_species = []
 
+            if 'counter_ions' in str_record['molecule']:
+                self.counter_ions = str_record['molecule']['counter_ions']
+                if len(self.counter_ions) != 2:
+                    print('Incorrect counter ion format. Counter ions should'
+                          ' be provided as a list of length two, where the'
+                          ' first item is the element name, and the second'
+                          ' item is the ion oxidation state (float or int).')
+            else:
+                print('No counter ions provided, none will be added.')
+
             if 'fragments_yaml' in str_record['molecule']:
                 self.fragments_yaml = str_record['molecule']['fragments_yaml']
             else:

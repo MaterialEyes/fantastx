@@ -14,9 +14,9 @@ are supported:
 """
 
 from __future__ import division, unicode_literals, print_function
-from hashlib import new
 from pymatgen.core.structure import Structure, PeriodicSite
 from pymatgen.core.lattice import Lattice
+from pymatgen.core.periodic_table import Species
 from scipy.spatial.transform import Rotation as R
 from pymatgen.io.vasp.inputs import Poscar
 
@@ -826,11 +826,14 @@ class make_random_molecule_model(object):
         # defaults
         self.max_dia = 8
         self.max_bond_dist = 3
+        self.counter_ions = None
 
         if 'max_dia' in str_constraints:
             self.max_dia = str_constraints['max_dia']
         if 'max_bond_dist' in str_constraints:
             self.max_bond_dist = str_constraints['max_bond_dist']
+        if 'counter_ions' in str_constraints:
+            self.counter_ions = str_constraints['counter_ions']
 
         self.num_species = str_constraints['num_species']
         self.sym_species = []
@@ -1182,7 +1185,7 @@ class make_random_molecule_model(object):
                 np.isclose(asite_coords[2], 0.0)):
             # align geometric center with the origin
             center_shift = np.zeros(3)
-            if not geom_cent_coords is None:
+            if geom_cent_coords is not None:
                 if not np.allclose(np.zeros(3), geom_cent_coords):
                     center_shift = np.zeros(3) - geom_cent_coords
 
@@ -1214,8 +1217,8 @@ class make_random_molecule_model(object):
             b (obj): base pymatgen `structure` object
             attach_coords (vector): if provided, site coordinates of structure
              a will be taken as being relative to this coordinate
-            rotation_angles (iterable): Euler rotation angles around the z-axis,
-             x-axis and then z-axis again.
+            rotation_angles (iterable): Euler rotation angles around the
+             z-axis, x-axis and then z-axis again.
             translation (vector): numpy vector which will be added to all
              sites in a before rotating and appending
 
@@ -1293,7 +1296,7 @@ class make_random_molecule_model(object):
         fra = 0
         smallest_difference = np.inf
 
-        # adjust min_distance based on number of fragment vectors attached currently
+        # adjust min_distance based on number of fragment vectors attached
         n_preattached_frags = len(mol_site_fragment_vectors)
         if n_preattached_frags != 0:
             # determine approx. expected angular distances for geometry
@@ -1520,6 +1523,49 @@ class make_random_molecule_model(object):
 
         return starting_fragment, chosen_fragments
 
+    def _attach_counter_ions(self, molecule, molecule_astr):
+        """
+        Adds counter-ions to the simulation box to ensure charge
+        neutrality. Only an option if the user provided the species
+        and oxidation state to be used for the counter ions.
+
+        Arguments:
+            molecule (dict): dictionary representation of the molecule.
+            molecule_astr (obj): pymatgen `Structure` object corresponding
+             to the molecule.
+        """
+        # hard code in 4 locations where counter ions can be added
+        counter_ion_locs = [(0.01, 0.01, 0.0),
+                            (0.0, 0.51, 0.49),
+                            (0.51, 0.0, 0.51),
+                            (0.52, 0.5, 0.0)]
+
+        if self.counter_ions is not None:
+            if not np.isclose(molecule_astr.charge, 0.0):
+                if molecule_astr.charge*self.counter_ions[1] < 0:
+                    ci_specie = Species(self.counter_ions[0],
+                                        self.counter_ions[1])
+                    ci = 0
+                    molecule["counter_ions"] = []
+                    while not np.isclose(molecule_astr.charge, 0.0) and ci < 4:
+                        molecule_astr.append(ci_specie,
+                                             counter_ion_locs[ci],
+                                             coords_are_cartesian=False)
+                        molecule["fixed_atoms"].append(
+                            molecule_astr.num_sites - 1)
+                        molecule["counter_ions"].append(
+                            molecule_astr.num_sites - 1
+                        )
+                        ci += 1
+                    if ci == 4 and not np.isclose(molecule_astr.charge, 0.0):
+                        print("Not enough hard-coded counter ion locations."
+                              " Add more counter ion location to"
+                              " initial_population.")
+                else:
+                    print("Counter ions have the same charge as the molecule."
+                          " Please provide counter ions with the opposite"
+                          " charge.")
+
     def build_molecule(self):
         """
         Constructs a molecule from a set of fragments. Will attempt to add
@@ -1561,6 +1607,7 @@ class make_random_molecule_model(object):
                     self.attached_fragments += 1
             if added_fragments == self.number_of_fragments:
                 assembled = True
+                self._attach_counter_ions(molecule, molecule_astr)
 
         if assembled:
             # Now, sort molecule_astr and molecule representation
@@ -1570,6 +1617,9 @@ class make_random_molecule_model(object):
                 [s_map[i] for i in molecule["attachment_sites"]]
             molecule["fixed_atoms"] =\
                 [s_map[i] for i in molecule["fixed_atoms"]]
+            if "counter_ions" in molecule:
+                molecule["counter_ions"] =\
+                    [s_map[i] for i in molecule["counter_ions"]]
 
             for fragment in molecule["fragments"]:
                 fragment["molecule_attach_site"] =\
