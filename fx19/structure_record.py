@@ -8,6 +8,7 @@ Also contains general functions (if any required)
 from __future__ import division, unicode_literals, print_function
 from pymatgen.core.structure import Structure, Lattice
 from pymatgen.core.composition import Composition
+from fx19.data import covalent_radii, atomic_numbers
 
 import os
 
@@ -245,8 +246,8 @@ class structure_constraints(object):
         for index, sp1 in enumerate(found_species):
             for sp2 in found_species[index:]:
                 key = 'sp' + str(sp1) + '_sp' + str(sp2)
-                self.min_dist_dict[key] = self.def_min_dist
-                self.max_dist_dict[key] = self.def_max_dist
+                self.min_dist_dict[key] = (covalent_radii[atomic_numbers[self.element_syms[sp1]]]+covalent_radii[atomic_numbers[self.element_syms[sp2]]]) * 0.8
+                self.max_dist_dict[key] = (covalent_radii[atomic_numbers[self.element_syms[sp1]]] + covalent_radii[atomic_numbers[self.element_syms[sp2]]]) * 1.2
                 if 'min_dist' in str_record:
                     if key in str_record['min_dist'].keys():
                         self.min_dist_dict[key] = str_record['min_dist'][key]
