@@ -755,11 +755,12 @@ class vasp_code(object):
         """
         mol = model.molecule_representation
         if 'fixed_atoms' in mol.keys():
-            sd_flags = [["F", "F", "F"] if i in mol['fixed_atoms']
-                        else ["T", "T", "T"] for i
+            sd_flags = [[False, False, False] if i in mol['fixed_atoms']
+                        else [True, True, True] for i
                         in range(model.astr.num_sites)]
         else:
-            sd_flags = [["T", "T", "T"] for i in range(model.astr.num_sites)]
+            sd_flags = [[True, True, True]
+                        for i in range(model.astr.num_sites)]
 
         model.astr.add_site_property("selective_dynamics", sd_flags)
         mol_poscar = Poscar(model.astr)
