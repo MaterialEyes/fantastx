@@ -1038,7 +1038,7 @@ class basinhopping(object):
         """
         # default indices_fraction is 1 ; perturb all atoms (indices)
         self.indices_fraction = 1
-        self.max_perturbation = 0.15
+        self.max_perturbation = 0.25
         self.min_dist_dict = basinhopping_params['min_dist_dict']
         self.max_dist_dict = basinhopping_params['max_dist_dict']
         self.species_dict = basinhopping_params['species_dict']
@@ -1053,11 +1053,11 @@ class basinhopping(object):
                       'Using default..')
 
         if 'max_perturbation' in basinhopping_params:
-            if not 0 < basinhopping_params['max_perturbation'] <= 0.5:
-                print('max_perturbation should be between (0, 0.5]. '
-                      'More than 0.5 would be throw the atoms too far.'
+            if not 0 < basinhopping_params['max_perturbation'] <= 1.0:
+                print('max_perturbation should be between (0, 1.0]. '
+                      'More than 1.0 would be throw the atoms too far.'
                       ' Check the jump distance by lattice vectors *'
-                      ' max_perturbation. Using default value of 0.15')
+                      ' max_perturbation. Using default value of 0.25')
             else:
                 self.max_perturbation = basinhopping_params['max_perturbation']
 
