@@ -1939,7 +1939,7 @@ class xrd_of_model(object):
         return np.array(data_raw)[:,:2]
 
 
-    def xrd_similarity_metrics(self, data_exp, data_sim):
+    def xrd_similarity_metrics(self, data_exp, data_sim, scaled=True):
         """
         Calculate the similarity metric between the simulated and experimental neutron/XRD data.
         Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
@@ -1962,13 +1962,20 @@ class xrd_of_model(object):
         x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
         f_fit = lambda x, a, b: f_sim(x)*a + b # transforming the raw simulated data to align
         popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
-
+        
         # residual or earth mover's distance
         # between exp & sim or sim with transformation
-        return (abs(f_exp(x)-f_sim(x))).mean(),\
-            (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
-            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
-            stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
+        if scaled:
+            
+            return (abs(f_exp(x)-f_sim(x))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min())
+        else:
+            return (abs(f_exp(x)-f_sim(x))).mean(),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
 
 
     def evaluate_obj(self, model):
@@ -2030,10 +2037,10 @@ class xrd_of_model(object):
             score = float(res_sim)
         if self.score_method == 'res_fit': # residual vs. fitted/normalized simulated data
             score = float(res_fit)
-        if self.score_method == 'med_sim': # Earth mover's distance vs. raw sim. data
-            score = float(med_sim)
-        if self.score_method == 'med_fit': # Earth mover's distance vs. fitted sim. data
-            score = float(med_fit)
+        if self.score_method == 'emd_sim': # Earth mover's distance vs. raw sim. data
+            score = float(emd_sim)
+        if self.score_method == 'emd_fit': # Earth mover's distance vs. fitted sim. data
+            score = float(emd_fit)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
