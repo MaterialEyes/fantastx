@@ -260,7 +260,10 @@ def update_pool_mp(returned_models, processed_models, models_evald,
                     select.all_parent_labels += model.inheritance
                 # write data to file
                 write_data(model, data_file)
-                send_model_to_db(model, db)
+                # Do not call db if no db is used
+                # otherwise the main process would crush
+                if db is not None:
+                    send_model_to_db(model, db)
                 models_evald += 1
             processed_models += 1
 
