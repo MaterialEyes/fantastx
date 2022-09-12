@@ -1891,7 +1891,7 @@ class xrd_of_model(object):
         self.xrd_sim_dir = None
         
         print(xrd_params)
-        open('params', 'w').write(str(xrd_params))
+#        open('params', 'w').write(str(xrd_params))
 
         # path to provided files
         self.exp_xrd_file = xrd_params['exp_xrd_file']

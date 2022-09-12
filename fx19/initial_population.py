@@ -232,7 +232,7 @@ class make_random_model(object):
 
         return cluster
 
-    def get_bulk_structure(self, shuffle=True, perturbShape=0.1, perturbAngle=0.1):
+    def get_bulk_structure(self, shuffle=False, perturbShape=0.05, perturbAngle=0.05):
         """
         Creates a new model for the initial population with a random structure
         of bulk geometry. The steps that it
@@ -246,6 +246,8 @@ class make_random_model(object):
             `structure`: the pymatgen structure object corresponding to the
              bulk.
         """
+        print(self.min_dist_dict)
+        print(self.max_dist_dict)
         max_bond_dist = max(self.max_dist_dict.values())
 
         # get species and make an empty lattice box

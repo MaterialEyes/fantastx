@@ -523,13 +523,20 @@ class mating(object):
              parent lattices (False), or a random linear combination of the two
              parent lattices (True).
         """
-        if not random:
-            child_latt_matrix = (latt1.matrix + latt2.matrix) / 2.0
-            child_latt = Lattice(child_latt_matrix)
-        else:
-            r = np.random.uniform()
-            child_latt_matrix = r * latt1.matrix + (1 - r) * latt2.matrix
-            child_latt = Lattice(child_latt_matrix)
+        goodLattice = False                                                  
+        while not goodLattice:                                               
+            if not random:                                                   
+                child_latt_matrix = (latt1.matrix + latt2.matrix) / 2.0      
+                goodLattice = not (np.linalg.det(child_latt_matrix) == 0)    
+                if not goodLattice:                                          
+                    print('Bad lattice! Randomizing the lattice mating...')  
+                    random=True                                              
+                    continue                                                 
+                else:                                                            
+                    r = np.random.uniform()                                      
+                    child_latt_matrix = r * latt1.matrix + (1 - r) * latt2.matrix
+                    goodLattice = not (np.linalg.det(child_latt_matrix) == 0)    
+        child_latt = Lattice(child_latt_matrix)                              
         return child_latt
 
     def rotate_astr(self, astr, rotate_type='random', mirror_axis=2):
