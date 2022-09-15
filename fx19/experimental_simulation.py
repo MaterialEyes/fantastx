@@ -1938,6 +1938,40 @@ class xrd_of_model(object):
         data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
         return np.array(data_raw)[:,:2]
 
+    def xrd_normalize(self, data, scale='minmax'):
+        if scale == 'minmax':
+            return (data - data.min())/(data.max()-data.min())
+        if scale == 'freq':
+            return (data - data.min())/(data - data.min()).max()
+
+    def xrd_similarity_metrics_new(self, data_exp, data_sim, scale='minmax'):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, stats
+
+        f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
+        f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        return abs(f_exp(x)-f_sim(x)).mean(),\
+            abs(self.xrd_normalize(f_exp(x), scale) - self.xrd_normalize(f_sim(x), scale)).mean(),\
+            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+            stats.wasserstein_distance(self.xrd_normalize(f_sim(x), scale), self.xrd_normalize(f_exp(x), scale))
 
     def xrd_similarity_metrics(self, data_exp, data_sim, scaled=True):
         """
