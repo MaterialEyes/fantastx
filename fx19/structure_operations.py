@@ -543,13 +543,20 @@ class mating(object):
              parent lattices (False), or a random linear combination of the two
              parent lattices (True).
         """
-        if not random:
-            child_latt_matrix = (latt1.matrix + latt2.matrix) / 2.0
-            child_latt = Lattice(child_latt_matrix)
-        else:
-            r = np.random.uniform()
-            child_latt_matrix = r * latt1.matrix + (1 - r) * latt2.matrix
-            child_latt = Lattice(child_latt_matrix)
+        goodLattice = False                                                  
+        while not goodLattice:                                               
+            if not random:                                                   
+                child_latt_matrix = (latt1.matrix + latt2.matrix) / 2.0      
+                goodLattice = not (np.linalg.det(child_latt_matrix) == 0)    
+                if not goodLattice:                                          
+                    print('Bad lattice! Randomizing the lattice mating...')  
+                    random=True                                              
+                    continue                                                 
+                else:                                                            
+                    r = np.random.uniform()                                      
+                    child_latt_matrix = r * latt1.matrix + (1 - r) * latt2.matrix
+                    goodLattice = not (np.linalg.det(child_latt_matrix) == 0)    
+        child_latt = Lattice(child_latt_matrix)                              
         return child_latt
 
     def rotate_astr(self, astr, rotate_type='random', mirror_axis=2):
@@ -1058,7 +1065,7 @@ class basinhopping(object):
         """
         # default indices_fraction is 1 ; perturb all atoms (indices)
         self.indices_fraction = 1
-        self.max_perturbation = 0.15
+        self.max_perturbation = 0.25
         self.min_dist_dict = basinhopping_params['min_dist_dict']
         self.max_dist_dict = basinhopping_params['max_dist_dict']
         self.species_dict = basinhopping_params['species_dict']
@@ -1073,11 +1080,11 @@ class basinhopping(object):
                       'Using default..')
 
         if 'max_perturbation' in basinhopping_params:
-            if not 0 < basinhopping_params['max_perturbation'] <= 0.5:
-                print('max_perturbation should be between (0, 0.5]. '
-                      'More than 0.5 would be throw the atoms too far.'
+            if not 0 < basinhopping_params['max_perturbation'] <= 1.0:
+                print('max_perturbation should be between (0, 1.0]. '
+                      'More than 1.0 would be throw the atoms too far.'
                       ' Check the jump distance by lattice vectors *'
-                      ' max_perturbation. Using default value of 0.15')
+                      ' max_perturbation. Using default value of 0.25')
             else:
                 self.max_perturbation = basinhopping_params['max_perturbation']
 

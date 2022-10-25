@@ -232,7 +232,7 @@ class make_random_model(object):
 
         return cluster
 
-    def get_bulk_structure(self):
+    def get_bulk_structure(self, shuffle=False, perturbShape=0.05, perturbAngle=0.05):
         """
         Creates a new model for the initial population with a random structure
         of bulk geometry. The steps that it
@@ -246,10 +246,30 @@ class make_random_model(object):
             `structure`: the pymatgen structure object corresponding to the
              bulk.
         """
+        print(self.min_dist_dict)
+        print(self.max_dist_dict)
         max_bond_dist = max(self.max_dist_dict.values())
 
         # get species and make an empty lattice box
         species, _ = self.get_n_species()
+    
+        # Shuffle the lattice parameters to increase diversity in mating steps
+        if shuffle:
+            tmp = [0,1,2]
+            np.random.shuffle(tmp)
+            self.box_abc = [self.box_abc[tmp[0]], self.box_abc[tmp[1]], self.box_abc[tmp[2]]]
+            self.box_angles = [self.box_angles[tmp[0]], self.box_angles[tmp[1]], self.box_angles[tmp[2]]]
+
+        # Perturb the abc of the box by a normal distribution
+        if perturbShape is not None:
+            for i in range(3):
+                self.box_abc[i] = self.box_abc[i] * np.random.normal(1, perturbShape)
+
+        # Perturb the angles of the box by a normal distribution
+        if perturbAngle is not None:
+            for i in range(3):
+                self.box_angles[i] = self.box_angles[i] * np.random.normal(1, perturbAngle)
+
         latt = Lattice.from_parameters(
             self.box_abc[0], self.box_abc[1], self.box_abc[2],
             self.box_angles[0], self.box_angles[1], self.box_angles[2])

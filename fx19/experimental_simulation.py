@@ -2264,7 +2264,7 @@ class xrd_of_model(object):
         self.xrd_sim_dir = None
 
         print(xrd_params)
-        open('params', 'w').write(str(xrd_params))
+#        open('params', 'w').write(str(xrd_params))
 
         # path to provided files
         self.exp_xrd_file = xrd_params['exp_xrd_file']
@@ -2313,9 +2313,44 @@ class xrd_of_model(object):
         flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
         data_raw = data_raw[flag+1:]
         data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
-        return np.array(data_raw)[:, :2]
+        return np.array(data_raw)[:,:2]
 
-    def xrd_similarity_metrics(self, data_exp, data_sim):
+    def xrd_normalize(self, data, scale='minmax'):
+        if scale == 'minmax':
+            return (data - data.min())/(data.max()-data.min())
+        if scale == 'freq':
+            return (data - data.min())/(data - data.min()).max()
+
+    def xrd_similarity_metrics_new(self, data_exp, data_sim, scale='minmax'):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, stats
+
+        f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
+        f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        return abs(f_exp(x)-f_sim(x)).mean(),\
+            abs(self.xrd_normalize(f_exp(x), scale) - self.xrd_normalize(f_sim(x), scale)).mean(),\
+            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+            stats.wasserstein_distance(self.xrd_normalize(f_sim(x), scale), self.xrd_normalize(f_exp(x), scale))
+
+    def xrd_similarity_metrics(self, data_exp, data_sim, scaled=True):
         """
         Calculate the similarity metric between the simulated and experimental neutron/XRD data.
         Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
@@ -2339,13 +2374,20 @@ class xrd_of_model(object):
         # transforming the raw simulated data to align
         def f_fit(x, a, b): return f_sim(x)*a + b
         popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
-
+        
         # residual or earth mover's distance
         # between exp & sim or sim with transformation
-        return (abs(f_exp(x)-f_sim(x))).mean(),\
-            (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
-            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
-            stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
+        if scaled:
+            
+            return (abs(f_exp(x)-f_sim(x))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min())
+        else:
+            return (abs(f_exp(x)-f_sim(x))).mean(),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
 
     def evaluate_obj(self, model):
         """
@@ -2409,10 +2451,10 @@ class xrd_of_model(object):
             score = float(res_sim)
         if self.score_method == 'res_fit':  # residual vs. fitted/normalized simulated data
             score = float(res_fit)
-        if self.score_method == 'med_sim':  # Earth mover's distance vs. raw sim. data
-            score = float(med_sim)
-        if self.score_method == 'med_fit':  # Earth mover's distance vs. fitted sim. data
-            score = float(med_fit)
+        if self.score_method == 'emd_sim': # Earth mover's distance vs. raw sim. data
+            score = float(emd_sim)
+        if self.score_method == 'emd_fit': # Earth mover's distance vs. fitted sim. data
+            score = float(emd_fit)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
         # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims

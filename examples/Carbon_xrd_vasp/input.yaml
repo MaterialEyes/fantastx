@@ -1,0 +1,72 @@
+inputs:
+    energy_files_path: /home/zisheng.zhang/fantastx_proj/fx_xrd/Carbon/newExp_0/vasp_files
+    # model_files_path: /lcrc/project/XRS_FANTASTX/IrO2_FANTASTX_bulk/user_provided_astrs
+
+structure_record:
+    bulk:
+        box_abc: [3.57, 3.57, 3.57]
+        box_angles: [90, 90, 90]
+    species:
+        species1:
+            name: C
+            min_num: 8
+            max_num: 8
+            mu: 0 
+            max_bonds: 5
+
+population_limits:
+    initial_population: 40
+    total_population: 1000
+    pool: 20
+
+energy_code: vasp
+energy_exec_cmd: time srun -N 1 -n36 -c1 --cpu_bind=cores vasp_std  # BEBOP
+energy_exec_cmd: time srun -N 1 -n16 -c16 --cpu_bind=cores vasp_std # CORI knl
+
+# comment this whole section if a single objective search
+exp_sim_1: "XRD"
+exp_sim_1_params:
+    exp_xrd_file: /home/zisheng.zhang/fantastx_proj/fx_xrd/Carbon/diamond.txt
+    instr_param_file: /home/zisheng.zhang/fantastx_proj/fx_xrd/Carbon/diamond.instprm
+    xmin: 10.
+    xmax: 110.
+    npoints: 2000
+    xmin_fit: 30.
+    xmax_fit: 100.
+    score_method: "emd_fit"
+    npoints_fit: 1400
+    scale: 1000.
+
+basinhopping_constraints:
+    indices_fraction: 0.75
+    max_perturbation: 1
+
+fingerprint_params:
+    label: "bag-of-bonds"
+    tolerance: [0.05, 1.0]
+
+select_params:
+    selection_algorithm: distance_from_pareto # comment if single
+    objective_fn_type: multi # single or multi
+    num_required_above_50: 20 # comment if single
+    num_models_before_pareto: 30 # comment if single
+    operators: ["perturb_sites", "fraction_slice"]
+    operator_assignment: "fixed" # auto-adaptive or fixed
+    operator_frequencies: [0.5, 0.5]
+
+workers: # contains specifications for each dask worker job
+#    cluster: "SLURM" # Specify type of scheduler. Can be "PBS", "SLURM", or "local".
+#    submit_queue: "bdwall"
+    max_workers: 10 # Number of parallel calculations of models
+#    num_cores: 1 # cpus-per-task option
+#    total_mem: "120GB" # total memory for the job (--mem option)
+#    project_name: "XRS_FANTASTX" # project under which job to be requested
+#    node_type: "ib0" # infiniband or haswell etc
+#    walltime: "12:00:00" # estimated entire walltime a worker job shall run
+#    processes: 1
+#    env_extra: ["export I_MPI_FABRICS=shm:tmi"]
+#    job_extra: # any other PBS/SLURM submit options
+#        - "--nodes=1"
+#    header_skip:
+#        - "-c "
+
