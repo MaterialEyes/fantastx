@@ -228,6 +228,27 @@ if all_objects['constraints_obj'].shape == 'molecule':
                                                                 data_file,
                                                                 db,
                                                                 sim_ids)
+# if models_evald < num_initial_pop:
+#     print("Submitting random job")
+#     model_mech = "random"
+# else:
+#     print("Submitting evolved job")
+#     model_mech = "evolved"
+
+# # create the model then send it to the dask-workers for evaluation
+# new_model = make_model(random_model_obj, evolve, select,
+#                        pool, reg_id, model_type=model_mech)
+# out = client.submit(full_eval, new_model, energy_code, Xsim_1)
+# evald_futures.append(out)
+
+# while models_evald < 1:
+#     evald_futures, models_evald, pool, select = update_pool(evald_futures,
+#                                                             models_evald,
+#                                                             pool, select,
+#                                                             data_file,
+#                                                             db,
+#                                                             sim_ids)
+
 print('Input models are finished. Making random models..')
 start_time = time.time()
 # Make random models & evolved models

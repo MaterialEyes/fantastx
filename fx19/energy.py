@@ -22,6 +22,8 @@ import numpy as np
 import subprocess as sp
 import re
 
+DEBUG = False
+
 
 class lammps_code(object):
 
@@ -615,11 +617,13 @@ class vasp_code(object):
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
         # start the vasp calculation
-        self.run_vasp(model)
-        # en_mod = np.random.uniform(7, 13)
-        # model.tot_en = -40 + en_mod
-        # model.obj0_val = en_mod
-        # model.converged = True
+        if DEBUG:
+            en_mod = np.random.uniform(7, 13)
+            model.tot_en = -40 + en_mod
+            model.obj0_val = en_mod
+            model.converged = True
+        else:
+            self.run_vasp(model)
 
     def re_relax(self, model):
         """
@@ -692,8 +696,8 @@ class vasp_code(object):
                 oxi_states = []
                 oxi_states_exist = False
                 for site in model.astr.sites:
-                    if hasattr(site, 'oxi_state'):
-                        oxi_states.append(site.oxi_state)
+                    if hasattr(site.specie, 'oxi_state'):
+                        oxi_states.append(site.specie.oxi_state)
                         oxi_states_exist = True
                     else:
                         oxi_states.append(0)
@@ -755,11 +759,12 @@ class vasp_code(object):
         """
         mol = model.molecule_representation
         if 'fixed_atoms' in mol.keys():
-            sd_flags = [["F", "F", "F"] if i in mol['fixed_atoms']
-                        else ["T", "T", "T"] for i
+            sd_flags = [[False, False, False] if i in mol['fixed_atoms']
+                        else [True, True, True] for i
                         in range(model.astr.num_sites)]
         else:
-            sd_flags = [["T", "T", "T"] for i in range(model.astr.num_sites)]
+            sd_flags = [[True, True, True]
+                        for i in range(model.astr.num_sites)]
 
         model.astr.add_site_property("selective_dynamics", sd_flags)
         mol_poscar = Poscar(model.astr)

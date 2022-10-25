@@ -10,6 +10,7 @@ import multiprocessing as mp
 import scipy as sp
 import numpy as np
 import random
+import datetime
 
 main_path = os.getcwd()
 # read input file and make input dictionary
@@ -124,6 +125,11 @@ models_evald = 0
 evald_futures, simd_futures = [], []
 pool_status_update = 2
 seed_index = 0
+seed_multiplier = 102573
+try:
+    seed_multiplier = int(datetime.datetime.now().strftime('%s%f')) % (2**32)
+except:
+    print("Tried and failed to set random seed using the date and time.")
 
 ###########################
 #  RUN INPUT CALCULATIONS #
@@ -143,7 +149,7 @@ if input_model_obj is not None:
         while get_working_mp_jobs(jobs) >= max_running_jobs:
             continue
         seed_index += 1
-        seed = seed_index * 1736 + 1
+        seed = seed_index * seed_multiplier + 1
         out = mp.Process(target=create_and_eval, args=(seed,
                                                        input_model_obj,
                                                        evolve,
@@ -209,7 +215,7 @@ while models_evald < total_models_needed:
             model_mech = "evolved"
 
         seed_index += 1
-        seed = seed_index * 1736 + 1
+        seed = seed_index * seed_multiplier + 1
         # Create the job and send it to multiprocessing for evaluation
         out = mp.Process(target=create_and_eval, args=(seed,
                                                        random_model_obj,
