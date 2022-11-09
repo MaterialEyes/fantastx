@@ -335,7 +335,7 @@ def dist_pbc_pymatgen(p1, p2, lattice):
 
     # get distance between the two fractional coordinates, returning the
     # distance and number of lattice translations required to shift the image
-    (d, jimage) = lattice.get_distance_and_image(f1, f2, None)
+    d, _ = lattice.get_distance_and_image(f1, f2, None)
 
     return d
 
@@ -357,6 +357,90 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
         if d < min_dist:
             return False
     return True
+
+
+def satisfies_all_dists_quick(one_point, many_points, one_species,
+                              many_species, inv_syms, min_dist_dict,
+                              max_dist_dict=None, lattice=None,
+                              coords_are_cartesian=True):
+    """
+    Function to check that a new coordinate being added to an existing
+    structure satisfies all minimum distance constraints, as well as maximum
+    distanct constraints if provided. To be used with initial_population and
+    basinhopping methods. This is an alternate implementation of the function
+    satisfies_all_dists, which looks for atoms within a sphere around a point
+    before comparing distances. Both methods are O(N^2) but this method does
+    reduce computation time.
+
+    Arguments:
+
+        one_point (iterable): Cartesian coordinates of the new atom
+
+        many_points (iterable): Cartesian coordinates of the atoms which
+         currently reside in the structure
+
+        one_species (str): species of the new atom
+
+        many_species (iterable): strings corresponding to the species of the
+         atoms which currently reside in the structure
+
+        inv_syms (dict): the mapping of each atomic species to their
+         designation in the input yaml file (sp1, sp2, etc)
+
+        min_dist_dict (dict): dictionary of minimum distances with respect to
+         different species
+
+        max_dist_dict (dict): dictionary of the maximum bond distances with
+         respect to different species
+
+        lattice (obj): Pymatgen `Lattice` object which contains the species.
+         If provided, all distances are calculated using periodic boundary
+         conditions.
+
+        coords_are_cartesian (bool): True if the provided coordinates are
+         cartesian, False, if the provided coordinates are fractional
+    """
+    sym1 = inv_syms[one_species]
+    dists_ok = False
+    for index, each_point in enumerate(many_points):
+        if lattice is None:
+            if coords_are_cartesian:
+                d = dist(one_point, each_point)
+            else:
+                print("Error! Provided coordinates are not cartesian, but"
+                      " no lattice was provided.")
+                return None
+        else:
+            if coords_are_cartesian:
+                d = dist_pbc_pymatgen(one_point, each_point, lattice)
+                # d = dist_pbc(one_point, each_point, lattice)
+            else:
+                d, _ = lattice.get_distance_and_image(one_point,
+                                                      each_point,
+                                                      None)
+
+        # d = dist(one_point, each_point)
+        sym2 = inv_syms[many_species[index]]
+        key1 = sym1 + '_' + sym2
+        key2 = sym2 + '_' + sym1
+        if key1 in min_dist_dict:
+            if d < min_dist_dict[key1]:
+                return False
+        if key2 in min_dist_dict:
+            if d < min_dist_dict[key2]:
+                return False
+
+        if max_dist_dict is not None:
+            if key1 in max_dist_dict:
+                if d <= max_dist_dict[key1]:
+                    dists_ok = True
+            if key2 in max_dist_dict:
+                if d <= max_dist_dict[key2]:
+                    dists_ok = True
+        else:
+            dists_ok = True
+
+    return dists_ok
 
 
 def satisfies_all_dists(new_carts, existing_astr, element_syms,
@@ -396,7 +480,10 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     be provided.
 
     """
-    max_of_min_dists = max(min_dist_dict.values())
+    sphere_radius = max(min_dist_dict.values())
+    if max_dist_dict is not None:
+        sphere_radius = max(max_dist_dict.values())
+
     # Get all fractional coordinates of the existing structure
     all_frac_points = existing_astr.frac_coords
     all_species = existing_astr.species
@@ -404,13 +491,14 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     atoms_nearby = \
         existing_astr.lattice.get_points_in_sphere(all_frac_points,
                                                    new_carts,
-                                                   max_of_min_dists)
+                                                   sphere_radius)
+
     if atom_index_in_astr is not None:
         # Remove duplicate atom from the atoms nearby
         for i, atom_data in enumerate(atoms_nearby):
             if atom_data[2] == atom_index_in_astr:
                 duplicate_atom_ind = i
-                del atoms_nearby[duplicate_atom_ind]
+                atoms_nearby.pop(duplicate_atom_ind)
                 break
 
     dists_nearby = [i[1] for i in atoms_nearby]
@@ -433,7 +521,7 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         new_carts_species = existing_astr.species[atom_index_in_astr].name
     new_atom_sym = inv_syms[new_carts_species]
 
-    dists_ok = True
+    dists_ok = False
     for i, spx in enumerate(species_keys_nearby):
         dist = dists_nearby[i]
         # cover both 'sp1_sp2' & 'sp2_sp1'in key1 & key2
@@ -441,63 +529,21 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         key2 = spx + '_' + new_atom_sym
         if key1 in min_dist_dict:
             if dist < min_dist_dict[key1]:
-                # print (1, dist, min_dist_dict[key1])
-                dists_ok = False
+                return False
         if key2 in min_dist_dict:
             if dist < min_dist_dict[key2]:
-                # print (2, dist, min_dist_dict[key1])
-                dists_ok = False
+                return False
 
-    if not max_dist_dict:
-        return dists_ok
-
-    # Check max_dists as well
-    max_dists_to_check = []
-    keys_to_check = []
-    for dist_key in max_dist_dict.keys():
-        if new_atom_sym in dist_key:
-            max_dists_to_check.append(max_dist_dict[dist_key])
-            keys_to_check.append(dist_key)
-
-    for each_dist, each_key in zip(max_dists_to_check, keys_to_check):
-        if dists_ok is False:
-            # min_dist check failed (initial loop)
-            # OR max_dist check failed in previous loop
-            break
-
-        atoms_nearby = existing_astr.lattice.get_points_in_sphere(
-            all_frac_points, new_carts, max_of_min_dists)
-
-        # Remove duplicate atom from the atoms nearby
-        if atom_index_in_astr is not None:
-            for i, atom_data in enumerate(atoms_nearby):
-                if atom_data[2] == atom_index_in_astr:
-                    duplicate_atom_ind = i
-                    del atoms_nearby[duplicate_atom_ind]
-                    break
-
-        dists_nearby = [i[1] for i in atoms_nearby]
-        inds_nearby = [i[2] for i in atoms_nearby]
-
-        # Get the species of atoms nearby
-        species_nearby = [all_species[i].name for i in inds_nearby]
-
-        # Remove any extra species that are not in element_syms (Ex: substrate)
-        species_nearby = [i for i in species_nearby if i in inv_syms]
-
-        # Get species_keys_nearby
-        species_keys_nearby = [inv_syms[each_sps] for each_sps in
-                               species_nearby]
-
-        if len(species_keys_nearby) == 0:
-            # No atom within the max bond dist
-            dists_ok = False
-        else:
-            for key_nearby in species_keys_nearby:
-                if key_nearby not in each_key:
-                    dists_ok = False
-                else:
+        # check max_dists as well if provided
+        # make sure at least one atom is within relevant bond radius
+        if max_dist_dict is not None:
+            if key1 in max_dist_dict:
+                if dist <= max_dist_dict[key1]:
                     dists_ok = True
-                    break
+            if key2 in max_dist_dict:
+                if dist <= max_dist_dict[key2]:
+                    dists_ok = True
+        else:
+            dists_ok = True
 
     return dists_ok

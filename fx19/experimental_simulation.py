@@ -7,7 +7,7 @@ from pymatgen.io.cif import CifWriter
 try:
     from pyobjcryst import loadCrystal
     from diffpy.srfit.pdf import PDFContribution
-    from diffpy.srfit.pdf import DebyePDFGenerator
+    from diffpy.srfit.pdf import DebyePDFGenerator, PDFGenerator
     from diffpy.srfit.fitbase import Profile
     from diffpy.srfit.fitbase import FitRecipe
     import matplotlib.pyplot as plt
@@ -28,6 +28,18 @@ except ImportError:
     print('Install scikit-image, Ingrained, opencv for TEM simulation.'
           ' Otherwise ignore..')
 
+try:
+    from lmfit import Model
+except ImportError:
+    print("Install lmfit to perform optimization of the convolution parameters"
+          " for XANES simulations.")
+
+try:
+    import GSASIIscriptable as G2sc
+except ImportError:
+    print('Install GSASIIscriptable for powder diffraction simulation.'
+          ' Otherwise ignore..')
+
 from math import floor
 import numpy as np
 import os
@@ -37,13 +49,32 @@ from scipy.interpolate import CubicSpline, UnivariateSpline
 from ase.data import atomic_numbers
 from fx19.fingerprinting import DistanceCalculator
 import re
+from collections import Counter
+from pymatgen.core.lattice import Lattice
+
+DEBUG = False
 
 
 class xanes_of_model(object):
     """
-    This class contains functions to calculate the XANES, compare it against
-    the previously computed [Fe(CN)6]-4 spectra, and compare the difference
-    spectra against the experimental difference spectra.
+    This class contains functions to calculate XANES spectra, either the
+    raw spectra or the difference spectra (essential for XTA analysis, and
+    useful for raw XANES analysis as well).
+
+    Three different XANES simulation codes are currently supported:
+
+    - FDMNES
+
+    - FEFF
+
+    - VASP
+
+    This class also performs post-simulation smoothing and convolution.
+    Smoothing is performed with either a cubic or univariate spline, and
+    convolution can be performed with either a Gaussian or Lorentzian. For
+    the Gaussian, the FWHM must be provided in units of eV. For the
+    Lorentzian, the width is energy dependent, and more parameters must be
+    provided. For a reference, refer to [this](../xanes) page.
 
     Arguments:
 
@@ -114,26 +145,60 @@ class xanes_of_model(object):
             self.spline_mesh = np.arange(7110, 7165, 0.1)
             self.mesh_step = 0.1
 
-        if 'convolution_params' in xanes_params:
-            self.convolution_type = xanes_params['convolution_params'][0]
-            self.convolution_params = xanes_params['convolution_params'][1]
-            self.extract_cutting_energy = xanes_params['convolution_params'][2]
+        if 'convolution' in xanes_params:
+            self.convolution_type = xanes_params['convolution']['kernel']
+            self.convolution_params = xanes_params['convolution']['arguments']
+            self.extract_fermi_energy =\
+                xanes_params['convolution']['extract_fermi_energy']
+            # print(f"Convolution params: {self.convolution_params}")
         else:
             self.convolution_type = 'lorentzian'
-            self.convolution_params = [1.33, 15., 23.5, 23.5, -8]
+            self.convolution_params = {'g_ch': 1.33,
+                                       'g_max': 15,
+                                       'e_cent': 23.5,
+                                       'e_larg': 23.5,
+                                       'fermi_energy': 0
+                                       }
             self.extract_cutting_energy = True
-        self.cutting_energy_correction = -11.
+
+        self.optimize_convolution_params = True
+        self.opt_bounds = None
+        if self.optimize_convolution_params:
+            if 'optimization_params' in xanes_params:
+                self.opt_options = xanes_params['optimization_params']['opt_options']
+                self.opt_method = xanes_params['optimization_params']['opt_method']
+                self.opt_bounds = xanes_params['optimization_params']['opt_bounds']
+
+            else:
+                self.opt_options = {'maxiter': 1000,
+                                    'popsize': 16,
+                                    'init': 'sobol'}
+                self.opt_method = 'differential_evolution'
+                self.opt_bounds = {
+                    'g_ch': (0.75, 8),
+                    'g_max': (5, 20),
+                    'e_cent': (5, 50),
+                    'e_larg': (5, 50)}
+
+        self.constant_broadening = False
+
+        self.cutting_energy_correction = 0.0  # was -6.0
+        self.refine_alignment_using_second_peak = False
         self.refine_alignment_using_difference_spectra = False
+        self.comparison_window = [7110., 7160.]
+        self.compare_indices =\
+            (self.spline_mesh <= self.comparison_window[1]) &\
+            (self.spline_mesh >= self.comparison_window[0])
 
         # Gather experimental data
-        self.exp_base_arrays, self.exp_base_maxes =\
+        self.exp_base_arrays, self.exp_base_peaks =\
             self.read_in_experimental_spectra(self.exp_base_ref_filepath)
-        exp_base_spline = self.fit_spline(
+        exp_base_spline = self._fit_spline(
             self.exp_base_arrays[0], self.exp_base_arrays[1], "cubic")
         if self.comparison_spectra_type == "difference":
-            self.exp_exc_arrays, self.exp_exc_maxes =\
+            self.exp_exc_arrays, self.exp_exc_peaks =\
                 self.read_in_experimental_spectra(self.exp_exc_ref_filepath)
-            exp_exc_spline = self.fit_spline(
+            exp_exc_spline = self._fit_spline(
                 self.exp_exc_arrays[0], self.exp_exc_arrays[1], "cubic")
             self.exp_dif_spline = exp_exc_spline - exp_base_spline
             self.exp_dif_reshaped_spline = np.reshape(
@@ -143,15 +208,15 @@ class xanes_of_model(object):
             self.exp_base_reshaped_spline = np.reshape(
                 self.exp_base_spline, (-1, 1))
 
-        print("Gathered experimental data.")
+        # print("Gathered experimental data.")
 
         if self.comparison_spectra_type == "difference":
             # Gather pre-computed computational base spectra
             self.comp_base_arrays, _ = self.read_in_calculated_spectra(
-                self.comp_base_ref_filepath, self.exp_base_maxes)
-            self.comp_base_spline = self.fit_spline(
+                self.comp_base_ref_filepath, self.exp_base_peaks)
+            self.comp_base_spline = self._fit_spline(
                 self.comp_base_arrays[0], self.comp_base_arrays[1], "cubic")
-            print("Gathered pre-computed computational data.")
+            # print("Gathered pre-computed computational data.")
 
     def fwhm2sigma(self, fwhm):
         '''
@@ -164,56 +229,34 @@ class xanes_of_model(object):
 
         Returns:
 
-            (float): the gaussian sigma
+            float: the gaussian sigma
         '''
         return fwhm / np.sqrt(8 * np.log(2))
 
-    def lorentzian_broadening(self, E, g_ch, g_m, E_cent, E_larg, E_f):
+    def _locate_peaks(self, x_array, y_array):
         '''
-        Calculates the energy dependent broadening parameter for
-        Lorentzian broadening. For reference, refer to this
-        [paper](https://hal.archives-ouvertes.fr/hal-00687301/document).
-        In this method, the broadening depends on both the core-hole width
-        as well as the spectral width of the final state. This spectral
-        width is approximated by an arctangent.
+        Finds the first and second peaks of the spectra post-edge. 
 
-        Arguments:
-
-            E (float): energy
-
-            g_ch (float): core-hole broadening width
-
-            g_m (float): maximum height of the arctangent
-
-            E_cent (float): the energy of the arctangent inflection point
-
-            E_larg (float): the inclination of the arctangent
-
-            E_f (float): the effective Fermi energy (also referred to as
-              the cutting energy)
-
-        Returns:
-
-            (float): the energy dependent broadening parameter
-        '''
-        eps = (E - E_f)/E_cent
-        return g_ch + g_m*(0.5 +
-                           1/np.pi *
-                           np.arctan(np.pi/3*g_m/E_larg*(eps-1/eps**2)))
-
-    def calculate_zero_derivative_peak(self, x_array, y_array):
-        '''
-        Adjusts the peak of the spectra to be the point closest to the
-        maximum intensity point where the first derivative is zero. The
+        The first peak of the spectra is adjusted to be the point closest to
+        the maximum intensity point where the first derivative is zero. The
         spectra is first fitted with a spline, so as to correspond with
         the final mesh which will be used.
+
         The first derivative is then calculated numerically as:
-        f'(x) = f(x+h) - f(x-h)/(2*h)
+
+        $f'(x) = f(x+h) - \dfrac{f(x-h)}{2*h}$
+
         The second derivative is then calculated numerically as:
-        f''(x) = (f(x+h) - 2*f(x) + f(x-h))/(h**2)
+
+        $f''(x) = \dfrac{f(x+h) - 2*f(x) + f(x-h)}{h^2}$
+
         The zero-crossing of the first derivative is then estimated
         by approximating the second-derivative as constant in this
         narrow mesh interval.
+
+        The second peak of the spectra is found by simply looking for
+        inflection points in the first derivative, and choosing the one
+        with the maximal y value apart from the first peak.
 
         Arguments:
 
@@ -223,142 +266,305 @@ class xanes_of_model(object):
 
         Returns:
 
-            (float): the estimated x-coordinate of the peak
+            float: the estimated x-coordinate of the peak
         '''
-        spline_y = self.fit_spline(x_array, y_array, "cubic")
+        spline_y = self._fit_spline(x_array, y_array, "cubic")
+        y_max = np.amax(spline_y)
         max_indice = np.argmax(spline_y)
         x_max = self.spline_mesh[np.argmax(spline_y)]
 
-        # now find the second_derivative maximum
-        peak_derivative = (spline_y[max_indice + 1] -
-                           spline_y[max_indice - 1])/(2*self.mesh_step)
-        peak_second_derivative = (
-            spline_y[max_indice + 1] -
-            2*spline_y[max_indice] +
-            spline_y[max_indice - 1]) / (self.mesh_step**2)
-        zero_derivative_adjustment = (-peak_derivative)/peak_second_derivative
-        x_max = x_max + zero_derivative_adjustment
+        y_max_two = y_max
+        x_max_two = x_max
 
-        return x_max
+        if max_indice != 0 and max_indice != len(y_array) - 1:
 
-    def create_lorentzian_kernel(self, g_ch, g_m, E_cent, E_larg, E_f):
-        '''
-        Creates a Lorentzian kernel for convolution. Uses the energy-
-        dependent broadening parameter described in this [paper](https:
-        //hal.archives-ouvertes.fr/hal-00687301/document).
+            # now find the second_derivative maximum
+            peak_derivative = (spline_y[max_indice + 1] -
+                               spline_y[max_indice - 1])/(2*self.mesh_step)
+            peak_second_derivative = (
+                spline_y[max_indice + 1] -
+                2*spline_y[max_indice] +
+                spline_y[max_indice - 1]) / (self.mesh_step**2)
+            zero_derivative_adjustment = (-peak_derivative) / \
+                peak_second_derivative
+            x_max = x_max + zero_derivative_adjustment
+            x_max_two = x_max
+
+            # Second peak: found by looking at first derivative inflection points
+            derivatives = []
+            for i in range(1, len(y_array) - 1):
+                d = (y_array[i+1] - y_array[i-1]) / (2 * self.mesh_step)
+                derivatives.append(d)
+
+            inflection_points = []
+            for i in range(1, len(derivatives)):
+                d1 = derivatives[i-1]
+                d2 = derivatives[i]
+                if d1*d2 < 0 or np.isclose(d1*d2, 0.0):
+                    inflection_points.append(i)
+
+            high_e_inflection_points = [
+                i for i in inflection_points if i > max_indice]
+            y_vals = y_array[high_e_inflection_points]
+
+            if len(y_vals) > 0:
+                y_max_two = np.amax(y_vals)
+                ip = np.argmax(y_vals)
+                max_indice_two = high_e_inflection_points[ip]
+                x_max_two = x_array[max_indice_two]
+
+        # else:
+        #     print(f"Error in finding peaks! Spline is: {spline_y}")
+
+        return [(x_max, y_max), (x_max_two, y_max_two)]
+
+    def _gaussian(self, x, cen=0, sigma=1, fwhm=False):
+        """
+        1 dimensional Gaussian function
 
         Arguments:
+            x (array): data points
+            cen (float): center of the gaussian
+            gamma (float): width of the gaussian
+            fwhm (bool): if the width is the full or half width half max
 
-            g_ch (float): core-hole broadening width
+        Returns:
+            (array): gaussian function at each x point
+        """
+        if fwhm:
+            sigma = sigma / 2 * np.sqrt(2 * np.log(2))
 
-            g_m (float): maximum height of the arctangent
+        return 1.0 / np.sqrt(2 * np.pi) *\
+            np.exp(-((1.0 * x - cen) ** 2) / (2 * sigma ** 2))
 
-            E_cent (float): the energy of the arctangent inflection point
+    def _lorentzian(self, x, cen=0, gamma=1, peak=None, method='new'):
+        """
+        1 dimensional Lorentzian function
 
-            E_larg (float): the inclination of the arctangent
+        Arguments:
+            x (array): data points
+            cen (float): center of the lorentzian
+            gamma (float): full width at half maximum of the lorentzian
+            peak: if None, peak = 1 / (math.pi*2), then the distribution
+             integrates to 1
 
-            E_f (float): the effective Fermi energy (also referred to as
-              the cutting energy)
+        Returns:
+            (array): lorentzian function at each x point
+        """
+        if method == 'new':
+            gamma = 2*gamma  # fwhm
+            if peak is None:
+                peak = 1.0 / (2 * np.pi)
+            return peak * gamma/((x - cen)**2 + (0.5*gamma)**2)
+        else:
+            # here gamma is the the half width at half max
+            if peak is None:
+                peak = 1.0 / (np.pi * gamma)
+            return peak * (1.0 / (1.0 + ((1.0 * x - cen) / gamma) ** 2))
+
+    def _get_ene_index(self, ene, cen, width):
+        """
+        Returns the min/max indexes at the given width of the array. If
+        these points do not exist, return the start and end of the array.
+
+        Arguments:
+            ene (array): target array
+            cen (float): center of the array
+            hwhm (float): half width half maximum of the array
+
+        Returns:
+            (int, int): min and max indices
+        """
+        try:
+            if (cen - width) <= min(ene):
+                ene_imin = 0
+            else:
+                ene_imin = max(np.where(ene < (cen - width))[0])
+            if (cen + width) >= max(ene):
+                ene_imax = len(ene) - 1
+            else:
+                ene_imax = min(np.where(ene > (cen + width))[0])
+            return ene_imin, ene_imax
+        except Exception:
+            print("index not found for {0} +/- {1}".format(cen, width))
+            return None, None
+
+    def _arctan_gamma_fdmnes(self, ene, g_ch, g_max, e_cent, e_larg,
+                             fermi_energy):
+        """
+        Returns a broadening term that is arc-tangent like, with the same
+        parameters as FDMNES:
+        $\epsilon = \frac{E - E_{fermi}}{E_{0}}$
+        $\alpha = \epsilon - \frac{1}{\epsilon^2}$
+        $\beta = \arctan( \frac{\pi}{3} * \Gamma_{max}/E_{larg} * \alpha)$
+        $\Gamma(E)= \Gamma_{hole} + \Gamma_{max} * ( 1/2 + \frac{\beta}{\pi})$
+
+         For reference, refer to this
+         [paper](https://hal.archives-ouvertes.fr/hal-00687301/document). In
+         this method, the broadening depends on both the core-hole width as
+         well as the spectral width of the final state. This spectral width
+         is approximated by an arctangent.
+
+        Arguments:
+            g_ch (float): core level width
+            g_max (float): maximum width at high energy
+            e_cent (float): center of the arctangent function
+            e_larg (float): width of the arctangent function
+            fermi_energy (float): the fermi energy (below which all values
+             should be zero)
+
+        Returns:
+            (array): broadening term for each energy value
+        """
+        eps = (ene - fermi_energy)/e_cent
+        arctan_vals = np.arctan(np.pi/3 * g_max/e_larg * (eps - 1/eps**2))
+        return g_ch + g_max*(0.5 + 1/np.pi * arctan_vals)
+
+    def _create_kernel(self, kernel='gaussian', fwhm_e=1.0, k_x=None,
+                       estep=None, cen=0.0, args=None):
+        '''
+        Create convolution kernel with fixed full width half max, and a range
+        in x that is either set directly or is set to be 3 times the full
+        width half max.
+
+        Arguments:
+            kernel (string): type of kernel to create
+            fwhm_e (float): full width half maximum of the chosen kernel
+            k_x (array): x values to use for kernel, if provided
+            estep (float): energy spacing between kernel points
+            cen (float): center point of the kernel
+            args (list): additional arguments to pass to the `lorentzian_old`
+             kernel.
 
         Returns:
             (array, int):
-            - the convolution kernel
-            - integer used for shifting the final
-            convolved spectra to remove the zero points
-
+            - kernel with all values above 1e-4.
+            - extent of kernel on each side of the center
         '''
-        x_for_kernel = np.arange(-10, 10)
-        gammas = self.lorentzian_broadening(
-            x_for_kernel, g_ch, g_m, E_cent, E_larg, E_f)
-        kernel = 1/np.pi*(0.5*gammas)/((x_for_kernel)**2 + (0.5*gammas)**2)
-        kernel_above_thresh = kernel > 0.0001
-        finite_kernel = kernel[kernel_above_thresh]
+        if k_x is None:
+            if estep is None:
+                print("No energy step width provided for convolution. "
+                      "Using 1.0.")
+                estep = 1.0
+            step_width = np.ceil(fwhm_e * 3.0 / estep)
+            x_width = step_width * estep
+            k_x = np.arange(-x_width, x_width, 1.0)
+
+        if kernel == 'gaussian':
+            hwhm = fwhm_e / 2.0
+            ky = self._gaussian(k_x, cen, sigma=hwhm)
+        elif kernel == 'lorentzian':
+            hwhm = fwhm_e / 2.0
+            ky = self._lorentzian(k_x, cen=cen, gamma=hwhm, method='new')
+        elif kernel == 'gaussian_old':
+            sigma = self._fwhm2sigma(fwhm_e)
+            ky = np.exp(-(k_x) ** 2 / (2 * sigma ** 2))
+        elif kernel == 'lorentzian_old':
+            (g_ch, g_m, E_cent, E_larg, E_f) = args
+            gammas = self._arctan_gamma_fdmnes(
+                k_x, g_ch, g_m, E_cent, E_larg, E_f)
+            ky = 1/np.pi*(0.5*gammas)/((k_x)**2 + (0.5*gammas)**2)
+
+        ky_above_thresh = ky > 0.0001
+        finite_kernel = ky[ky_above_thresh]
         finite_kernel = finite_kernel / finite_kernel.sum()
         kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
 
         return finite_kernel, kernel_n_below_0
 
-    def create_gaussian_kernel(self, fwhm):
+    def _direct_convolution(self, e, mu, kernel='gaussian', fwhm_e=1.0, args=None):
         '''
-        Create a gaussian kernel for convolution
+        Returns spectra convolved with choice of kernel function, with width
+        given by fwhm_e. This convolution does not depend on the energy values.
 
         Arguments:
-
-            fwhm (float): the broadening energy
-
+            e (array): the energy values
+            mu (array): the absorption at each energy value
+            kernel (string): choice of convolving kernel
+            fwhm_e (float): the full width half max of the convolving kernel
+            args (list): any arguments that need to be passed to the kernel
         Returns:
-            (array, int):
-            - the convolution kernel
-            - integer used for shifting the final convolved spectra
-            to remove the zero points
+            (array): convolved mu values
         '''
-        # create gaussian kernel
-        sigma = self.fwhm2sigma(fwhm)
-        x_for_kernel = np.arange(-10, 10)
-        kernel = np.exp(-(x_for_kernel) ** 2 / (2 * sigma ** 2))
-        kernel_above_thresh = kernel > 0.0001
-        finite_kernel = kernel[kernel_above_thresh]
-        finite_kernel = finite_kernel / finite_kernel.sum()
-        kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
-
-        return finite_kernel, kernel_n_below_0
-
-    def convolve_with_gaussian(self, fwhm, y_array):
-        '''
-        Convolves a XANES spectra with a gaussian.
-
-        Arguments:
-
-            fwhm (float): the broadening energy
-
-            y_array (array): the absorption profile to be convolved.
-
-        Returns:
-
-            (array): the convolved absorption profile
-        '''
-        n_points = len(y_array)
-        finite_kernel, kernel_n_below_0 = self.create_gaussian_kernel(fwhm)
-        convolved_y = np.convolve(y_array, finite_kernel)
+        n_points = len(mu)
+        estep = e[1] - e[0]
+        finite_kernel, kernel_n_below_0 = self._create_kernel(
+            kernel, fwhm_e, k_x=None, estep=estep, cen=0.0, args=args)
+        convolved_y = np.convolve(mu, finite_kernel)
         smoothed_y = convolved_y[kernel_n_below_0:(
             n_points + kernel_n_below_0)]
-
         return smoothed_y
 
-    def convolve_with_lorentzian(self, y_array,
-                                 g_ch, g_m, E_cent, E_larg, E_f):
-        '''
-        Convolve a XANES spectra with a lorentzian
+    def _energy_dependent_conv(self, e, mu, kernel, fwhm_e=None,
+                               efermi=None):
+        """
+        Performs energy dependent convolution, where the width of the
+        convolving function depends on the energy of the central bin. This
+        convolution can be gaussian or lorentzian.
 
         Arguments:
-
-            y_array (array): the absorption profile to be convolved.
-
-            g_ch (float): core-hole broadening width
-
-            g_m (float): maximum height of the arctangent
-
-            E_cent (float): the energy of the arctangent inflection point
-
-            E_larg (float): the inclination of the arctangent
-
-            E_f (float): the effective Fermi energy (also referred to as
-              the cutting energy)
+            e (array): energy values
+            mu (array): the values which are being convolved with the kernel
+            kernel (string): type of kernel used for convolution
+            fwhm_e (float): the full width half maximum in eV for kernel
+             broadening
+            efermi (float): the fermi energy in eV. All mu values for energies
+             below the fermi energy are set to be zero.
 
         Returns:
+            (array): the convolved function
+        """
+        f = np.copy(mu)
+        convolution = np.zeros_like(f)
+        if efermi is not None:
+            ief = np.argmin(np.abs(e - efermi))
+            f[0:ief] *= 0
+        if e.shape != fwhm_e.shape:
+            print("Error: 'fwhm_e' does not have the same shape of 'e'")
+            return 0
+        # linar fit upper part of the spectrum to avoid border effects
+        # polyfit => pf
+        lpf = int(len(e) / 2)
+        cpf = np.polyfit(e[-lpf:], f[-lpf:], 1)  # polynomial coefficients
+        fpf = np.poly1d(cpf)  # polynomial function
 
-            (array): the convolved absorption profile
-        '''
-        n_points = len(y_array)
-        finite_kernel, kernel_n_below_0 = self.create_lorentzian_kernel(
-            g_ch, g_m, E_cent, E_larg, E_f)
-        convolved_y = np.convolve(y_array, finite_kernel)
-        smoothed_y = convolved_y[kernel_n_below_0:(
-            n_points + kernel_n_below_0)]
+        # extend upper and lower energy borders to 3*fhwm_e[-1]
+        estep = e[-1] - e[-2]
+        e_extended = np.append(e, np.arange(
+            e[-1] + estep, e[-1] + 3 * fwhm_e[-1], estep))
+        for n in range(len(f)):
+            # from now on change e with e_extended
+            # get 1.5 * fwhm energy indices
+            eimin, eimax = self._get_ene_index(
+                e_extended, e_extended[n], 1.5 * fwhm_e[n])
 
-        return smoothed_y
+            # get kernel range over 1.5 * fwhm
+            if len(range(eimin, eimax)) % 2 == 0:
+                # odd range centered at the convolution point
+                kx = e_extended[eimin:eimax + 1]
+            else:
+                kx = e_extended[eimin:eimax]
 
-    def fit_spline(self, x_array, y_array, type):
+            # get kernel over this range
+            ky, _ = self._create_kernel(kernel,
+                                        fwhm_e[n], k_x=kx, cen=e_extended[n])
+
+            # perform convolution
+            convolution_n = 0
+            length_kernel = len(kx)
+            func_range = range(-int(length_kernel / 2),
+                               int(length_kernel / 2) + 1)
+            kernel_range = range(length_kernel)
+            for func_index, kernel_index in zip(func_range, kernel_range):
+                if ((n + func_index) >= 0) and ((n + func_index) < len(f)):
+                    convolution_n += f[n + func_index] * ky[kernel_index]
+                elif (n + func_index) >= 0:
+                    convolution_n +=\
+                        fpf(e_extended[n + func_index]) * ky[kernel_index]
+            convolution[n] = convolution_n
+        return convolution
+
+    def _fit_spline(self, x_array, y_array, type):
         '''
         Fit a spline to the spectra, and uses it to interpolate points
         onto a pre-defined mesh (`self.spline_mesh`).
@@ -370,7 +576,7 @@ class xanes_of_model(object):
             y_array (array): spectra absorption values
 
             type (string): which type of spline should be fit to the
-            spectra. Options are `cubic` and `univariate`.
+             spectra. Options are `cubic` and `univariate`.
 
         Returns:
 
@@ -389,6 +595,201 @@ class xanes_of_model(object):
             us = UnivariateSpline(x_array, y_array, s=0.0001)
             new_data = us(self.spline_mesh)
         return new_data
+
+    def _spline_shift_scale(self, _x_array, _y_array, exp_peaks):
+        """
+        Roughly align the first peak of a spectra with experimental peaks,
+        fit a spline, more carefully align the peaks, then return the final
+        spline.
+
+        Arguments:
+            _x_array (array): x values of the spectra
+            _y_array (array): y values of the spectra
+            exp_peaks (list): experimental peak positions
+
+        Returns:
+            (array): spline of the shifted and scaled spectra
+        """
+        shift_factor = exp_peaks[0][0] - \
+            _x_array[np.argmax(_y_array[10:]) + 10]
+
+        spline_y = self._fit_spline(_x_array + shift_factor,
+                                    _y_array, "cubic")
+        peaks = self._locate_peaks(self.spline_mesh, spline_y)
+
+        scale_factor = exp_peaks[0][1] / peaks[0][1]
+        shift_factor = exp_peaks[0][0] - peaks[0][0]
+
+        scaled_y = spline_y * scale_factor
+        shifted_x = self.spline_mesh + shift_factor
+        spline_y = self._fit_spline(
+            shifted_x, scaled_y, "cubic")
+        return spline_y
+
+    def _fit_to_second_peak(self, x_array, y_array, exp_peaks):
+        """
+        DEPRECATED.
+        Improve the fit of a base convolution by making the height of
+        the second peak match the height of the second experimental
+        peak as closely as possible.
+
+        Arguments:
+            x_array (array): energy values
+            y_array (array): absorption values
+            exp_peaks (list): experimental peak energy and absorption values
+
+        Returns:
+            (array): spline of the fitted data
+        """
+        adjust_attempts = 0
+        smallest_diff = np.inf
+        adjustment = 0.0
+        best_spline = None
+
+        if self.convolution_type == "lorentzian":
+            conv_params = self.convolution_params.copy()
+            adjustment = -0.1
+        else:
+            conv_params = self.convolution_params
+            adjustment = 0.01
+
+        while smallest_diff > 0.01 and adjust_attempts < 250:
+            if self.constant_broadening:
+                conv_params['g_ch'] += adjustment
+                smoothed_y = self._direct_convolution(x_array,
+                                                      y_array,
+                                                      self.convolution_type,
+                                                      conv_params['g_ch'])
+            else:
+                conv_params['fermi_energy'] += adjustment
+                arctan_gammas = self._arctan_gamma_fdmnes(
+                    x_array,
+                    **conv_params)
+                smoothed_y = self._energy_dependent_conv(
+                    x_array,
+                    y_array,
+                    self.convolution_type,
+                    arctan_gammas,
+                    conv_params['fermi_energy'])
+
+            spline_y = self._spline_shift_scale(x_array, smoothed_y, exp_peaks)
+            peaks = self._locate_peaks(self.spline_mesh, spline_y)
+
+            adjust_attempts += 1
+            diff = abs(peaks[1][1] - exp_peaks[1][1])
+            if diff < smallest_diff:
+                smallest_diff = diff
+                best_spline = spline_y
+
+        return best_spline
+
+    def _direct_fit(self, args):
+        """
+        Optimize the convolution parameters of a spectra which is being
+        convolved with a constant (non-energy dependent) broadening term.
+
+        Arguments:
+            args (list): information necessary for convolution
+
+        Returns:
+            (obj, array):
+            - the lmfit result object
+            - the spline result (bounded by the comparison indices)
+        """
+        (x_array, y_array, exp_spline, exp_peaks, _) = args
+        data = exp_spline[self.compare_indices]
+
+        def fit_model(_x_array, _g_ch):
+            # first get xanes spline to ensure constant e spacing
+            spline_y = self._spline_shift_scale(_x_array, y_array)
+            smoothed_y = self._direct_convolution(
+                self.spline_mesh, spline_y, self.convolution_type, _g_ch)
+            spline_y = self._spline_shift_scale(
+                self.spline_mesh, smoothed_y, exp_peaks)
+
+            if self.comparison_spectra_type == 'difference':
+                return spline_y[self.compare_indices] -\
+                    self.comp_base_spline[self.compare_indices]
+            else:
+                return spline_y[self.compare_indices]
+
+        modelling = Model(fit_model)
+        modelling.set_param_hint(
+            '_g_ch',
+            value=self.convolution_params['g_ch'],
+            min=self.opt_bounds['g_ch'][0],
+            max=self.opt_bounds['g_ch'][1])
+
+        pars = modelling.make_params()
+        data = exp_spline[self.compare_indices]
+        result = modelling.fit(data,
+                               pars,
+                               _x_array=x_array,
+                               method=self.opt_method,
+                               fit_kws=self.opt_options)
+        return result
+
+    def _e_dependent_fit(self, args):
+        """
+        Optimize the convolution parameters of a spectra which is being
+        convolved with an energy-dependent broadening term.
+
+        Arguments:
+            args (list): information necessary for convolution
+
+        Returns:
+            (obj, array):
+            - the lmfit result object
+            - the spline result (bounded by the comparison indices)
+        """
+        (x_array, y_array, exp_spline, exp_peaks, fermi_energy) = args
+        data = exp_spline[self.compare_indices]
+
+        def fit_model(_x_array, _y_array, _g_max, _e_cent, _e_larg):
+            arctan_gammas = self._arctan_gamma_fdmnes(
+                _x_array,
+                self.convolution_params['g_ch'],
+                _g_max,
+                _e_cent,
+                _e_larg,
+                fermi_energy)
+            smoothed_y = self._energy_dependent_conv(
+                _x_array, _y_array, self.convolution_type,
+                arctan_gammas, fermi_energy)
+            spline_y = self._spline_shift_scale(
+                _x_array, smoothed_y, exp_peaks)
+
+            if self.comparison_spectra_type == 'difference':
+                # print("Returning difference!")
+                return spline_y[self.compare_indices] -\
+                    self.comp_base_spline[self.compare_indices]
+            else:
+                # print("Returning spline!")
+                return spline_y[self.compare_indices]
+
+        modelling = Model(fit_model, independent_vars=["_x_array", "_y_array"])
+        modelling.set_param_hint(
+            '_g_max',
+            value=self.convolution_params['g_max'],
+            min=self.opt_bounds['g_max'][0],
+            max=self.opt_bounds['g_max'][1])
+        modelling.set_param_hint(
+            '_e_cent',
+            value=self.convolution_params['e_cent'],
+            min=self.opt_bounds['e_cent'][0],
+            max=self.opt_bounds['e_cent'][1])
+        modelling.set_param_hint(
+            '_e_larg',
+            value=self.convolution_params['e_larg'],
+            min=self.opt_bounds['e_larg'][0],
+            max=self.opt_bounds['e_larg'][1])
+
+        pars = modelling.make_params()
+        data = exp_spline[self.compare_indices]
+        result = modelling.fit(data, pars, _x_array=x_array, _y_array=y_array,
+                               method=self.opt_method,
+                               fit_kws=self.opt_options)
+        return result
 
     def read_in_experimental_spectra(self, file_path):
         '''
@@ -419,14 +820,21 @@ class xanes_of_model(object):
         x_array = np.array(x_list)
         y_array = np.array(y_list)
 
-        smoothed_y = self.convolve_with_gaussian(0.5, y_array)
+        # Sort the arrays
+        sort_indices = np.argsort(x_array)
+        x_array = x_array[sort_indices]
+        y_array = y_array[sort_indices]
 
-        y_max = np.amax(smoothed_y)
-        x_max = self.calculate_zero_derivative_peak(x_array, smoothed_y)
+        smoothed_y = self._direct_convolution(
+            x_array, y_array, 'gaussian', 0.5)
 
-        return (x_array, smoothed_y), (x_max, y_max)
+        spline_y = self._fit_spline(x_array, smoothed_y, "cubic")
+        peaks = self._locate_peaks(self.spline_mesh, spline_y)
 
-    def read_in_calculated_spectra(self, file_path, experimental_maxes):
+        return (x_array, smoothed_y), peaks
+
+    def read_in_calculated_spectra(self, file_path, experimental_peaks,
+                                   experimental_spline=None):
         '''
         Reads in the calculated spectra from the simulation file. This
         spectra is then convolved using the user-specified parameters. 
@@ -435,17 +843,21 @@ class xanes_of_model(object):
         extracted. These values are then used to scale and shift the
         spectra to align with the provided experimental max values.
 
+        Functionality also exists to adjust the convolution in order to
+        match the heights of the second peaks of the simulated and
+        experimental spectra.
+
         Arguments:
 
             file_path (string): the path to the simulated spectra data file.
 
-            experimental_maxes (tuple): the x- and y-coords of the first peak
-            maximum of the convolved experimental spectra.
+            experimental_peaks (tuple): the x- and y-coords of the first and
+             second peaks of the convolved experimental spectra.
 
         Returns:
             (tuple, tuple):
             - the convolved spectra, shifted and scaled to match the
-            experimental spectra.
+             experimental spectra.
             - the values by which the spectra was shifted and scaled.
         '''
         lines = open(file_path, "r").read().splitlines()
@@ -464,41 +876,107 @@ class xanes_of_model(object):
         x_array = np.array(x_list)
         y_array = np.array(y_list)
 
-        if self.convolution_type == "lorentzian":
-            if self.extract_cutting_energy:
-                # Grab the fermi level to cut with
-                pattern = re.compile("Cycle  19")
+        fermi_energy = 0
+        # print("Extracting fermi energy")
+        if self.extract_fermi_energy:
+            # Grab the fermi level to cut with
+            match = None
+            cycle_index = 19
+            while match is None:
+                pattern = re.compile(f"Cycle  {cycle_index}")
                 bav_file = file_path[:-9] + "bav.txt"
                 lines = open(bav_file, "r").read().splitlines()
                 for line in lines:
                     match = re.search(pattern, line)
                     if match is not None:
-                        fermi_energy = float(line.split()[5])
+                        fermi_energy = float(line.split()[5]) + energy_val
                         fermi_energy += self.cutting_energy_correction
-                        self.convolution_params[4] = fermi_energy
                         break
-            smoothed_y = self.convolve_with_lorentzian(
-                y_array, *self.convolution_params)
+                cycle_index -= 1
+                if cycle_index == 10:
+                    fermi_energy = energy_val
+                    fermi_energy += self.cutting_energy_correction
+                    break
         else:
-            smoothed_y = self.convolve_with_gaussian(
-                y_array, *self.convolution_params)
+            fermi_energy = energy_val
+            fermi_energy += self.cutting_energy_correction
 
-        max_indice = np.argmax(smoothed_y)
-        if max_indice < 30:
-            print("Had to trim arrays.")
-            smoothed_y = smoothed_y[30:]
-            x_array = x_array[30:]
+        # print(f"Fermi energy is: {fermi_energy}")
 
-        y_max = np.amax(smoothed_y)
-        x_max = self.calculate_zero_derivative_peak(x_array, smoothed_y)
+        spline_y = self._spline_shift_scale(
+            x_array, y_array, experimental_peaks)
+        # print("Shifted and scaled spline")
+        if self.constant_broadening:
+            # print("Preparing to directly convolve")
+            smoothed_y = self._direct_convolution(self.spline_mesh, spline_y,
+                                                  self.convolution_type,
+                                                  self.convolution_params['g_ch'],
+                                                  None)
+        else:
+            # print("Preparing to do energy-dependent convolution")
+            self.convolution_params['fermi_energy'] = fermi_energy
+            # print(self.convolution_params)
+            arctan_gammas = self._arctan_gamma_fdmnes(
+                self.spline_mesh, **self.convolution_params)
+            # print(f"Arctan gammas: {arctan_gammas}")
+            # print(f"Spline y: {spline_y}")
+            smoothed_y = self._energy_dependent_conv(
+                self.spline_mesh, spline_y, self.convolution_type,
+                arctan_gammas, fermi_energy)
+            # print(f"Smoothed y: {smoothed_y}")
+        # print("Convolved spectra!")
+        spline_y = self._spline_shift_scale(
+            self.spline_mesh, smoothed_y, experimental_peaks)
 
-        scale_factor = experimental_maxes[1] / y_max
-        shift_factor = experimental_maxes[0] - x_max
+        # print("Shifted and scaled spline of convolved spectra")
 
-        scaled_y = smoothed_y * scale_factor
-        shifted_x = x_array + shift_factor
+        if self.refine_alignment_using_second_peak:
+            # print("Preparing to refine alignment against second peak")
+            spline_y = self._fit_to_second_peak(x_array,
+                                                y_array,
+                                                experimental_peaks
+                                                )
+        elif self.optimize_convolution_params:
+            # print("Preparing to optimize parameters!")
+            args = (x_array, y_array, experimental_spline,
+                    experimental_peaks, fermi_energy)
+            # Now perform optimization
+            if self.constant_broadening:
+                # print("Entering direct fitting routine")
+                result = self._direct_fit(args)
 
-        return (shifted_x, scaled_y), (scale_factor, shift_factor)
+                new_g_ch = result.params['_g_ch'].value
+                spline_y = self._spline_shift_scale(
+                    x_array, y_array, experimental_peaks)
+                smoothed_y = self._direct_convolution(
+                    self.spline_mesh, spline_y, self.convolution_type,
+                    new_g_ch)
+                spline_y = self._spline_shift_scale(
+                    self.spline_mesh, smoothed_y, experimental_peaks)
+            else:
+                # print("Entering energy dependent fitting routine")
+                result = self._e_dependent_fit(args)
+
+                new_g_max = result.params['_g_max'].value
+                new_e_cent = result.params['_e_cent'].value
+                new_e_larg = result.params['_e_larg'].value
+
+                conv_params = {
+                    'g_ch': self.convolution_params['g_ch'],
+                    'g_max': new_g_max,
+                    'e_cent': new_e_cent,
+                    'e_larg': new_e_larg,
+                    'fermi_energy': self.convolution_params['fermi_energy']
+                }
+                arctan_gammas = self._arctan_gamma_fdmnes(
+                    x_array, **conv_params)
+                smoothed_y = self._energy_dependent_conv(
+                    x_array, y_array, self.convolution_type,
+                    arctan_gammas, fermi_energy)
+                spline_y = self._spline_shift_scale(
+                    x_array, smoothed_y, experimental_peaks)
+
+        return spline_y
 
     def prepare_fdmnes(self, model, fdmnes_path):
         '''
@@ -514,7 +992,10 @@ class xanes_of_model(object):
             model (obj): `model` which is the target of FDMNES
 
             fdmnes_path (string): path to the folder containing the fdmnes
-            mpi executable.
+             mpi executable.
+
+        Returns:
+            (int): the number of simulations which will be performed
         '''
         ################################################
         # Define the filenames for all FDMNES operations
@@ -527,132 +1008,225 @@ class xanes_of_model(object):
             print("Error. Input directory already exists.")
         try:
             os.mkdir(fdmnes_output_folder)
-            print("Created FDMNES input directory.")
+            print("Created FDMNES output directory.")
         except FileExistsError:
             print("Error. Output directory already exists.")
-        fdmnes_input_filename = fdmnes_input_folder + "run_fdmnes.inp"
-        fdmnes_abbr_input_filename = fdmnes_input_filename
-        fdmnes_output_filename = fdmnes_output_folder + "run_fdmnes_result"
+
+        #############################################
+        # Open the FDMNES input yaml file #
+        with open(self.input_yaml_filepath) as ifile:
+            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
+
+        # First, check to see if multiple screening values will be considered
+        number_screenings = 1
+        if "Screening" in fdmnes_dict["fdmnes_cards"].keys():
+            if type(fdmnes_dict["fdmnes_cards"]["Screening"]) is list:
+                number_screenings = len(
+                    fdmnes_dict["fdmnes_cards"]["Screening"])
+
+        #############################################
+        # Prepare all filenames #
+        fdmnes_input_filenames = []
+        fdmnes_abbr_input_filenames = []
+        fdmnes_output_filenames = []
+        for s in range(number_screenings):
+            fdmnes_input_filenames.append(
+                fdmnes_input_folder + "run_fdmnes_" + str(s) + ".inp")
+            fdmnes_abbr_input_filenames.append(
+                fdmnes_input_folder + "run_fdmnes_" + str(s) + ".inp")
+            fdmnes_output_filenames.append(
+                fdmnes_output_folder + "run_fdmnes_result_" + str(s)
+            )
         fdmfile_filename = model.relax_path + "/fdmfile.txt"
         fdmnes_mpirun_filename = model.relax_path + "/mpirun_fdmnes"
 
         #############################################
         #  Write the fdmfile.txt file #
         fdmfile = open(fdmfile_filename, "w+")
-        fdmfile.write("1\n")
-        fdmfile.write(fdmnes_abbr_input_filename + "\n")
+        fdmfile.write(str(number_screenings) + "\n")
+        for s in range(number_screenings):
+            fdmfile.write(fdmnes_abbr_input_filenames[s] + "\n")
         fdmfile.close()
 
+        ###################################################
+        # Remove counter ions from molecule if they exist #
+        fdmnes_astr = model.astr.copy()
+        if model.molecule_representation is not None:
+            if "counter_ions" in model.molecule_representation:
+                fdmnes_astr.remove_sites(
+                    model.molecule_representation["counter_ions"])
+
         #############################################
-        # Write the fdmnes input file #
-        with open(self.input_yaml_filepath) as ifile:
-            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
+        # Write the fdmnes input file(s) #
 
-        fdmnes_headers = {
-            "Filout": fdmnes_output_filename,
-            "Radius": fdmnes_dict["cluster_radius"],
-            "Edge": fdmnes_dict["edge"]
-        }
+        for s in range(number_screenings):
+            fdmnes_headers = {
+                "Filout": fdmnes_output_filenames[s],
+                "Radius": fdmnes_dict["cluster_radius"],
+                "Edge": fdmnes_dict["edge"]
+            }
 
-        # Absorber and core_hole_coords are determined based on structure
-        core_hole_index = 1
-        absorption_site = ""
-        core_hole_coords = [0, 0, 0]
-        for n, site in enumerate(model.astr.sites):
-            specie = site.specie.symbol
-            if specie == fdmnes_dict["core_hole_site_element"]:
-                if core_hole_index == fdmnes_dict["core_hole_site_id"]:
-                    core_hole_coords = np.copy(site.coords)
-                    absorption_site = str(n+1)
-                    fdmnes_headers['Absorber'] = absorption_site
-                core_hole_index += 1
+            # Absorber and core_hole_coords are determined based on structure
+            core_hole_index = 1
+            absorption_site = ""
+            core_hole_coords = [0, 0, 0]
+            for n, site in enumerate(fdmnes_astr.sites):
+                specie = site.specie.symbol
+                if specie == fdmnes_dict["core_hole_site_element"]:
+                    if core_hole_index == fdmnes_dict["core_hole_site_id"]:
+                        core_hole_coords = np.copy(site.coords)
+                        absorption_site = str(n+1)
+                        fdmnes_headers['Absorber'] = absorption_site
+                    core_hole_index += 1
 
-        inputfile = open(fdmnes_input_filename, "w+")
-        for key, value in fdmnes_headers.items():
-            inputfile.write(str(key) + "\n" + str(value) + "\n\n")
+            inputfile = open(fdmnes_input_filenames[s], "w+")
+            for key, value in fdmnes_headers.items():
+                inputfile.write(str(key) + "\n" + str(value) + "\n\n")
 
-        for key, value in fdmnes_dict["fdmnes_cards"].items():
-            print(f"key: {key}; value: {value}")
-            if value is not None:
-                if value == "include":
-                    inputfile.write(key + "\n")
-                else:
-                    if key == "Atom":
+            for key, value in fdmnes_dict["fdmnes_cards"].items():
+                print(f"key: {key}; value: {value}")
+                if value is not None:
+                    if value == "include":
                         inputfile.write(key + "\n")
-                        for sub_key, sub_value in value.items():
-                            inputfile.write(sub_key + " " + sub_value + "\n")
-                    elif key == "Atom_conf":
-                        inputfile.write(key + "\n")
-                        all_atom_counts = {}
-                        all_atom_indices = {}
-                        atom_index = 1
-                        for site in model.astr.sites:
-                            specie = site.specie.symbol
-                            an = str(atomic_numbers[specie])
-                            if an in all_atom_counts:
-                                all_atom_counts[an] += 1
-                            else:
-                                all_atom_counts[an] = 1
-                            if an in all_atom_indices:
-                                all_atom_indices[an].append(str(atom_index))
-                            else:
-                                all_atom_indices[an] = [str(atom_index)]
-                            atom_index += 1
-
-                        for sub_key, sub_value in value.items():
-                            # Need to get number of atoms and their indices
-                            atom_count = str(all_atom_counts[sub_key])
-                            atom_indices = " ".join(all_atom_indices[sub_key])
-                            inputfile.write(
-                                atom_count + " " +
-                                atom_indices + " " +
-                                sub_value + "\n")
-                    elif key == "Multipolar":
-                        if type(value) is str:
-                            inputfile.write(value + "\n")
-                        else:
-                            for sub_value in value:
-                                inputfile.write(sub_value + "\n")
                     else:
-                        inputfile.write(key + "\n")
-                        inputfile.write(value + "\n")
-                inputfile.write("\n")
+                        if key == "Atom":
+                            inputfile.write(key + "\n")
+                            # create oxidation state separated substates
+                            oxi_confs = {}
+                            for sub_key, sub_value in value.items():
+                                # if key corresponds to central atom, check for
+                                # ionic charge
+                                underscore_index = sub_key.find("_")
+                                atomic_id = sub_key
+                                if underscore_index != -1:
+                                    atomic_id = sub_key[:underscore_index]
+                                    charge = int(
+                                        sub_key[underscore_index + 1:])
 
-        # create atoms card
-        inputfile.write(fdmnes_dict["structure_type"] + "\n")
+                                    if atomic_id in oxi_confs:
+                                        oxi_confs[atomic_id][charge] = sub_value
+                                    else:
+                                        oxi_confs[atomic_id] = {
+                                            charge: sub_value}
+                                else:
+                                    oxi_confs[atomic_id] = sub_value
 
-        # grab cartesian coordinates of lattice
-        abc = model.astr.lattice.abc
-        angles = model.astr.lattice.angles
-        l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
-        angle_vals = str(angles[0]) + " " + \
-            str(angles[1]) + " " + str(angles[2])
-        inputfile.write("    " + l_vals + " " + angle_vals + "\n")
-        for site in model.astr.sites:
-            print(f"Old coords: {site.coords}")
-        for site in model.astr.sites:
-            specie = site.specie.symbol
-            an = atomic_numbers[specie]
-            coords = np.copy(site.coords)
-            mc = []
-            for i in range(3):
-                coords[i] -= core_hole_coords[i]
-                if coords[i] > abc[i]/2:
-                    mc.append((coords[i] - abc[i])/abc[i])
-                else:
-                    mc.append(coords[i]/abc[i])
-            inputfile.write(
-                str(an) + "  " + str(mc[0]) +
-                " " + str(mc[1]) +
-                " " + str(mc[2]) + "\n")
+                            for atomic_id, val in oxi_confs.items():
+                                if type(val) is dict:
+                                    # determine dominant oxidation state in the structure
+                                    oxi_states = []
+                                    for site in fdmnes_astr.sites:
+                                        number = site.specie.number
+                                        if number == int(atomic_id):
+                                            if hasattr(site.specie, 'oxi_state'):
+                                                oxi_states.append(
+                                                    int(site.specie.oxi_state))
+                                    if len(oxi_states) == 0:
+                                        key = list(val.keys())[0]
+                                        inputfile.write(
+                                            atomic_id + " " + val[key] + "\n")
+                                    else:
+                                        oxi_state = Counter(
+                                            oxi_states).most_common(1)[0][0]
+                                        inputfile.write(
+                                            atomic_id + " " + val[oxi_state] + "\n")
+                                else:
+                                    inputfile.write(
+                                        atomic_id + " " + val + "\n")
+                        elif key == "Atom_conf":
+                            inputfile.write(key + "\n")
+                            all_atom_counts = {}
+                            all_atom_indices = {}
+                            atom_index = 1
+                            found_keys = []
+                            for site in fdmnes_astr.sites:
+                                an = str(site.specie.number)
+                                oxidized = hasattr(site.specie, 'oxi_state')
+                                print(site.specie)
+                                if oxidized:
+                                    ox_an = an + "_" + \
+                                        str(int(site.specie.oxi_state))
+                                    if ox_an in value.keys():
+                                        an = ox_an
+                                    else:
+                                        if an not in value.keys():
+                                            print("Note! No atom_conf for "
+                                                  f"oxidation state {ox_an} and "
+                                                  "no default state found for"
+                                                  f" atomic number {an} either.")
+                                        else:
+                                            print("Note! No atom_conf for "
+                                                  f"oxidation state {ox_an}. Using "
+                                                  "default state found.")
+                                found_keys.append(an)
+                                if an in all_atom_counts:
+                                    all_atom_counts[an] += 1
+                                else:
+                                    all_atom_counts[an] = 1
+                                if an in all_atom_indices:
+                                    all_atom_indices[an].append(
+                                        str(atom_index))
+                                else:
+                                    all_atom_indices[an] = [str(atom_index)]
+                                atom_index += 1
 
-        for site in model.astr.sites:
-            print(f"New coords: {site.coords}")
+                            for sub_key, sub_value in value.items():
+                                # Need to get number of atoms and their indices
+                                if sub_key in found_keys:
+                                    atom_count = str(all_atom_counts[sub_key])
+                                    atom_indices = " ".join(
+                                        all_atom_indices[sub_key])
+                                    inputfile.write(
+                                        atom_count + " " +
+                                        atom_indices + " " +
+                                        sub_value + "\n")
+                        elif key == "Multipolar":
+                            if type(value) is str:
+                                inputfile.write(value + "\n")
+                            else:
+                                for sub_value in value:
+                                    inputfile.write(sub_value + "\n")
+                        elif key == "Screening":
+                            if type(value) is str:
+                                inputfile.write(key + "\n")
+                                inputfile.write(value + "\n")
+                            else:
+                                inputfile.write(key + "\n")
+                                inputfile.write(value[s] + "\n")
+                        else:
+                            inputfile.write(key + "\n")
+                            inputfile.write(value + "\n")
+                    inputfile.write("\n")
 
-        inputfile.write("\n")
+            # create atoms card
+            inputfile.write(fdmnes_dict["structure_type"] + "\n")
 
-        inputfile.write("END\n")
-        inputfile.close()
+            # grab cartesian coordinates of lattice
+            abc = fdmnes_astr.lattice.abc
+            angles = fdmnes_astr.lattice.angles
+            l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
+            angle_vals = str(angles[0]) + " " + \
+                str(angles[1]) + " " + str(angles[2])
+            inputfile.write("    " + l_vals + " " + angle_vals + "\n")
+            for site in fdmnes_astr.sites:
+                specie = site.specie.symbol
+                an = atomic_numbers[specie]
+                coords = np.copy(site.coords)
+                mc = []
+                for i in range(3):
+                    coords[i] -= core_hole_coords[i]
+                    if coords[i] > abc[i]/2:
+                        mc.append((coords[i] - abc[i])/abc[i])
+                    else:
+                        mc.append(coords[i]/abc[i])
+                inputfile.write(
+                    str(an) + "  " + str(mc[0]) +
+                    " " + str(mc[1]) +
+                    " " + str(mc[2]) + "\n")
+            inputfile.write("\n")
+
+            inputfile.write("END\n")
+            inputfile.close()
 
         ######################################
         # Write the mpirun_fdmnes file. Only needed if on local computer.
@@ -671,6 +1245,8 @@ class xanes_of_model(object):
         make_exc_string = "chmod +rx " + fdmnes_mpirun_filename
         make_exc_command = make_exc_string.split()
         sp.call(make_exc_command)
+
+        return number_screenings
 
     def evaluate_obj(self, model):
         """
@@ -692,10 +1268,9 @@ class xanes_of_model(object):
         This function is a part of the API for all classes in
         experimental_simulation module.
 
-        Args:
-
-        model (obj): structure_record.model() object for which TEM simulation
-                     is obtained and a mismatch score is assigned
+        Arguments:
+            model (obj): structure_record.model() object for which the XANES
+             simulation is obtained and a mismatch score is assigned
 
         Returns:
             (model obj, float):
@@ -704,101 +1279,131 @@ class xanes_of_model(object):
         """
 
         # Prepare FDMNES input file and run simulation
-        self.prepare_fdmnes(model, self.code_folder)
+        num_files = self.prepare_fdmnes(model, self.code_folder)
 
-        fdmnes_exec = self.fdmnes_exec_cmd.split()
-        with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
-                  'w') as log_file:
-            fdmnes_job = sp.Popen(
-                fdmnes_exec,
-                stdout=sp.PIPE,
-                stderr=sp.STDOUT,
-                cwd=model.relax_path)
-            for each_line in fdmnes_job.stdout:
-                line = each_line.decode('utf-8')
-                log_file.write(line)
-        # wait for the calculation to finish
-        fdmnes_job.wait()
+        if not DEBUG:
+            exec_cmd = self.exec_cmd.split()
+            with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
+                      'w') as log_file:
+                fdmnes_job = sp.Popen(
+                    exec_cmd,
+                    stdout=sp.PIPE,
+                    stderr=sp.STDOUT,
+                    cwd=model.relax_path)
+                for each_line in fdmnes_job.stdout:
+                    line = each_line.decode('utf-8')
+                    log_file.write(line)
+            # wait for the calculation to finish
+            fdmnes_job.wait()
 
-        # Reference XANES simulation against experiment
-        xanes_result_path = model.relax_path +\
-            "/FDMNES_out/run_fdmnes_result_tddft.txt"
-        reference_maxes = self.exp_base_maxes
-        if self.comparison_spectra_type == "difference":
-            reference_maxes = self.exp_exc_maxes
-        self.model_comp_arrays, (scale_factor, shift_factor) =\
-            self.read_in_calculated_spectra(xanes_result_path,
-                                            reference_maxes)
-        self.model_comp_spline = \
-            self.fit_spline(
-                self.model_comp_arrays[0], self.model_comp_arrays[1], "cubic")
+            # Reference XANES simulation(s) against experiment
+            results = []
+            for xanes_run in range(num_files):
+                xanes_result_path = model.relax_path +\
+                    "/FDMNES_out/run_fdmnes_result_" +\
+                    str(xanes_run) + "_tddft.txt"
+                reference_peaks = self.exp_base_peaks
+                reference_spline = self.exp_base_spline
+                if self.comparison_spectra_type == "difference":
+                    reference_peaks = self.exp_exc_peaks
+                    reference_spline = self.exp_dif_spline
+                # print("Preparing to read in and convolute calculated spectra.")
+                self.model_comp_spline =\
+                    self.read_in_calculated_spectra(xanes_result_path,
+                                                    reference_peaks,
+                                                    reference_spline)
 
-        print("Read in calculated spectra.")
+                # print("Read in and convoluted calculated spectra.")
 
-        compare_indices = (self.spline_mesh <= 7135) & (
-            self.spline_mesh >= 7110)
-        lowest_spectra_distance = np.inf
-        lowest_spline = None
-        if self.comparison_spectra_type == "difference":
-            if self.refine_alignment_using_difference_spectra:
-                scale_factor_og = scale_factor
-                for i in range(-50, 50):
-                    for j in range(-5, 5):
-                        y_array = self.model_comp_arrays[1] * \
-                            (1 + 0.01*j/scale_factor_og)
-                        x_array = self.model_comp_arrays[0] - i*0.01
-                        new_spline = self.fit_spline(
-                            x_array, y_array, "cubic")
-                        compare_spline = self.comp_base_spline[compare_indices]
-                        fdmnes_dif_spectra = new_spline[compare_indices] - \
+                lowest_spectra_distance = np.inf
+                lowest_spline = None
+                if self.comparison_spectra_type == "difference":
+                    if self.refine_alignment_using_difference_spectra:
+                        for i in range(-50, 50):
+                            for j in range(-5, 5):
+                                y_array = self.model_comp_spline * \
+                                    (1 + 0.01*j)
+                                x_array = self.spline_mesh - i*0.01
+                                new_spline = self._fit_spline(
+                                    x_array, y_array, "cubic")
+                                compare_spline =\
+                                    self.comp_base_spline[self.compare_indices]
+                                fdmnes_dif_spectra =\
+                                    new_spline[self.compare_indices] - \
+                                    compare_spline
+                                fdmnes_dif_spectra_array = np.reshape(
+                                    fdmnes_dif_spectra, (-1, 1))
+                                spectra_distance = self.distance_calculator.create(
+                                    fdmnes_dif_spectra_array,
+                                    self.exp_dif_reshaped_spline[self.compare_indices])
+
+                                if spectra_distance < lowest_spectra_distance:
+                                    lowest_spectra_distance = spectra_distance
+                                    lowest_spline = new_spline
+                    else:
+                        compare_spline =\
+                            self.comp_base_spline[self.compare_indices]
+                        fdmnes_dif_spline =\
+                            self.model_comp_spline[self.compare_indices] - \
                             compare_spline
-                        fdmnes_dif_spectra_array = np.reshape(
-                            fdmnes_dif_spectra, (-1, 1))
-                        spectra_distance = self.distance_calculator.create(
-                            fdmnes_dif_spectra_array,
-                            self.exp_dif_reshaped_spline[compare_indices])
+                        fdmnes_dif_reshaped_spline = np.reshape(
+                            fdmnes_dif_spline, (-1, 1))
+                        lowest_spectra_distance = self.distance_calculator.create(
+                            fdmnes_dif_reshaped_spline,
+                            self.exp_dif_reshaped_spline[self.compare_indices])
+                        lowest_spline = self.model_comp_spline
+                else:
+                    fdmnes_compare_spline =\
+                        self.model_comp_spline[self.compare_indices]
+                    fdmnes_compare_array = np.reshape(
+                        fdmnes_compare_spline, (-1, 1)
+                    )
+                    lowest_spectra_distance = self.distance_calculator.create(
+                        fdmnes_compare_array,
+                        self.exp_base_reshaped_spline[self.compare_indices]
+                    )
+                    lowest_spline = self.model_comp_spline
 
-                        if spectra_distance < lowest_spectra_distance:
-                            lowest_spectra_distance = spectra_distance
-                            lowest_spline = new_spline
-            else:
-                compare_spline = self.comp_base_spline[compare_indices]
-                fdmnes_dif_spline =\
-                    self.model_comp_spline[compare_indices] - \
-                    compare_spline
-                fdmnes_dif_reshaped_spline = np.reshape(
-                    fdmnes_dif_spline, (-1, 1))
-                lowest_spectra_distance = self.distance_calculator.create(
-                    fdmnes_dif_reshaped_spline,
-                    self.exp_dif_reshaped_spline[compare_indices])
-                lowest_spline = self.model_comp_spline
+                print(f"RMS score for run {xanes_run}: "
+                      f"{float((lowest_spectra_distance)*100)}")
+                results.append(lowest_spectra_distance)
+                np.save(model.relax_path + "/model_sim_spectra_" +
+                        str(xanes_run) + ".npy", lowest_spline)
+
+                fig, axes = plt.subplots(1, 1)
+                fig.set_size_inches(10, 10)
+                axes.plot(self.spline_mesh, self.exp_base_spline, marker=".",
+                          linestyle="-", label="Experiment")
+                axes.plot(self.spline_mesh, lowest_spline, marker=".",
+                          linestyle="--", label="FDMNES")
+                axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
+                axes.set_xlabel(
+                    "Energy (eV)", fontsize=24)
+                axes.set_xlim((self.spline_mesh[0], self.spline_mesh[-1]))
+                axes.set_ylim((0, 2.0))
+                axes.legend(bbox_to_anchor=(0.48, 0.85),
+                            loc="lower left", fontsize=20)
+                plt.setp(axes.get_xticklabels(), fontsize=20)
+                plt.setp(axes.get_yticklabels(), fontsize=16)
+                filename = model.relax_path + "/" + "experiment_vs_sim_spectra_" +\
+                    str(xanes_run) + ".png"
+                plt.savefig(filename, format="png", dpi=300)
+
+            lowest_spectra_distance = min(results)
+            # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+            # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
+            if model.Xsim1 == 'XANES':
+                # Minimizing the obj vals
+                model.obj1_val = float((lowest_spectra_distance)*100)
+            elif model.Xsim2 == 'XANES':
+                model.obj2_val = float((lowest_spectra_distance)*100)
+            elif model.Xsim3 == 'XANES':
+                model.obj3_val = float((lowest_spectra_distance)*100)
+            elif model.Xsim4 == 'XANES':
+                model.obj4_val = float((lowest_spectra_distance)*100)
         else:
-            fdmnes_compare_spline = self.model_comp_spline[compare_indices]
-            fdmnes_compare_array = np.reshape(
-                fdmnes_compare_spline, (-1, 1)
-            )
-            lowest_spectra_distance = self.distance_calculator.create(
-                fdmnes_compare_array, self.exp_base_reshaped_spline
-            )
-            lowest_spline = self.model_comp_spline
-
-        # lowest_spline_array = np.array(lowest_spline[self.spline_mesh])
-        # print(lowest_spline_array)
-        # print(lowest_spline)
-        print(f"RMS score: {float((lowest_spectra_distance)*100)}")
-        np.save(model.relax_path + "/model_sim_spectra.npy", lowest_spline)
-
-        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
-        # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
-        if model.Xsim1 == 'XANES':
-            # Minimizing the obj vals
-            model.obj1_val = float((lowest_spectra_distance)*100)
-        elif model.Xsim2 == 'XANES':
-            model.obj2_val = float((lowest_spectra_distance)*100)
-        elif model.Xsim3 == 'XANES':
-            model.obj3_val = float((lowest_spectra_distance)*100)
-        elif model.Xsim4 == 'XANES':
-            model.obj4_val = float((lowest_spectra_distance)*100)
+            lowest_spectra_distance = 0.09
+            model.obj1_val = lowest_spectra_distance
 
         return model, lowest_spectra_distance
 
@@ -808,10 +1413,10 @@ class pdf_of_model(object):
     This class contains functions to calculate the PDF and fit it to the
     experimental pdf. Uses the residual to calculate objective function.
 
-    Args:
+    Arguments:
 
-    pdf_params (dict): A dictionary of parameters used for fitting PDF using
-    Diffpy.
+        pdf_params (dict): A dictionary of parameters used for fitting PDF
+         using **Diffpy**.
     """
 
     def __init__(self, pdf_params):
@@ -827,17 +1432,20 @@ class pdf_of_model(object):
         # default structure scale factor
         self.scale = 1.0
         # quadratic term related to sharpness of first peak (from pdfgui manual)
-        self.delta2 = 3.87 
+        self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
-        self.qdamp = 0.043 # G(r) intensity decereases with r
-        self.fit_coords = True
+        self.qdamp = 0.043  # G(r) intensity decereases with r
+        self.fit_coords = False
         # default bounds_dict
         lb_ub_dict = {}
-        lb_ub_dict['a'] = [17.8, 19.0]
+        # note: can alternately define bounds by [a_low_bound, a_high_bound]
+        lb_ub_dict['a'] = 0.02
+        lb_ub_dict['b'] = 0.02
+        lb_ub_dict['c'] = 0.02
         # Biso_val = 8*pi**2 * Uiso_val
-        lb_ub_dict['Biso_val'] = [78.96*0.00001, 78.96*0.01]
-        lb_ub_dict['scale'] = [0.8, 1.2]
-        lb_ub_dict['delta2'] = [2.0, 4.0]
+        lb_ub_dict['Biso_val'] = [78.96*0.00001, 200.096*0.01]
+        lb_ub_dict['scale'] = [0.5, 1.5]
+        lb_ub_dict['delta2'] = [2.0, 5.0]
         lb_ub_dict['qdamp'] = [0.001, 0.1]
         self.var_bounds = lb_ub_dict
 
@@ -849,8 +1457,8 @@ class pdf_of_model(object):
         self.xmax = 10.0
         self.dx = 0.01
         # PDF Qmin and Qmax
-        self.Qmin = 0.0 # G(r) goes below zero for Qmin > 0
-        self.Qmax = 50.0 # G(r) gets wavy for smaller Qmax 
+        self.Qmin = 0.0  # G(r) goes below zero for Qmin > 0
+        self.Qmax = 50.0  # G(r) gets wavy for smaller Qmax
         # elemental symbols of species as a list
         self.symbols = None
 
@@ -896,22 +1504,55 @@ class pdf_of_model(object):
             for a_key in vbs.keys():
                 self.var_bounds[a_key] = vbs[a_key]
 
+        self.min_box_abc = None
+        if 'min_box_abc' in pdf_params:
+            self.min_box_abc = pdf_params['min_box_abc']
+
         # tolerance to relax each x/y/z coordinate of an atom coordinates
         self.coord_tol = 0.1
         if 'coord_tol' in pdf_params:
             self.coord_tol = pdf_params['coord_tol']
 
+        self.make_supercell = False
+        self.periodic = True
+
     def write_temp_cif(self, model):
         """
         Writes temp.cif file in the pdf simulation directory from model.astr
 
-        Args:
+        Arguments:
 
-        model (obj): structure_record.model() object for which PDF simulation
-        will be done
+            model (obj): structure_record.model() object for which the PDF
+            simulation will be done
         """
         # use the relaxed structure from energy calculation
-        astr = model.astr
+        astr = model.astr.copy()
+        if self.make_supercell:
+            astr.make_supercell((2, 2, 2))
+        if self.min_box_abc is not None:
+            for axis in range(3):
+                species = astr.species
+                if astr.lattice.abc[axis]/self.min_box_abc[axis] < 1:
+
+                    new_cart_coords = astr.cart_coords.copy().tolist()
+                    translate_to_center = self.min_box_abc[axis]/2 -\
+                        astr.lattice.abc[axis]/2
+                    for i in new_cart_coords:
+                        if i[axis] < 0:
+                            i[axis] += astr.lattice.abc[axis]
+                        i[axis] += translate_to_center
+
+                    latt_matrix = astr.lattice.matrix
+                    new_latt_matrix = latt_matrix.copy()
+                    new_latt_matrix[axis][axis] = self.min_box_abc[axis]
+                    new_latt = Lattice(new_latt_matrix)
+                    astr.lattice = new_latt
+
+                    for i, new_coords in enumerate(new_cart_coords):
+                        specie = species[i]
+                        astr.replace(i, specie, new_coords,
+                                     coords_are_cartesian=True)
+
         self.symbols = astr.symbol_set
 
         # write new_structure to a temporary cif file
@@ -924,7 +1565,7 @@ class pdf_of_model(object):
         """
         Make diffpy.srfit.pdfcontribution.PDFContribution object from temp.cif
         """
-        # Make profile object 
+        # Make profile object
         profile = Profile()
         # Add data through parser to the profile
         profile.loadtxt(self.exp_pdf_file)
@@ -932,34 +1573,42 @@ class pdf_of_model(object):
 
         # Make generator object
         diffpy_str = loadCrystal(cif_file)
-        generator = DebyePDFGenerator('generator_name')
-        generator.setStructure(diffpy_str)
+        if self.periodic:
+            generator = PDFGenerator('generator_name')
+        else:
+            generator = DebyePDFGenerator('generator_name')
+        generator.setStructure(diffpy_str, periodic=self.periodic)
         generator.setQmax(self.Qmax)
         generator.setQmin(self.Qmin)
-        generator.qdamp.value = self.qdamp
 
         # Make contribution object
-        ## The FitContribution
+        # The FitContribution
         contribution = PDFContribution("contribution_name")
         contribution.addProfileGenerator(generator)
-        contribution.setProfile(profile, xname = "r")
+        contribution.setProfile(profile, xname="r")
 
         return contribution
 
-    def fit_variables_recipe(self, contribution, cif_file, fitted_params=None):
+    def fit_variables_recipe(self, contribution, fitted_params=None):
         """
         Performs optimization of PDF variables like qdamp, delta2, scale and
         ADP (Bisos) using diffpy.srfit.fitbase.FitRecipe object.
 
         This function call should be preceeded by get_PDF_obj function.
 
-        (NOTE: made PDF and Fit two separate functions for convenience)
+        !!! note
 
-        Returns fitted_params after PDF fit and the residual
+            Made PDF and Fit two separate functions for convenience
 
         Args:
 
-        PDF (PDFContribution) - PDF object from get_PDF_obj
+            PDF (PDFContribution) - PDF object from get_PDF_obj
+
+        Returns:
+
+            tuple:
+            - fitted_params after PDF fit
+            - residual
         """
         symbols = self.symbols
         generator = contribution.generator_name
@@ -975,6 +1624,29 @@ class pdf_of_model(object):
         """
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
+        lattice = contribution.generator_name.phase.getLattice()
+
+        a = lattice.a.getValue()
+        b = lattice.b.getValue()
+        c = lattice.c.getValue()
+
+        # If we have a cubic lattice then constrain it to remain cubic
+        cubic_lattice = False
+        alpha = lattice.alpha.getValue()
+        beta = lattice.beta.getValue()
+        gamma = lattice.gamma.getValue()
+        if np.isclose(a, b) and np.isclose(a, c):
+            if np.isclose(alpha, np.pi/2) and\
+                np.isclose(beta, np.pi/2) and\
+                    np.isclose(gamma, np.pi/2):
+                cubic_lattice = True
+                lattice.constrain(lattice.b, lattice.a)
+                lattice.constrain(lattice.c, lattice.a)
+                lattice.alpha.setConst(True, np.pi/2.)
+                lattice.beta.setConst(True, np.pi/2.)
+                lattice.gamma.setConst(True, np.pi/2.)
+
+        # allow diffpy to shift the lattice parameters
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -982,29 +1654,47 @@ class pdf_of_model(object):
         Bisos = []
         for sym in symbols:
             Bisos.append('Biso{}'.format(sym))
-            recipe.newVar('Biso{}'.format(sym), value=self.Biso_val, fixed=False)
+            recipe.newVar('Biso{}'.format(sym),
+                          value=self.Biso_val,
+                          fixed=False).boundRange(
+                              self.var_bounds['Biso_val'][0],
+                              self.var_bounds['Biso_val'][1])
 
         for scatterer in contribution.generator_name.phase.scatterers:
             for sym in symbols:
                 if sym in scatterer.name:
-                    recipe.constrain(scatterer._parameters['Biso'], 
-                                    'Biso{}'.format(sym))
+                    recipe.constrain(scatterer._parameters['Biso'],
+                                     'Biso{}'.format(sym))
 
         # Set all Biso values to provided or default Biso_val
-        #for p in Bisos:
+        # for p in Bisos:
         #    fit_param = recipe._parameters[p]
         #    fit_param.setValue(self.Biso_val)
 
         # add existing PDF variables as Fit parameters and setValue
         recipe.addVar(generator.scale, self.scale, fixed=False)
         recipe.addVar(generator.delta2, self.delta2, fixed=False)
-        recipe.addVar(contribution.qdamp, self.qdamp, fixed=False)
+        recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
-        recipe.a.bounds = self.var_bounds['a']
-        recipe.b.bounds = self.var_bounds['a']
-        recipe.c.bounds = self.var_bounds['a']
-        recipe.BisoAu.bounds = self.var_bounds['Biso_val']
+        # For lattice parameters, set bound for each parameter
+        if type(self.var_bounds['a']) is list:
+            recipe.a.bounds = self.var_bounds['a']
+        else:
+            recipe.a.bounds = [a - self.var_bounds['a']*a,
+                               a + self.var_bounds['a']*a]
+
+        if not cubic_lattice:
+            if type(self.var_bounds['b']) is list:
+                recipe.b.bounds = self.var_bounds['b']
+            else:
+                recipe.b.bounds = [b - self.var_bounds['b']*b,
+                                   b + self.var_bounds['b']*b]
+            if type(self.var_bounds['c']) is list:
+                recipe.c.bounds = self.var_bounds['c']
+            else:
+                recipe.c.bounds = [c - self.var_bounds['c']*c,
+                                   c + self.var_bounds['c']*c]
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1040,9 +1730,9 @@ class pdf_of_model(object):
 
         Returns nothing. (Writes temp_opt.cif to the pdf_sim_dir)
 
-        Args:
+        Arguments:
 
-        PDF (PDFContribution) - PDF object from get_PDF_obj
+            PDF (PDFContribution) - PDF object from get_PDF_obj
         """
         symbols = self.symbols
         generator = contribution.generator_name
@@ -1051,6 +1741,27 @@ class pdf_of_model(object):
 
         # Add the three lattice vectors as variables to the fit recipe
         spacegroup_pars = contribution.generator_name.phase.sgpars
+        lattice = contribution.generator_name.phase.getLattice()
+
+        a = lattice.a.getValue()
+        b = lattice.b.getValue()
+        c = lattice.c.getValue()
+        # If we have a cubic lattice then constrain it to remain cubic
+        cubic_lattice = False
+        alpha = lattice.alpha.getValue()
+        beta = lattice.beta.getValue()
+        gamma = lattice.gamma.getValue()
+        if np.isclose(a, b) and np.isclose(a, c):
+            if np.isclose(alpha, np.pi/2) and\
+                np.isclose(beta, np.pi/2) and\
+                    np.isclose(gamma, np.pi/2):
+                cubic_lattice = True
+                lattice.constrain(lattice.b, lattice.a)
+                lattice.constrain(lattice.c, lattice.a)
+                lattice.alpha.setConst(True, np.pi/2.)
+                lattice.beta.setConst(True, np.pi/2.)
+                lattice.gamma.setConst(True, np.pi/2.)
+
         for par in spacegroup_pars.latpars:
             if par.name in ['a', 'b', 'c']:
                 recipe.addVar(par, fixed=False)
@@ -1058,24 +1769,42 @@ class pdf_of_model(object):
         Bisos = []
         for sym in symbols:
             Bisos.append('Biso{}'.format(sym))
-            recipe.newVar('Biso{}'.format(sym), value=self.Biso_val, fixed=False)
+            recipe.newVar('Biso{}'.format(sym),
+                          value=self.Biso_val,
+                          fixed=False).boundRange(
+                              self.var_bounds['Biso_val'][0],
+                              self.var_bounds['Biso_val'][1])
 
         for scatterer in contribution.generator_name.phase.scatterers:
             for sym in symbols:
                 if sym in scatterer.name:
-                    recipe.constrain(scatterer._parameters['Biso'], 
-                                    'Biso{}'.format(sym))
+                    recipe.constrain(scatterer._parameters['Biso'],
+                                     'Biso{}'.format(sym))
 
         # add existing PDF variables as Fit parameters and setValue
         recipe.addVar(generator.scale, self.scale, fixed=False)
         recipe.addVar(generator.delta2, self.delta2, fixed=False)
-        recipe.addVar(contribution.qdamp, self.qdamp, fixed=False)
+        recipe.addVar(generator.qdamp, self.qdamp, fixed=False)
 
         # Set lower and upper bounds for variables
-        recipe.a.bounds = self.var_bounds['a']
-        recipe.b.bounds = self.var_bounds['a']
-        recipe.c.bounds = self.var_bounds['a']
-        recipe.BisoAu.bounds = self.var_bounds['Biso_val']
+        # For lattice parameters, set bound for each parameter
+        if type(self.var_bounds['a']) is list:
+            recipe.a.bounds = self.var_bounds['a']
+        else:
+            recipe.a.bounds = [a - self.var_bounds['a']*a,
+                               a + self.var_bounds['a']*a]
+
+        if not cubic_lattice:
+            if type(self.var_bounds['b']) is list:
+                recipe.b.bounds = self.var_bounds['b']
+            else:
+                recipe.b.bounds = [b - self.var_bounds['b']*b,
+                                   b + self.var_bounds['b']*b]
+            if type(self.var_bounds['c']) is list:
+                recipe.c.bounds = self.var_bounds['c']
+            else:
+                recipe.c.bounds = [c - self.var_bounds['c']*c,
+                                   c + self.var_bounds['c']*c]
         recipe.scale.bounds = self.var_bounds['scale']
         recipe.delta2.bounds = self.var_bounds['delta2']
         recipe.qdamp.bounds = self.var_bounds['qdamp']
@@ -1119,12 +1848,11 @@ class pdf_of_model(object):
         fitted_params = result.x
         residual = recipe.scalarResidual(fitted_params)
 
-
         # Write output structure with new coordinates
-        fcs = result.x[7:]
+        fcs = result.x[-1*(len(pymat_str)-1)*3:]
         fcs_new = np.insert(fcs, center_ind,
                             pymat_str.frac_coords[center_ind], axis=0)
-        #fcs_new = np.concatenate((pymat_str.frac_coords[center_ind], fcs))
+        # fcs_new = np.concatenate((pymat_str.frac_coords[center_ind], fcs))
         fcs_new = fcs_new.reshape(len(pymat_str), 3)
         astr_varied = Structure(pymat_str.lattice, pymat_str.species,
                                 fcs_new, coords_are_cartesian=False)
@@ -1142,6 +1870,7 @@ class pdf_of_model(object):
         r = recipe.contribution_name.profile.x
         g_obs = recipe.contribution_name.profile.y
         g_calc = recipe.contribution_name.evaluate()
+
         g_diff = g_obs - g_calc
 
         diffzero = -0.8 * max(g_obs) * np.ones_like(g_obs)
@@ -1155,6 +1884,7 @@ class pdf_of_model(object):
                         + str(g_calc[i])[:6] + '\t ' + str(g_diff[i])[:6]
                         + ' \n')
 
+        plt.figure(figsize=(10, 6))
         plt.plot(r, g_obs, 'bo', label="G(r) Target")
         plt.plot(r, g_calc, 'r-', label="G(r) Fit", linewidth=3)
         plt.plot(r, diff, 'c-', label="G(r) diff", linewidth=3)
@@ -1164,7 +1894,7 @@ class pdf_of_model(object):
         plt.xticks(fontsize=15)
         plt.yticks(fontsize=15)
         plt.legend(loc=1, fontsize=15)
-        plt.tight_layout() 
+        plt.tight_layout()
 
         pdf_plot_name = name + '_pdf_plot.png'
         plt.savefig(fname=self.pdf_sim_dir + '/' + pdf_plot_name)
@@ -1176,12 +1906,16 @@ class pdf_of_model(object):
         Residual as the objective function value for pdf. Objective function
         value is added to model attributes obj1_val.
 
-        Returns model, fitted_params
+        Arguments:
 
-        Args:
+            model (obj): structure_record.model() object for which energy
+             evaluation will be done
 
-        model (obj): structure_record.model() object for which energy
-                     evaluation will be done
+        Returns:
+
+            tuple:
+            - model
+            - fitted_params after PDF fit
         """
         main_path = self.main_path
         pdf_sim = main_path + '/calcs/' + str(model.label) + '/pdf_sim'
@@ -1197,12 +1931,12 @@ class pdf_of_model(object):
         # NOTE: First fit the main four variables only. Second fit main four +
         # coords as variables. This is to get best solution wrt main variables.
         # Then some local solution with second fitting..
-
-        fitted_params, residual, recipe = self.fit_variables_recipe(contribution, cif_file)
+        fitted_params, residual, recipe = self.fit_variables_recipe(
+            contribution)
         # write initial fitted parameters to a file
         with open(pdf_sim + '/initial_fitted_params.txt', 'w') as f:
             for item in fitted_params:
-                f.write(str(item) + '\n')
+                f.write(str(float(item)) + '\n')
             f.write('Residual: {}'.format(residual))
         self.plot_pdf(recipe, 'initial')
 
@@ -1211,16 +1945,13 @@ class pdf_of_model(object):
             contribution = self.get_PDFContribution_obj(cif_file)
             # fit the atomic coordinates using Diffpy
             fitted_params, residual, recipe = self.fit_coords_recipe(
-                                                        contribution, fitted_params)
+                contribution, fitted_params)
             # # write initial fitted parameters to a file
             with open(pdf_sim + '/final_fitted_params.txt', 'w') as f:
                 for item in fitted_params[:7]:
                     f.write(str(item) + '\n')
                 f.write('Residual: {}'.format(residual))
             self.plot_pdf(recipe, 'final')
-            # use the new cif file created with optimized coords
-            #cif_file = pdf_sim + '/temp_opt.cif'
-            #contribution = self.get_PDF_obj(cif_file)
 
         # fit the PDF variables
         # fitted_params, residual, Fit = self.fit_variables_recipe(PDF,
@@ -1281,52 +2012,96 @@ class gb_ingrained(object):
                   ' or sim params of optimized solution')
 
         self.dm3_path = gb_ingrained_params['dm3_path']
-        if not self.dm3_path:
-            print('Provide path (dm3_path) to experimental image')
-
-        # Prepare experimental image
-        # (make sure this procedure matches the procedure in 'run.py')
-        image_data = iop.image_open(self.dm3_path)
-        exp_img = iop.apply_rotation(image_data['Pixels'], 1)
-        exp_img = iop.scale_pixels(exp_img, mode='rescale')
-        exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
-        exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
-
-        bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
-        congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
-
-        # Get solutions from text file
-        if self.progress_file:
-            progress = np.genfromtxt(self.progress_file, delimiter=',')
-            best_idx = int(np.argmin(progress[:, -1]))
-            x = progress[best_idx]
-            xfit = x[1:-1]
-            xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
-
-        # TODO: Find why we set self.opt_params[1] = 0
-        if not self.opt_params:
-            self.opt_params = xfit.copy()
-            self.opt_params[1] = 0
+        if self.dm3_path is None:
+            print('Error! No path (dm3_path) provided to experimental image')
+            print('Trying to refer to hard-coded reference ')
+            print('"inputs/whole_exp.npy" instead.')
+            if os.path.exists(self.main_path + '/inputs/whole_exp.npy'):
+                exp_prev = np.load(self.main_path + '/inputs/whole_exp.npy')
+                if exp_prev.ndim == 3:
+                    exp_prev = np.mean(exp_prev, axis=2)
+                    self.im_ref = exp_prev[:, :-1]
+                else:
+                    self.im_ref = exp_prev
+            else:
+                print('No hard coded reference file found.')
         else:
-            xfit = self.opt_params.copy()
-        xfit[1] = 0
-        sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
-            congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+            # Prepare experimental image
+            # (make sure this procedure matches the procedure in 'run.py')
+            image_data = iop.image_open(self.dm3_path)
+            exp_img = iop.apply_rotation(image_data['Pixels'], 1)
+            exp_img = iop.scale_pixels(exp_img, mode='rescale')
+            exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
+            exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
 
-        sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
+            bicrys_ref = Bicrystal(poscar_file=self.init_gb_path)
+            congruity = CongruityBuilder(sim_obj=bicrys_ref, exp_img=exp_img)
 
-        # np.save(self.main_path + '/whole_exp.npy', exp_patch)
-        # np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+            # Get ingrained optimization parameters from the best fit in
+            # the ingrained progress file
+            if self.progress_file:
+                progress = np.genfromtxt(self.progress_file, delimiter=',')
+                best_idx = int(np.argmin(progress[:, -1]))
+                x = progress[best_idx]
+                xfit = x[1:-1]
+                xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
 
-        # Temporarily "hard-coded" exp interface region for VASP runs
-        # Load prev_whole_exp.npy that is from the LAMMPS runs
-        # exp_prev = np.load('prev_whole_exp.npy')
-        # in y & x directions # TODO: remove hard-coded values
-        exp_patch_for_vasp = exp_img[459:584,
-                                     249:374]  # exp_prev[152:279, 12:]
-        # exp_patch_for_vasp = exp_prev
-        self.im_ref = exp_patch_for_vasp
-        match_ssim = iop.score_ssim(sim_img, self.im_ref)
+            # TODO: Find why we set self.opt_params[1] = 0
+            if self.opt_params is None:
+                if self.progress_file is None:
+                    print("Error! No ingrained optimization parameters"
+                          " provided, and no ingrained progress file found!")
+                    xfit = None
+                else:
+                    self.opt_params = xfit.copy()
+                    self.opt_params[1] = 0
+            else:
+                xfit = self.opt_params.copy()
+            xfit[1] = 0
+            sim_img, sim_struct, exp_patch, shift_score, stable_idxs = \
+                congruity.fit_gb(sim_params=xfit, bias_y=1E-4)
+
+            sim_struct.to(filename='POSCAR_init_fitted', fmt='poscar')
+
+            np.save(self.main_path + '/whole_exp.npy', exp_patch)
+            np.save(self.main_path + '/whole_sim_init.npy', sim_img)
+
+            # in y & x directions # TODO: remove hard-coded values
+            # exp_patch_for_vasp = exp_img[459:584,
+            #                              249:374]  # exp_prev[152:279, 12:]
+
+            if exp_prev.ndim == 3:
+                exp_prev = np.mean(exp_prev, axis=2)
+                self.im_ref = exp_prev[:, :-1]
+            else:
+                self.im_ref = exp_prev
+
+        self.do_scell = True   # Set to False if using a 1x3 supercell
+        # Make sim TEM from init_gb
+        if self.do_scell:
+            # ss = Structure.from_file(self.init_gb_path)
+            # ss.make_supercell((1, 3, 1))
+            # temp_file = self.main_path + '/inputs/POSCAR_temp_scell'
+            # self.temp_file = temp_file
+            # ss.to(filename=temp_file)
+            bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
+            bicrys_model.structure.make_supercell((1, 3, 1))
+        else:
+            bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
+        sim_img, __ = bicrys_model._get_image_cell(
+            defocus=self.opt_params[2],
+            interface_width=self.opt_params[1],
+            pix_size=self.opt_params[0],
+            view=False)
+        sim_img = sim_img[32:132]
+
+        try:
+            match_ssim = iop.score_ssim(sim_img, self.im_ref)
+        except ValueError:
+            sim_img, im_ref = self.crop_dims(sim_img, self.im_ref)
+            match_ssim = iop.score_ssim(sim_img, im_ref)
+            print('Adjusted image dimensions for initial model')
+        # match_ssim = iop.score_ssim(sim_img, self.im_ref)
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
 
     def evaluate_obj(self, model):
@@ -1339,18 +2114,33 @@ class gb_ingrained(object):
         This function is a part of the API for all classes in
         experimental_simulation module.
 
-        Returns model object
+        Arguments:
 
-        Args:
+            model (obj): structure_record.model() object for which TEM
+             simulation is obtained and a mismatch score is assigned
 
-        model (obj): structure_record.model() object for which TEM simulation
-                     is obtained and a mismatch score is assigned
+        Returns:
+
+            (structure_record.model(), float):
+            - The model object being evaluated
+            - the SSIM score which is the objective
         """
         relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
-        # Initialize a Bicrystal object from relaxed structure
-        bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+        if self.do_scell is True:
+            bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+            bicrys_model.structure.make_supercell((1, 3, 1))
+        else:
+            bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
         # Simulate an image
-        im_model, __ = bicrys_model.simulate_image(sim_params=self.opt_params)
+        # Initialize a Bicrystal object from relaxed structure
+        # bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+        # Simulate an image
+        im_model, __ = bicrys_model._get_image_cell(
+            defocus=self.opt_params[2],
+            interface_width=self.opt_params[1],
+            pix_size=self.opt_params[0],
+            view=False)
+        im_model = im_model[32:132]
         np.save(relax_path + '/model_sim.npy', im_model)
 
         # im_model = im_model[132:300] # TODO: remove hard-coded values
@@ -1384,9 +2174,15 @@ class gb_ingrained(object):
 
         Returns the SSIM score.
 
-        Args:
+        Arguments:
 
-        model_one and model_two (model objs): models which are being compared.
+            model_one (structure_record.model()): first model being compared
+
+            model_two (structure_record.model()): second model being compared
+
+        Returns:
+
+            float: the SSIM score which is the objective
         '''
         relax_path_one = self.main_path + '/calcs/' + \
             str(model_one.label) + '/relax'
@@ -1415,21 +2211,22 @@ class gb_ingrained(object):
 
     def crop_dims(self, img, ref):
         """
-        This function is used to adjust the 'shape' of the simulated image or
+        This function is used to adjust the `shape` of the simulated image or
         the target image to have them both equal. The dimensions in x, y are
         altered such that minimum number of pixels are lost overall.
 
-        NOTE: Since, the lattice in POSCAR is maintained same across all models
-        (ISIF=2), the simulated image should be same (or only different by
-        couple of pixels in each dimension)
+        !!! note
+            Since, the lattice in POSCAR is maintained same across all models
+            (ISIF=2), the simulated image should be same (or only different by
+            couple of pixels in each dimension)
 
         Returns the simulated image and target image with equal dimensions
 
-        Args:
+        Arguments:
 
-        img (2D arr): the simulated TEM image
+            img (2D arr): the simulated TEM image
 
-        ref (2D arr): the target experimental TEM image
+            ref (2D arr): the target experimental TEM image
         """
         diff_pix_x = img.shape[0] - ref.shape[0]
         diff_pix_y = img.shape[1] - ref.shape[1]
@@ -1445,3 +2242,229 @@ class gb_ingrained(object):
             img = img[:, floor(diff_pix_y/2): floor(-1*diff_pix_y/2)]
 
         return img, ref
+
+
+class xrd_of_model(object):
+    """
+    This class contains functions to calculate the powder diffraction pattern (neutron or X-ray) of a crystal structure and calculate the similarity descriptor against experimental data.
+
+    Arguments:
+
+        xrd_params (dict): A dictionary of parameters used for simulating XRD
+         using **GSASII scriptable**.
+    """
+
+    def __init__(self, xrd_params):
+        """
+        """
+
+        # main path as in energy.py
+        self.name = 'XRD'
+        self.main_path = xrd_params['main_path']
+        self.xrd_sim_dir = None
+
+        print(xrd_params)
+#        open('params', 'w').write(str(xrd_params))
+
+        # path to provided files
+        self.exp_xrd_file = xrd_params['exp_xrd_file']
+        self.instr_param_file = xrd_params['instr_param_file']
+
+        # GSAS related arguments
+        self.xmin = 15
+        self.xmax = 65
+        self.npoints = 1250
+        self.xmin_fit = 20
+        self.xmax_fit = 60
+        self.npoints_fit = 2001
+        self.scale = 100
+        self.score_method = 'res_fit'
+
+        if 'xmin' in xrd_params:
+            self.xmin = xrd_params['xmin']  # min x value for simulation
+        if 'xmax' in xrd_params:
+            self.xmax = xrd_params['xmax']  # max x value for simulation
+        if 'npoints' in xrd_params:
+            # make sure it is a integer
+            self.npoints = int(xrd_params['npoints'])
+        if 'xmin_fit' in xrd_params:
+            # min x value for fitting/normalization
+            self.xmin_fit = xrd_params['xmin_fit']
+        if 'xmax_fit' in xrd_params:
+            # min x value for fitting/normalization
+            self.xmax_fit = xrd_params['xmax_fit']
+        if 'npoints_fit' in xrd_params:
+            # make sure it is a integer
+            self.npoints_fit = int(xrd_params['npoints_fit'])
+        if 'scale' in xrd_params:
+            self.scale = xrd_params['scale']  # scaling factor for histogram
+
+    def read_histogram(self, filename):
+        """
+        Read the simulated histogram data from GSASII-genrated file
+
+        Args:
+            filename (string): absolute path to the histogram data file
+
+        Returns:
+            Array: (N,2) array of floats
+        """
+        data_raw = open(filename).readlines()
+        flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
+        data_raw = data_raw[flag+1:]
+        data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
+        return np.array(data_raw)[:,:2]
+
+    def xrd_normalize(self, data, scale='minmax'):
+        if scale == 'minmax':
+            return (data - data.min())/(data.max()-data.min())
+        if scale == 'freq':
+            return (data - data.min())/(data - data.min()).max()
+
+    def xrd_similarity_metrics_new(self, data_exp, data_sim, scale='minmax'):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, stats
+
+        f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
+        f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        return abs(f_exp(x)-f_sim(x)).mean(),\
+            abs(self.xrd_normalize(f_exp(x), scale) - self.xrd_normalize(f_sim(x), scale)).mean(),\
+            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+            stats.wasserstein_distance(self.xrd_normalize(f_sim(x), scale), self.xrd_normalize(f_exp(x), scale))
+
+    def xrd_similarity_metrics(self, data_exp, data_sim, scaled=True):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, optimize, stats
+
+        f_sim = interpolate.interp1d(data_sim[:, 0], data_sim[:, 1])
+        f_exp = interpolate.interp1d(data_exp[:, 0], data_exp[:, 1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        # transforming the raw simulated data to align
+        def f_fit(x, a, b): return f_sim(x)*a + b
+        popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
+        
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        if scaled:
+            
+            return (abs(f_exp(x)-f_sim(x))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min()),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min())
+        else:
+            return (abs(f_exp(x)-f_sim(x))).mean(),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
+
+    def evaluate_obj(self, model):
+        """
+        This function simulated the powder diffraction pattern of a crystal structure. Then, compares it with the experimental pattern (target). A objective functions, measuring similarity with target, is assigned as a model attribute (obj1_val).
+
+        This function is a part of the API for all classes in
+        experimental_simulation module.
+
+        Arguments:
+
+            model (obj): structure_record.model() object for which TEM
+             simulation is obtained and a mismatch score is assigned
+
+        Returns:
+
+            (structure_record.model(), float):
+            - The model object being evaluated
+            - the similarity metric (score) which is the objective
+        """
+        main_path = self.main_path
+        xrd_sim_dir = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
+        os.mkdir(xrd_sim_dir)
+
+        # write the structure as cif file in the simulation dir
+        temp_init = xrd_sim_dir + '/temp_init.cif'
+        cif_writer = CifWriter(model.astr.copy())
+        cif_writer.write_file(temp_init)
+
+        # Create GSASII project
+        gpx = G2sc.G2Project(filename=f'{xrd_sim_dir}/{model.label}.gpx')
+        phase0 = gpx.add_phase(
+            f'{xrd_sim_dir}/temp_init.cif',
+            phasename=str(model.label),
+            fmthint='CIF'
+        )
+
+        # Simulate power diffraction histogram and write the data
+        hist1 = gpx.add_simulated_powder_histogram(
+            f'{model.label} XRD simulation',
+            self.instr_param_file,
+            self.xmin, self.xmax, Npoints=self.npoints,
+            phases=gpx.phases(), scale=self.scale
+        )
+        gpx.do_refinements()   # calculate pattern
+        gpx.save()
+        gpx.histogram(0).Export(
+            f'{xrd_sim_dir}/data_{model.label}', '.csv', 'hist')  # data
+        gpx.histogram(0).Export(
+            f'{xrd_sim_dir}/refl_{model.label}', '.csv', 'refl')  # reflections
+
+        # post-processing of histogram data
+        # calculate and report the desired scoring function
+        data_sim = self.read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
+        data_exp = np.loadtxt(self.exp_xrd_file)
+        res_sim, res_fit, emd_sim, emd_fit = self.xrd_similarity_metrics(
+            data_exp, data_sim)
+        open(f'{xrd_sim_dir}/log', 'a').write(
+            f'res_sim: {res_sim}\nres_fit: {res_fit}\nemd_sim: {emd_sim}\nemd_fit: {emd_fit}\n')
+
+        if self.score_method == 'res_sim':  # residual vs. raw simulated data
+            score = float(res_sim)
+        if self.score_method == 'res_fit':  # residual vs. fitted/normalized simulated data
+            score = float(res_fit)
+        if self.score_method == 'emd_sim': # Earth mover's distance vs. raw sim. data
+            score = float(emd_sim)
+        if self.score_method == 'emd_fit': # Earth mover's distance vs. fitted sim. data
+            score = float(emd_fit)
+
+        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+        # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
+        if model.Xsim1 == 'XRD':
+            model.obj1_val = score
+        elif model.Xsim2 == 'XRD':
+            model.obj2_val = score
+        elif model.Xsim3 == 'XRD':
+            model.obj3_val = score
+        elif model.Xsim4 == 'XRD':
+            model.obj4_val = score
+
+        return model, score

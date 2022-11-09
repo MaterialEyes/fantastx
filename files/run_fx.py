@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+import traceback
 import os
 import yaml
 import datetime
@@ -17,9 +18,10 @@ import dask
 import dask.distributed
 dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
 
+
 main_path = os.getcwd()
 # read input file and make input dictionary
-with open('epsilon_selection.yaml') as ifile:
+with open('input.yaml') as ifile:
     i_dict = yaml.load(ifile, Loader=yaml.FullLoader)
     i_dict['main_path'] = main_path
 
@@ -29,6 +31,7 @@ all_objects = inputs.make_objects(i_dict)
 # Assign objects from all_objects to local variables
 reg_id = all_objects['reg_id']
 input_model_obj = all_objects['input_model_obj']
+db = all_objects['database']
 gb_ops_obj = None
 if 'gb_ops_obj' in all_objects:
     gb_ops_obj = all_objects['gb_ops_obj']
@@ -76,14 +79,12 @@ with open(data_file, 'w') as f:
 # Set up everything for calculations
 models_evald = 0
 evald_futures, simd_futures = [], []
-pool_status_update = 10
+pool_status_update = 2
 workers = i_dict['workers']
 max_workers = workers['max_workers']
 
 # Start Dask client
 if workers['cluster'] == 'SLURM':
-    job_script = '/home/dunruh/fantastx_vasp_xanes/sample_job_script.txt'
-    jobfile = open(job_script, "w+")
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                processes=workers['processes'],
@@ -92,15 +93,11 @@ if workers['cluster'] == 'SLURM':
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'],
-                               env_extra=workers['env_extra'],
+                               # env_extra=workers['env_extra'],
                                header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
-    #jobfile.write(cluster_job.job_script())
-    #jobfile.close()
 elif workers['cluster'] == 'PBS':
-    job_script = '/home/dunruh/sample_job_script.txt'
-    jobfile = open(job_script, "w+")
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
                              project=workers['project_name'],
@@ -124,7 +121,7 @@ if workers['cluster'] == 'SLURM' or workers['cluster'] == 'PBS':
 # full_eval function which uses global variables
 
 
-def full_eval(model):
+def full_eval(model, energy_obj, Xsim):
     """
     A wrapper function around energy_eval and Xsim_eval.
     Both these are done one after the other as one job by worker
@@ -137,30 +134,30 @@ def full_eval(model):
     parameters in all workers and master
     """
     # submit model to energy relaxation
-    print(f"Trying full eval of model: {model.label}")
     try:
-        energy_code.relax(model, reg_id)
+        energy_obj.relax(model, reg_id)
     except:
+        traceback.print_exc()
         print('Duplicate label in parallel processes. Skipping..')
         return None
 
     resubmitted = 2
     if not model.converged:
-        for i in range(len(energy_code.resubmit)):
-            if resubmitted < energy_code.resubmit and not model.converged:
+        for i in range(energy_obj.resubmit):
+            if resubmitted < energy_obj.resubmit and not model.converged:
                 resubmitted += 1
                 try:
-                    energy_code.re_relax(model)
+                    energy_obj.re_relax(model)
                 except:
                     continue
 
-    print(f"Model converged: {model.converged}")
+    # print(f"Model converged: {model.converged}")
 
     # separate gb_iface for the energy evaluated futures
-    separate_gb(energy_code, gb_ops_obj, model)
+    # separate_gb(energy_obj, gb_ops_obj, model)
 
     # Do Xsim if required
-    if Xsim_1:
+    if Xsim:
         if not model.converged:
             print('Energy calculation of model {} is not'
                   ' converged'.format(model.label))
@@ -171,9 +168,11 @@ def full_eval(model):
             print('Relaxed structure not available. Skipping Xsim..')
             return None
         else:
+            # print("Doing experimental simulation!!")
             # if relaxed structure exists
-            model.Xsim1 = Xsim_1.name
-            model, Xsim_val = Xsim_1.evaluate_obj(model)
+            model.Xsim1 = Xsim.name
+            model, Xsim_val = Xsim.evaluate_obj(model)
+            model.num_of_obj += 1
             return model
     else:
         return model
@@ -194,11 +193,11 @@ if input_model_obj is not None:
 
     # evaluate the input models
     for input_model in input_models:
-        new_model, select = make_model(random_model_obj, evolve, select, pool,
-                                       reg_id, model_type='inputs',
-                                       model=input_model)
+        new_model = make_model(random_model_obj, evolve, select, pool,
+                               reg_id, model_type='inputs',
+                               model=input_model)
         # relax the model in dask-workers
-        out = client.submit(full_eval, new_model)
+        out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         print(
             f"Successfully submitted input model {new_model.label}")
@@ -209,6 +208,7 @@ evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                         models_evald,
                                                         pool, select,
                                                         data_file,
+                                                        db,
                                                         sim_ids)
 working_jobs = get_working_jobs(evald_futures)
 
@@ -219,13 +219,36 @@ if all_objects['constraints_obj'].shape == 'molecule':
                                                             models_evald,
                                                             pool, select,
                                                             data_file,
+                                                            db,
                                                             sim_ids)
     while models_evald < min(len(input_models), num_initial_pop):
         evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                                 models_evald,
                                                                 pool, select,
                                                                 data_file,
+                                                                db,
                                                                 sim_ids)
+# if models_evald < num_initial_pop:
+#     print("Submitting random job")
+#     model_mech = "random"
+# else:
+#     print("Submitting evolved job")
+#     model_mech = "evolved"
+
+# # create the model then send it to the dask-workers for evaluation
+# new_model = make_model(random_model_obj, evolve, select,
+#                        pool, reg_id, model_type=model_mech)
+# out = client.submit(full_eval, new_model, energy_code, Xsim_1)
+# evald_futures.append(out)
+
+# while models_evald < 1:
+#     evald_futures, models_evald, pool, select = update_pool(evald_futures,
+#                                                             models_evald,
+#                                                             pool, select,
+#                                                             data_file,
+#                                                             db,
+#                                                             sim_ids)
+
 print('Input models are finished. Making random models..')
 start_time = time.time()
 # Make random models & evolved models
@@ -238,20 +261,21 @@ while models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
             print("Submitting random job")
-            new_model, select = make_model(random_model_obj, evolve, select,
-                                           pool, reg_id, model_type='random')
+            model_mech = "random"
         else:
             print("Submitting evolved job")
-            new_model, select = make_model(random_model_obj, evolve, select,
-                                           pool, reg_id, model_type='evolved')
+            model_mech = "evolved"
 
-        # relax the model in dask-workers
-        out = client.submit(full_eval, new_model)
+        # create the model then send it to the dask-workers for evaluation
+        new_model = make_model(random_model_obj, evolve, select,
+                               pool, reg_id, model_type=model_mech)
+        out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                                 models_evald,
                                                                 pool, select,
                                                                 data_file,
+                                                                db,
                                                                 sim_ids)
         working_jobs = get_working_jobs(evald_futures)
 
@@ -296,7 +320,9 @@ while len(evald_futures) > 0:
     evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                             models_evald,
                                                             pool, select,
-                                                            data_file, sim_ids)
+                                                            data_file,
+                                                            db,
+                                                            sim_ids)
 
 # print statements which output visualization information
 if "selection_algorithm" in i_dict["select_params"]:

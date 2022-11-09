@@ -116,7 +116,7 @@ class Pool(object):
         unique = True
         if len(self.all_models) >= 1 and self.comparator is not None:
             unique = self.comparator.check_model_uniqueness(
-                model, self.population.models)
+                model, self.all_models)
 
         # If model is unique, add to all_models and proceed
         # Otherwise, reject.
@@ -151,8 +151,12 @@ class Pool(object):
             cutoff_value = select.update_probs_single_obj(
                 self.all_models, self.capacity,
                 update_cutoff_only=True)
-            if cutoff_value >= model.obj0_val:
-                to_good_pool = True
+            if model.obj0_val is not None:
+                if cutoff_value >= model.obj0_val:
+                    to_good_pool = True
+                else:
+                    print(f'Failed job {model.label}, not added to good pool')
+                    to_good_pool = False
             else:
                 to_good_pool = False
         else:
@@ -165,7 +169,7 @@ class Pool(object):
             good_pool_values = np.array(
                 [i.overall_val for i in self.good_pool])
             if select.type == 'single':
-                good_pool_values = np.array([i.obj0_val for i in
+                good_pool_values = np.array([i.obj0_val if i.obj0_val is not None else 0 for i in
                                              self.good_pool])
 
             if len(self.good_pool) > self.capacity:
@@ -220,8 +224,9 @@ class Pool(object):
             if len(self.good_pool) == 0 or select.type == 'single':
                 # if update fails due to too few points for convex hull
                 print('New Model {} made by {} added to good pool'.format(
-                                                model.label, model.made_by))
-                self.good_pool = [m for m in self.all_models if m.overall_val is not None]
+                    model.label, model.made_by))
+                self.good_pool = [
+                    m for m in self.all_models if m.overall_val is not None]
                 self.good_pool.append(model)
                 return select
             else:
@@ -235,11 +240,10 @@ class Pool(object):
                     operator_counts = np.zeros(
                         len(select.operator_hashmap))
                     for operator in select.operator_inheritance:
-                        if operator != "random":
-                            if operator is not None:  # for user-input models
-                                operator_counts[
-                                    select.operator_hashmap[operator]
-                                ] += 1
+                        if operator in select.operator_hashmap.keys():
+                            operator_counts[
+                                select.operator_hashmap[operator]
+                            ] += 1
                         else:
                             operator_counts += 1 / \
                                 len(select.operator_hashmap)
@@ -302,7 +306,7 @@ class Select(object):
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
         # set defaults
-        self.max_times_as_parent = 20  # max times to be chosen as a parent
+        self.max_times_as_parent = 10  # max times to be chosen as a parent
         self.num_required_above_50 = 100  # default
         self.num_models_before_pareto = 200  # default
         def_weights = [1, 1, 1, 1, 1]  # [w0, w1, w2, w3, w4]
@@ -416,7 +420,7 @@ class Select(object):
 
         if self.is_point_on_pareto((model_obj0, model_obj1)):
             # if model is on pareto, set overall value to be 0
-            # Because overall_val remains None after added to pool 
+            # Because overall_val remains None after added to pool
             # if model is non-dominated on both axis
             model.overall_val = 0
             return None, model
@@ -458,8 +462,13 @@ class Select(object):
         # Get all models obj0_val
         model_labels, all_v0 = [], []
         for model in all_models:
-            model_labels.append(model.label)
-            all_v0.append(model.obj0_val)
+            if model.obj0_val is not None:
+                model_labels.append(model.label)
+                all_v0.append(model.obj0_val)
+
+        if len(all_v0) < 2:
+            return []
+
         self.minmax_obj0 = min(all_v0), max(all_v0)
 
         # Get cutoff value for good pool
@@ -923,15 +932,22 @@ class Select(object):
             new_parent = self.get_a_parent(pool)
             if len(parents) == 0:
                 parents.append(new_parent)
+            duplicate_parent = False
+            passed_ab = True
             for existing_parent in parents:
                 if existing_parent.label == new_parent.label:
-                    continue
-                ab_1 = existing_parent.astr.lattice.matrix[:2]
-                ab_2 = new_parent.astr.lattice.matrix[:2]
-                diff = np.array(ab_1) - np.array(ab_2)
-                # return first match since keys are already shuffled
-                if np.absolute(diff).sum() < abs_tol:
-                    parents.append(new_parent)
+                    duplicate_parent = True
+                    break
+                if same_ab:
+                    ab_1 = existing_parent.astr.lattice.matrix[:2]
+                    ab_2 = new_parent.astr.lattice.matrix[:2]
+                    diff = np.array(ab_1) - np.array(ab_2)
+                    # return first match since keys are already shuffled
+                    if np.absolute(diff).sum() >= abs_tol:
+                        passed_ab = False
+                        break
+            if not duplicate_parent and passed_ab:
+                parents.append(new_parent)
         return parents
 
     def get_a_parent(self, pool):

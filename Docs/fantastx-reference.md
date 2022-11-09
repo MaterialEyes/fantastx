@@ -13,9 +13,6 @@
 
 # Epsilon Selection
 
-::: fx19.epsilonSelection.ParetoDominance
-::: fx19.epsilonSelection.EpsilonDominance
-::: fx19.epsilonSelection.StructuralEpsilonDominance
 ::: fx19.epsilonSelection.Pool
 ::: fx19.epsilonSelection.Select
 ::: fx19.epsilonSelection.Archive
@@ -23,8 +20,6 @@
 
 # Clustered Selection
 
-::: fx19.clusteredSelection.ParetoDominance
-::: fx19.clusteredSelection.StructuralEpsilonDominance
 ::: fx19.clusteredSelection.Pool
 ::: fx19.clusteredSelection.Select
 ::: fx19.clusteredSelection.Population
@@ -34,6 +29,10 @@
 ::: fx19.selection.Pool
 ::: fx19.selection.Select
 
+# Dominance
+
+::: fx19.dominance
+
 # Fingerprinting
 
 ::: fx19.fingerprinting.DistanceCalculator
@@ -41,8 +40,8 @@
 
 # Clustering
 
-::: fx19.clustering.hierarchical_clusterer
-::: fx19.clustering.compositional_clusterer
+::: fx19.clustering.CompositionalClusterer
+::: fx19.clustering.HierarchicalClusterer
 
 # Distance Check
 

@@ -7,6 +7,7 @@
         - get_working_jobs
         - write_data
         - relax
+        - do_Xsim
         - make_model
         - update_pool
     rendering:

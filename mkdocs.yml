@@ -2,6 +2,10 @@ site_name: FANTASTX Documentation
 docs_dir: Docs
 theme: material
 
+# Repository
+repo_name: MaterialEyes/fantastx
+repo_url: https://github.com/MaterialEyes/fantastx
+
 plugins:
   - search
   - mkdocstrings:
@@ -10,6 +14,12 @@ plugins:
           selection:
             docstring_style: google
   - mkdocs-jupyter
+  - git-revision-date
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/MaterialEyes/fantastx
 
 markdown_extensions:
   - admonition
@@ -18,15 +28,30 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - pymdownx.snippets
   - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://polyfill.io/v3/polyfill.min.js?features=es6
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
+extra_css:
+  - custom.css
+
+site_url: https://fantastx.github.io/
 
 nav:
-  - Home: home.md
+  - Home: index.md
   - Installation: installation.md
-  - FAQs: FAQs.md
-  - Usage: USAGE.md
-  - Citation: citation.md
   - FANTASTX YAML Preparation: YAML_PREP.md
   - XANES YAML inputs: xanes.md
+  - Examples:
+      - Grain Boundary TEM: gb_tem_example.md
+      # - Bulk PDF: bulk_pdf_example.md
+      # - Molecule XANES: mol_xanes_example.md
+  - FAQs: FAQs.md
+  - Citation: citation.md
   - API:
       - run_ops: run_ops-reference.md
       - inputs: inputs-reference.md
@@ -34,9 +59,11 @@ nav:
       - epsilonSelection: epsilonSelection-reference.md
       - clusteredSelection: clusteredSelection-reference.md
       - selection: selection-reference.md
+      - dominance: dominance-reference.md
       - fingerprinting: fingerprinting-reference.md
       - clustering: clustering-reference.md
       - distance_check: distance_check-reference.md
       - structure_operations: structure_operations-reference.md
       - structure_record: structure_record-reference.md
       - experimental_simulation: experimental_simulation-reference.md
+      - initial_population: initial_population-reference.md

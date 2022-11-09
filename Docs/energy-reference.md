@@ -1,4 +1,10 @@
 # Energy module
 
-::: fx19.energy.lammps_code
-::: fx19.energy.vasp_code
+---
+
+::: fx19.energy
+    handler: python
+    selection:
+      members:
+        - lammps_code
+        - vasp_code
