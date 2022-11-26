@@ -151,8 +151,12 @@ class Pool(object):
             cutoff_value = select.update_probs_single_obj(
                 self.all_models, self.capacity,
                 update_cutoff_only=True)
-            if cutoff_value >= model.obj0_val:
-                to_good_pool = True
+            if model.obj0_val is not None:
+                if cutoff_value >= model.obj0_val:
+                    to_good_pool = True
+                else:
+                    print(f'Failed job {model.label}, not added to good pool')
+                    to_good_pool = False
             else:
                 to_good_pool = False
         else:
@@ -165,7 +169,7 @@ class Pool(object):
             good_pool_values = np.array(
                 [i.overall_val for i in self.good_pool])
             if select.type == 'single':
-                good_pool_values = np.array([i.obj0_val for i in
+                good_pool_values = np.array([i.obj0_val if i.obj0_val is not None else 0 for i in
                                              self.good_pool])
 
             if len(self.good_pool) > self.capacity:
@@ -302,7 +306,7 @@ class Select(object):
         # 'single' or 'multi'
         self.type = select_obj_params['objective_fn_type']
         # set defaults
-        self.max_times_as_parent = 20  # max times to be chosen as a parent
+        self.max_times_as_parent = 10  # max times to be chosen as a parent
         self.num_required_above_50 = 100  # default
         self.num_models_before_pareto = 200  # default
         def_weights = [1, 1, 1, 1, 1]  # [w0, w1, w2, w3, w4]
@@ -458,8 +462,13 @@ class Select(object):
         # Get all models obj0_val
         model_labels, all_v0 = [], []
         for model in all_models:
-            model_labels.append(model.label)
-            all_v0.append(model.obj0_val)
+            if model.obj0_val is not None:
+                model_labels.append(model.label)
+                all_v0.append(model.obj0_val)
+
+        if len(all_v0) < 2:
+            return []
+
         self.minmax_obj0 = min(all_v0), max(all_v0)
 
         # Get cutoff value for good pool
