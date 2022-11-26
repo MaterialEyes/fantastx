@@ -1,6 +1,9 @@
 site_name: FANTASTX Documentation
 docs_dir: Docs
 theme: material
+site_url: ""
+use_directory_urls: false
+
 
 # Repository
 repo_name: MaterialEyes/fantastx
@@ -14,6 +17,9 @@ plugins:
           selection:
             docstring_style: google
   - mkdocs-jupyter
+    # execute: false
+    # allow_errors: true
+    # kernel_name: python3
   - git-revision-date
 
 extra:
@@ -48,6 +54,7 @@ nav:
   - XANES YAML inputs: xanes.md
   - Examples:
       - Grain Boundary TEM: gb_tem_example.md
+      - Grain Boundary TEM notebook: CdTe_Tellurene.ipynb
       # - Bulk PDF: bulk_pdf_example.md
       # - Molecule XANES: mol_xanes_example.md
   - FAQs: FAQs.md

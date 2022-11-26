@@ -120,6 +120,8 @@ model_list = manager.list()
 jobs = []
 workers = i_dict['workers']
 max_running_jobs = workers['max_workers']
+num_initial_pop = i_dict['population_limits']['initial_population']
+total_models_needed = i_dict['population_limits']['total_population']
 processed_models = 0
 models_evald = 0
 evald_futures, simd_futures = [], []
@@ -127,9 +129,10 @@ pool_status_update = 2
 seed_index = 0
 seed_multiplier = 102573
 try:
-    seed_multiplier = int(datetime.datetime.now().strftime('%s%f')) % (2**32)
+    seed_multiplier = int(datetime.datetime.now().strftime(
+        '%s%f')) % (2**32 - total_models_needed)
 except:
-    print("Tried and failed to set random seed using the date and time.")
+    print("Tried and failed to set random seed using the date and time.\n")
 
 ###########################
 #  RUN INPUT CALCULATIONS #
@@ -163,11 +166,8 @@ if input_model_obj is not None:
                                                        model_list))
         jobs.append(out)
         out.start()
-        print(f"Successfully submitted input model {input_model.label}")
+        print(f"Successfully submitted input model {input_model.label}\n")
 
-
-num_initial_pop = i_dict['population_limits']['initial_population']
-total_models_needed = i_dict['population_limits']['total_population']
 processed_models, models_evald, pool, select = update_pool_mp(model_list,
                                                               processed_models,
                                                               models_evald,
@@ -196,7 +196,7 @@ if all_objects['constraints_obj'].shape == 'molecule':
                                                                       db,
                                                                       sim_ids)
 
-print('Input models are finished. Making random models..')
+print('Input models are finished. Making random models..\n')
 start_time = time.time()
 # Make random models & evolved models
 while models_evald < total_models_needed:
@@ -208,10 +208,10 @@ while models_evald < total_models_needed:
     while working_jobs < max_running_jobs and models_evald < total_models_needed:
         # make model
         if models_evald < num_initial_pop:
-            print("Submitting random job")
+            print("Submitting random job\n")
             model_mech = "random"
         else:
-            print("Submitting evolved job")
+            print("Submitting evolved job\n")
             model_mech = "evolved"
 
         seed_index += 1
@@ -245,7 +245,7 @@ while models_evald < total_models_needed:
                 models_evald >= i_dict['population_limits']['pool']:
             job_log = open(job_file, "a+")
             job_log.write(
-                f"Update due to models_evald reaching: {models_evald}")
+                f"Update due to models_evald reaching: {models_evald}\n")
             # print statements which output visualization information
             if "selection_algorithm" in i_dict["select_params"]:
                 if i_dict["select_params"]["selection_algorithm"] ==\
@@ -253,11 +253,11 @@ while models_evald < total_models_needed:
                     good_pool = pool.good_pool
                     good_pool_labels = [model.label for model in good_pool]
                     job_log.write("Current good_pool population models: "
-                                  f"{good_pool_labels}.")
+                                  f"{good_pool_labels}.\n")
                     job_log.close()
                     print(
                         "Current good_pool population models: "
-                        f"{good_pool_labels}.")
+                        f"{good_pool_labels}.\n")
                 elif i_dict["select_params"]["selection_algorithm"] ==\
                         "epsilon_moea":
                     pop_labels = [
@@ -265,14 +265,14 @@ while models_evald < total_models_needed:
                     archive_labels = [
                         model.label for model in pool.archive.models]
                     job_log.write("Current pool population models: "
-                                  f"{pop_labels}")
+                                  f"{pop_labels}\n")
                     job_log.write("Current pool archive models:"
-                                  f"{archive_labels}")
+                                  f"{archive_labels}\n")
                     job_log.close()
                     print("Current pool population models: "
-                          f"{pop_labels}")
+                          f"{pop_labels}\n")
                     print("Current pool archive models:"
-                          f"{archive_labels}")
+                          f"{archive_labels}\n")
                 elif i_dict["select_params"]["selection_algorithm"] ==\
                         "clustered_selection":
                     nd_pop_labels = [
@@ -280,21 +280,21 @@ while models_evald < total_models_needed:
                         model in pool.population.non_dominated_models]
                     job_log.write(
                         "Current pool population non-dominated models: "
-                        f"{nd_pop_labels}")
+                        f"{nd_pop_labels}\n")
                     job_log.close()
                     print(
                         "Current pool population non-dominated models: "
-                        f"{nd_pop_labels}")
+                        f"{nd_pop_labels}\n")
             else:
                 good_pool = pool.good_pool
                 good_pool_labels = [model.label for model in good_pool]
                 job_log.write(
                     "Current good_pool population models: "
-                    f"{good_pool_labels}.")
+                    f"{good_pool_labels}.\n")
                 job_log.close()
                 print(
                     "Current good_pool population models: "
-                    f"{good_pool_labels}.")
+                    f"{good_pool_labels}.\n")
 
 # process extra calculations running in last batch
 while get_working_mp_jobs(jobs) > 0:
@@ -317,11 +317,11 @@ if "selection_algorithm" in i_dict["select_params"]:
         good_pool = pool.good_pool
         good_pool_labels = [model.label for model in good_pool]
         job_log.write("Current good_pool population models: "
-                      f"{good_pool_labels}.")
+                      f"{good_pool_labels}.\n")
         job_log.close()
         print(
             "Current good_pool population models: "
-            f"{good_pool_labels}.")
+            f"{good_pool_labels}.\n")
     elif i_dict["select_params"]["selection_algorithm"] ==\
             "epsilon_moea":
         pop_labels = [
@@ -329,14 +329,14 @@ if "selection_algorithm" in i_dict["select_params"]:
         archive_labels = [
             model.label for model in pool.archive.models]
         job_log.write("Current pool population models: "
-                      f"{pop_labels}")
+                      f"{pop_labels}\n")
         job_log.write("Current pool archive models:"
-                      f"{archive_labels}")
+                      f"{archive_labels}\n")
         job_log.close()
         print("Current pool population models: "
-              f"{pop_labels}")
+              f"{pop_labels}\n")
         print("Current pool archive models:"
-              f"{archive_labels}")
+              f"{archive_labels}\n")
     elif i_dict["select_params"]["selection_algorithm"] ==\
             "clustered_selection":
         nd_pop_labels = [
@@ -344,22 +344,22 @@ if "selection_algorithm" in i_dict["select_params"]:
             model in pool.population.non_dominated_models]
         job_log.write(
             "Current pool population non-dominated models: "
-            f"{nd_pop_labels}")
+            f"{nd_pop_labels}\n")
         job_log.close()
         print(
             "Current pool population non-dominated models: "
-            f"{nd_pop_labels}")
+            f"{nd_pop_labels}\n")
 else:
     good_pool = pool.good_pool
     good_pool_labels = [model.label for model in good_pool]
     job_log.write(
         "Current good_pool population models: "
-        f"{good_pool_labels}.")
+        f"{good_pool_labels}.\n")
     job_log.close()
     print(
         "Current good_pool population models: "
-        f"{good_pool_labels}.")
+        f"{good_pool_labels}.\n")
 
-print(f"Current operator probabilities: {select.operator_frequencies}")
-print('Done!')
-print('Total time: ', time.time() - start_time)
+print(f"Current operator probabilities: {select.operator_frequencies}\n")
+print("Done!\n")
+print(f"Total time: {time.time() - start_time}\n")

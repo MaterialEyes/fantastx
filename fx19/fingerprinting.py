@@ -111,6 +111,13 @@ class DistanceCalculator(object):
 
             float: the distance between the two fingerprints
         """
+        if self.metric in ['euclidean', 'cosine', 'manhattan',
+                           'laplacian', 'gaussian']:
+            if fingerprint1.shape[0] != 1:
+                fingerprint1 = fingerprint1.reshape(1, -1)
+            if fingerprint2.shape[0] != 1:
+                fingerprint2 = fingerprint2.reshape(1, -1)
+
         if self.metric == "euclidean":
             return pairwise_distances(fingerprint1,
                                       fingerprint2,
@@ -144,6 +151,10 @@ class DistanceCalculator(object):
         if self.metric == "r2_score":
             return r2_score(fingerprint1,
                             fingerprint2)
+        if self.metric == "chi2":
+            f1 = np.abs(fingerprint1)
+            f2 = np.abs(fingerprint2)
+            return 0.5 * np.sum(np.square(f1 - f2)/(f1 + f2))
 
 
 class Comparator(object):

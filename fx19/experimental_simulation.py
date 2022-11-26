@@ -31,7 +31,13 @@ except ImportError:
 try:
     from lmfit import Model
 except ImportError:
-    print("Install lmfit to perform optimization of the convolution parameters"
+    print("Install lmfit to perform lmfit optimization of the convolution parameters"
+          " for XANES simulations.")
+
+try:
+    from scipy import optimize
+except ImportError:
+    print("Install scipy to perform scipy optimization of the convolution parameters"
           " for XANES simulations.")
 
 try:
@@ -683,7 +689,69 @@ class xanes_of_model(object):
 
         return best_spline
 
-    def _direct_fit(self, args):
+    @staticmethod
+    def _boost_pre_edge(x_array, y_array, pre_edge_indices, scale, shift):
+        """
+        Scale and shift the pre-edge region to improve alignment independently
+        of the rest of the spectra. This is similar to taking an earth mover's
+        distance approach. If shifting occurs, additional data points are
+        inserted into the spectra as needed to pad the newly missing regions.
+
+        !!! note
+            It is only possible to shift the pre-edge peaks towards negative
+            energies. This aligns with the fact that FDMNES only
+            over-estimates pre-edge peak energies rather than under
+            estimating them.
+
+        Arguments:
+            x_array (array): the x spectra coordinates
+            y_array (array): the y spectra coordinates
+            pre_edge_indices (iterable): the indices of the coordinates which
+             correspond to the pre-edge region
+            scale (float): the amount to scale the pre-edge region by
+            shift (float): the amount to shift the pre-edge region by
+
+        Returns:
+            (array, array):
+            - the shifted x coordinates
+            - the scaled y coordinates
+        """
+        try:
+            assert type(x_array) is np.ndarray
+            assert type(y_array) is np.ndarray
+        except AssertionError:
+            print("Ruh roh, error encountered!")
+            raise
+
+        mesh_step = x_array[1] - x_array[0]
+        shifted_x = x_array.copy()
+        scaled_y = y_array.copy()
+
+        # scale and shift the pre-edge region
+        for i in pre_edge_indices:
+            scaled_y[i] = scaled_y[i] * scale
+            shifted_x[i] = shifted_x[i] - shift
+
+        # add in extra data points if needed
+        if shift > mesh_step:
+            n_extra_points = int(shift // mesh_step)
+            mesh_edge = shifted_x[pre_edge_indices[-1] + 1]
+            spline_edge = y_array[pre_edge_indices[-1] + 1]
+            for i in range(n_extra_points):
+                shifted_x = np.insert(
+                    shifted_x,
+                    pre_edge_indices[-1] + 1 + i,
+                    mesh_edge - (n_extra_points - i) * mesh_step
+                )
+                scaled_y = np.insert(
+                    scaled_y,
+                    pre_edge_indices[-1] + 1 + i,
+                    spline_edge
+                )
+
+        return shifted_x, scaled_y
+
+    def _direct_fit(self, optimizer, args):
         """
         Optimize the convolution parameters of a spectra which is being
         convolved with a constant (non-energy dependent) broadening term.
@@ -696,10 +764,18 @@ class xanes_of_model(object):
             - the lmfit result object
             - the spline result (bounded by the comparison indices)
         """
+        try:
+            assert type(optimizer) is str, "optimizer must be string"
+            assert optimizer in ["lmfit", "scipy"], "optimizer must be"
+            " either lmfit or scipy"
+        except AssertionError:
+            print("Ruh roh, error encountered!")
+            raise
+
         (x_array, y_array, exp_spline, exp_peaks, _) = args
         data = exp_spline[self.compare_indices]
 
-        def fit_model(_x_array, _g_ch):
+        def lmfit_fit_model(_x_array, _g_ch):
             # first get xanes spline to ensure constant e spacing
             spline_y = self._spline_shift_scale(_x_array, y_array)
             smoothed_y = self._direct_convolution(
@@ -713,23 +789,50 @@ class xanes_of_model(object):
             else:
                 return spline_y[self.compare_indices]
 
-        modelling = Model(fit_model)
-        modelling.set_param_hint(
-            '_g_ch',
-            value=self.convolution_params['g_ch'],
-            min=self.opt_bounds['g_ch'][0],
-            max=self.opt_bounds['g_ch'][1])
+        def scipy_fit_model(x, _x_array, _y_array):
+            # first get xanes spline to ensure constant e spacing
+            spline_y = self._spline_shift_scale(_x_array, _y_array)
+            smoothed_y = self._direct_convolution(
+                self.spline_mesh, spline_y, self.convolution_type, x[0])
+            spline_y = self._spline_shift_scale(
+                self.spline_mesh, smoothed_y, exp_peaks)
 
-        pars = modelling.make_params()
-        data = exp_spline[self.compare_indices]
-        result = modelling.fit(data,
-                               pars,
-                               _x_array=x_array,
-                               method=self.opt_method,
-                               fit_kws=self.opt_options)
+            sim = spline_y[self.compare_indices]
+            if self.comparison_spectra_type == 'difference':
+                sim = spline_y[self.compare_indices] -\
+                    self.comp_base_spline[self.compare_indices]
+            d = self.distance_calculator.create(
+                sim,
+                data)
+
+            return d
+
+        if optimizer == "lmfit":
+            modelling = Model(lmfit_fit_model)
+            modelling.set_param_hint(
+                '_g_ch',
+                value=self.convolution_params['g_ch'],
+                min=self.opt_bounds['g_ch'][0],
+                max=self.opt_bounds['g_ch'][1])
+
+            pars = modelling.make_params()
+            data = exp_spline[self.compare_indices]
+            result = modelling.fit(data,
+                                   pars,
+                                   _optimizer=optimizer,
+                                   _x_array=x_array,
+                                   method=self.opt_method,
+                                   fit_kws=self.opt_options)
+        elif optimizer == "scipy":
+            fit_args = (x_array, y_array)
+            starting_variables = [self.convolution_params['g_ch']]
+            bounds = [self.opt_bounds['g_ch']]
+            opt_options = {'maxiter': 1000, 'popsize': 16, 'init': 'sobol'}
+            result = optimize.differential_evolution(
+                scipy_fit_model, bounds, args=fit_args, x0=starting_variables, **opt_options)
         return result
 
-    def _e_dependent_fit(self, args):
+    def _e_dependent_fit(self, optimizer, args):
         """
         Optimize the convolution parameters of a spectra which is being
         convolved with an energy-dependent broadening term.
@@ -745,7 +848,7 @@ class xanes_of_model(object):
         (x_array, y_array, exp_spline, exp_peaks, fermi_energy) = args
         data = exp_spline[self.compare_indices]
 
-        def fit_model(_x_array, _y_array, _g_max, _e_cent, _e_larg):
+        def lmfit_fit_model(_x_array, _y_array, _g_max, _e_cent, _e_larg):
             arctan_gammas = self._arctan_gamma_fdmnes(
                 _x_array,
                 self.convolution_params['g_ch'],
@@ -767,28 +870,64 @@ class xanes_of_model(object):
                 # print("Returning spline!")
                 return spline_y[self.compare_indices]
 
-        modelling = Model(fit_model, independent_vars=["_x_array", "_y_array"])
-        modelling.set_param_hint(
-            '_g_max',
-            value=self.convolution_params['g_max'],
-            min=self.opt_bounds['g_max'][0],
-            max=self.opt_bounds['g_max'][1])
-        modelling.set_param_hint(
-            '_e_cent',
-            value=self.convolution_params['e_cent'],
-            min=self.opt_bounds['e_cent'][0],
-            max=self.opt_bounds['e_cent'][1])
-        modelling.set_param_hint(
-            '_e_larg',
-            value=self.convolution_params['e_larg'],
-            min=self.opt_bounds['e_larg'][0],
-            max=self.opt_bounds['e_larg'][1])
+        def scipy_fit_model(x, _x_array, _y_array):
+            arctan_gammas = self._arctan_gamma_fdmnes(
+                _x_array,
+                self.convolution_params['g_ch'],
+                x[0],
+                x[1],
+                x[2],
+                fermi_energy)
+            smoothed_y = self._energy_dependent_conv(
+                _x_array, _y_array, self.convolution_type,
+                arctan_gammas, fermi_energy)
+            spline_y = self._spline_shift_scale(
+                _x_array, smoothed_y, exp_peaks)
 
-        pars = modelling.make_params()
-        data = exp_spline[self.compare_indices]
-        result = modelling.fit(data, pars, _x_array=x_array, _y_array=y_array,
-                               method=self.opt_method,
-                               fit_kws=self.opt_options)
+            sim = spline_y[self.compare_indices]
+            if self.comparison_spectra_type == 'difference':
+                sim = spline_y[self.compare_indices] -\
+                    self.comp_base_spline[self.compare_indices]
+            d = self.distance_calculator.create(
+                sim,
+                data)
+
+            return d
+
+        if optimizer == 'lmfit':
+            modelling = Model(lmfit_fit_model, independent_vars=[
+                              "_x_array", "_y_array"])
+            modelling.set_param_hint(
+                '_g_max',
+                value=self.convolution_params['g_max'],
+                min=self.opt_bounds['g_max'][0],
+                max=self.opt_bounds['g_max'][1])
+            modelling.set_param_hint(
+                '_e_cent',
+                value=self.convolution_params['e_cent'],
+                min=self.opt_bounds['e_cent'][0],
+                max=self.opt_bounds['e_cent'][1])
+            modelling.set_param_hint(
+                '_e_larg',
+                value=self.convolution_params['e_larg'],
+                min=self.opt_bounds['e_larg'][0],
+                max=self.opt_bounds['e_larg'][1])
+
+            pars = modelling.make_params()
+            data = exp_spline[self.compare_indices]
+            result = modelling.fit(data, pars, _x_array=x_array, _y_array=y_array,
+                                   method=self.opt_method,
+                                   fit_kws=self.opt_options)
+        elif optimizer == "scipy":
+            fit_args = (x_array, y_array)
+            starting_variables = [self.convolution_params['g_max'],
+                                  self.convolution_params['e_cent'],
+                                  self.convolution_params['e_larg']]
+            bounds = [self.opt_bounds['g_max'], self.opt_bounds['e_cent'],
+                      self.opt_bounds['e_larg']]
+            opt_options = {'maxiter': 1000, 'popsize': 16, 'init': 'sobol'}
+            result = optimize.differential_evolution(
+                scipy_fit_model, bounds, args=fit_args, x0=starting_variables, **opt_options)
         return result
 
     def read_in_experimental_spectra(self, file_path):
@@ -881,7 +1020,7 @@ class xanes_of_model(object):
         if self.extract_fermi_energy:
             # Grab the fermi level to cut with
             match = None
-            cycle_index = 19
+            cycle_index = 25
             while match is None:
                 pattern = re.compile(f"Cycle  {cycle_index}")
                 bav_file = file_path[:-9] + "bav.txt"
@@ -1364,7 +1503,7 @@ class xanes_of_model(object):
                     )
                     lowest_spline = self.model_comp_spline
 
-                print(f"RMS score for run {xanes_run}: "
+                print(f"Score for run {xanes_run}: "
                       f"{float((lowest_spectra_distance)*100)}")
                 results.append(lowest_spectra_distance)
                 np.save(model.relax_path + "/model_sim_spectra_" +
