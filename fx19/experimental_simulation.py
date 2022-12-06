@@ -98,12 +98,7 @@ class xanes_of_model(object):
         self.simulation_code = xanes_params['simulation_code']
         self.input_yaml_filepath = xanes_params['input_yaml_filepath']
         self.comparison_spectra_type = xanes_params['comparison_spectra_type']
-
-        if 'code_folder' in xanes_params:
-            self.code_folder = xanes_params['code_folder']
-        else:
-            self.code_folder =\
-                "/mnt/c/Users/dunru/Research/XANES/parallel_fdmnes"
+        self.code_folder = xanes_params['code_folder']
 
         if self.simulation_code == "FEFF":
             self.simulator = simulate.Feff(self.input_yaml_filepath)
@@ -220,6 +215,164 @@ class xanes_of_model(object):
             self.sim_base_spline = self.sp.fit_spline(self.sim_base_data['Energy'],
                                                       self.sim_base_data['Mu'],
                                                       type="cubic")
+
+    def set_params(self, xanes_params):
+        """
+        Set all parameters, throwing exceptions for missing parameters.
+
+        Arguments:
+            xanes_params (dict): dictionary of all XANES parameters
+        """
+        try:
+            self.main_path = xanes_params['main_path']
+            self.simulation_code = xanes_params['simulation_code']
+            self.input_yaml_filepath = xanes_params['input_yaml_filepath']
+            self.comparison_spectra_type =\
+                xanes_params['comparison_spectra_type']
+            self.exp_filepath = xanes_params['exp_filepath']
+
+            self.code_folder = xanes_params['code_folder']
+            # e.g. "./mpirun_fdmnes -np 4"
+            self.exec_cmd = xanes_params['exec_cmd']
+        except KeyError:
+            raise KeyError('Error, did not provide all essential XANES keys.')
+
+        if self.simulation_code == "FEFF":
+            self.simulator = simulate.Feff(self.input_yaml_filepath)
+        elif self.simulation_code == "FDMNES":
+            self.simulator = simulate.Fdmnes(self.input_yaml_filepath)
+        else:
+            self.simulator = None
+
+        if self.comparison_spectra_type == "difference":
+            if "comp_base_ref_filepath" in xanes_params:
+                self.comp_base_ref_filepath =\
+                    xanes_params["comp_base_ref_filepath"]
+            else:
+                raise KeyError('Error, did not provide comp_base_ref_filepath'
+                               ' key.')
+
+        # only needed for FEFF
+        if 'mpi_cmd' in xanes_params:
+            self.mpi_cmd = xanes_params['mpi_cmd']
+        else:
+            if self.simulation_code == "FEFF":
+                raise KeyError('Error, did not provide mpi_cmd key.')
+            else:
+                self.mpi_cmd = None
+
+        # quantify the difference between the experimental spectra and the
+        # simulated spectra
+        if 'spectra_distance_metric' in xanes_params:
+            try:
+                self.dc = xtk_distance.DistanceCalculator(
+                    xanes_params['spectra_distance_metric'])
+            except AssertionError:
+                print("Error. Invalid spectra_distance_metric applied.")
+                self.dc = xtk_distance.DistanceCalculator('euclidean')
+        else:
+            # options are any of those in fingerprinting.DistanceCalculator
+            self.dc = xtk_distance.DistanceCalculator('euclidean')
+
+        # set the spline to fit to the spectra
+        self.sp = processing.SpectraProcessing(
+            spline_mesh=np.arange(7110, 7165, 0.1))
+        if 'spline_mesh_params' in xanes_params:
+            try:
+                spline_min = xanes_params['spline_mesh_params'][0]
+                spline_max = xanes_params['spline_mesh_params'][1]
+                spline_step = xanes_params['spline_mesh_params'][2]
+                self.sp.spline_mesh = np.arange(
+                    spline_min, spline_max, spline_step)
+            except KeyError:
+                print("Error! Missing spline_mesh_param key.")
+
+        # set the convolution parameters
+        if 'convolution' in xanes_params:
+            try:
+                self.convolver = convolution.Convolution(
+                    kernel_type=xanes_params['convolution']['kernel'],
+                    x_dependence=xanes_params['convolution']['x_dependence'],
+                    kernel_fwhm_args=xanes_params['convolution']['arguments'])
+            except KeyError:
+                raise KeyError("Missing convolution key!")
+            try:
+                self.extract_fermi_energy =\
+                    xanes_params['convolution']['extract_fermi_energy']
+            except:
+                print("Error! Missing extract_fermi_energy key.")
+                self.extract_fermi_energy = False
+        else:
+            self.extract_fermi_energy = False
+            if self.simulation_code == "FEFF":
+                self.convolver = convolution.Convolution(
+                    kernel_type="lorentzian",
+                    g_ch=0.3,
+                    kernel_step=0.2
+                )
+            elif self.simulation_code == "FDMNES":
+                self.extract_fermi_energy = True
+                params = {'g_ch': 1.33,
+                          'g_max': 15,
+                          'e_cent': 23.5,
+                          'e_larg': 23.5,
+                          'fermi_energy': 0
+                          }
+                self.convolver = convolution.Convolution(
+                    kernel_type="lorentzian",
+                    x_dependence="arctan",
+                    kernel_fwhm_args=params
+                )
+
+        # set optimization parameters
+        self.optimize_simulation = True
+        if self.optimize_simulation or\
+                self.comparison_spectra_type == "difference":
+            if 'optimization_params' in xanes_params:
+                self.optimizer = optimization.Optimizer(
+                    metric=xanes_params['optimization_params']['metric'],
+                    opt_method=xanes_params['optimization_params']['opt_method'],
+                    opt_options=xanes_params['optimization_params']['opt_options'],
+                    opt_window=xanes_params['optimization_params']['opt_window']
+                )
+                self.opt_bounds = xanes_params['optimization_params']['opt_bounds']
+            else:
+                self.optimizer = optimization.Optimizer(
+                    metric='euclidean'
+                )
+                self.opt_bounds = {
+                    'shift': (-10, 10),
+                    'scale': (0.01, 10.0),
+                    'g_ch': (0.75, 5),
+                    'g_max': (5, 20),
+                    'e_cent': (5, 50),
+                    'e_larg': (5, 50),
+                    'fermi_energy': (-10, 10)}
+
+        self.constant_broadening = False
+
+        self.cutting_energy_correction = 0.0  # was -6.0
+
+        # Gather experimental data
+        self.exp_data = self.gather_experimental_data(self.exp_filepath)
+        self.exp_spline = self.sp.fit_spline(self.exp_data['Energy'],
+                                             self.exp_data['Mu'],
+                                             type="cubic")
+
+        if self.comparison_spectra_type == "difference":
+            self.sim_base_data = simulate.get_experiment_results(
+                self.comp_base_ref_filepath, headers=["Energy", 'Mu'], data_line=0, sortcolumn=0)
+            self.sim_base_spline = self.sp.fit_spline(self.sim_base_data['Energy'],
+                                                      self.sim_base_data['Mu'],
+                                                      type="cubic")
+
+    def _set_optimization_parameters(self, opt_params=None):
+        """
+        Set the optimization parameters
+
+        Arguments:
+            opt_params (dict): optimization parameter settings
+        """
 
     def gather_experimental_data(self, filepath, delimit=None,
                                  columns=['Energy', 'Mu']):
