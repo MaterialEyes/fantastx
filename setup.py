@@ -12,7 +12,8 @@ if __name__ == "__main__":
         description='Fully Automated Nanoscale To Atomic Scale from Theory and\
                         eXperiments',
         packages=find_packages(),
-        install_requires=['pymatgen'],
+        install_requires=['matplotlib', 'numpy', 'scipy',
+                          'dscribe', 'pymatgen', 'ase>=3.19.0', 'sklearn'],
         package_data={},
         author='V. S. Chaitanya Kolluru',
         author_email='vkolluru@anl.gov',

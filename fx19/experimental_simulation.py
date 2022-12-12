@@ -36,12 +36,6 @@ except ImportError:
           " XANES simulations.")
 
 try:
-    from scipy import optimize
-except ImportError:
-    print("Install scipy to perform scipy optimization of the convolution parameters"
-          " for XANES simulations.")
-
-try:
     import GSASIIscriptable as G2sc
 except ImportError:
     print('Install GSASIIscriptable for powder diffraction simulation.'
