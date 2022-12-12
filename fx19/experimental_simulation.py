@@ -53,7 +53,7 @@ import re
 from collections import Counter
 from pymatgen.core.lattice import Lattice
 
-DEBUG = False
+DEBUG = True
 
 
 class xanes_of_model(object):
@@ -106,6 +106,8 @@ class xanes_of_model(object):
                 xanes_params["exp_filepath"]
         else:
             self.exp_filepath = "/experiment_base_ref.dat"
+
+        print(self.exp_filepath)
 
         if self.comparison_spectra_type == "difference":
             if "comp_base_ref_filepath" in xanes_params:
@@ -379,7 +381,7 @@ class xanes_of_model(object):
                 filepath, headers=columns, data_line=0, sortcolumn=0,
                 delimiter=delimit)
         else:
-            if hasattr(filepath, "__iter__"):
+            if hasattr(filepath, "__iter__") and type(filepath) is not str:
                 experiment_data_base = simulate.get_experiment_results(
                     filepath[0], headers=columns, data_line=0, sortcolumn=0,
                     delimiter=delimit)
@@ -389,6 +391,7 @@ class xanes_of_model(object):
                 experiment_data['Mu'] = experiment_data['Mu']\
                     - experiment_data_base['Mu']
             else:
+                # hitting direct comparison
                 experiment_data = simulate.get_experiment_results(
                     filepath, headers=columns, data_line=0, sortcolumn=0,
                     delimiter=delimit)
@@ -402,18 +405,30 @@ class xanes_of_model(object):
         exec_cmd = self.exec_cmd.split()
         os.mkdir(simulation_path)
         iron_three = False
+        oxygen = False
         for i in model.astr.sites:
             if i.specie.symbol == "Fe":
                 if i.specie.oxi_state == 3:
                     iron_three = True
-        if iron_three:
-            self.simulator.param_dict['feff_cards']['ION'] = '0 0.15\nION 1 0.05\nION 2 0.05'
+            elif i.specie.symbol == "O":
+                oxygen = True
+        if iron_three and oxygen:
+            self.simulator.param_dict['feff_cards']['ION'] =\
+                '0 0.15\nION 1 0.05\nION 2 0.05\nION 3 -0.03\nION 4 -0.03'
+        elif iron_three and not oxygen:
+            self.simulator.param_dict['feff_cards']['ION'] =\
+                "0 0.15\nION 1 0.05\nION 2 0.05"
+        elif oxygen and not iron_three:
+            self.simulator.param_dict['feff_cards']['ION'] =\
+                "3 -0.03\nION 4 -0.03"
         else:
             self.simulator.param_dict['ION'] = None
         self.simulator.prepare_simulation(
             model.astr, simulation_path, True, self.code_folder, self.mpi_cmd)
-        results = self.simulator.run(exec_cmd, simulation_path)
-        return results
+
+        if not DEBUG:
+            results = self.simulator.run(exec_cmd, simulation_path)
+            return results
 
     def evaluate_obj(self, model):
         """
@@ -444,131 +459,148 @@ class xanes_of_model(object):
             - the model whose objective was calculated
             - the objective value
         """
-        print(model.astr)
-        results = self.run_simulation(model)
 
-        lowest_distance = np.inf
-        for n, i in enumerate(results):
-            x_result = i['x_array']
-            y_result = i['y_array'] if 'tddft_y_array' not in i else\
-                i['tddft_y_array']
-            spline_result = self.sp.fit_spline(
-                x_result, y_result, type="cubic")
-            # options:
-            # - align spectra (optimizing scale and shift)
-            # - convolve spectra (optimize or not)
-            distance = np.inf
-            if self.comparison_spectra_type == "direct":
-                if not self.optimize_simulation:
-                    # convolve spectra
-                    convolved_y = self.convolver.convolve_function(
-                        self.sp.spline_mesh, spline_result)
-                    # align spectra
-                    exp_peaks = self.sp.locate_peaks(
-                        self.sp.spline_mesh, self.exp_spline)
-                    aligned_x, aligned_y = self.sp.match_first_peak(
-                        self.sp.spline_mesh, convolved_y, exp_peaks)
-                    spline_result = self.sp.fit_spline(
-                        aligned_x, aligned_y, type="cubic")
-                    distance = self.dc.calculate(
-                        spline_result, self.exp_spline)
-                else:
-                    # optimize
-                    spline_result, result =\
-                        self.optimizer.optimize_post_simulation_parameters(
-                            self.sp.spline_mesh,
-                            spline_result,
-                            self.exp_spline,
-                            self.convolver,
-                            self.sp,
-                            self.opt_bounds
-                        )
-                    distance = result.fun
-            elif self.comparison_spectra_type == "difference":
-                if not self.optimize_simulation:
-                    # convolve spectra
-                    convolved_y = self.convolver.convolve_function(
-                        self.sp.spline_mesh, spline_result)
-                    spline_diff = convolved_y - self.sim_base_spline
-                    distance = self.dc.calculate(spline_diff, self.exp_spline)
+        if not DEBUG:
+            print(model.astr)
+            results = self.run_simulation(model)
 
-                else:
-                    spline_result, spline_diff, result =\
-                        self.optimizer.optimize_difference(
-                            spline_result,
-                            self.sim_base_spline,
-                            self.exp_spline,
-                            self.convolver,
-                            self.sp,
-                            self.opt_bounds,
-                            shift_independently=False,
-                            scale_independently=False)
-                    distance = result.fun
+            lowest_distance = np.inf
+            for n, i in enumerate(results):
+                x_result = i['x_array']
+                y_result = i['y_array'] if 'tddft_y_array' not in i else\
+                    i['tddft_y_array']
+                spline_result = self.sp.fit_spline(
+                    x_result, y_result, type="cubic")
+                # options:
+                # - align spectra (optimizing scale and shift)
+                # - convolve spectra (optimize or not)
+                distance = np.inf
+                if self.comparison_spectra_type == "direct":
+                    if not self.optimize_simulation:
+                        # convolve spectra
+                        convolved_y = self.convolver.convolve_function(
+                            self.sp.spline_mesh, spline_result)
+                        # align spectra
+                        exp_peaks = self.sp.locate_peaks(
+                            self.sp.spline_mesh, self.exp_spline)
+                        aligned_x, aligned_y = self.sp.match_first_peak(
+                            self.sp.spline_mesh, convolved_y, exp_peaks)
+                        spline_result = self.sp.fit_spline(
+                            aligned_x, aligned_y, type="cubic")
+                        distance = self.dc.calculate(
+                            spline_result, self.exp_spline)
+                    else:
+                        # optimize
+                        spline_result, result =\
+                            self.optimizer.optimize_post_simulation_parameters(
+                                self.sp.spline_mesh,
+                                spline_result,
+                                self.exp_spline,
+                                self.convolver,
+                                self.sp,
+                                self.opt_bounds
+                            )
+                        distance = result.fun
+                elif self.comparison_spectra_type == "difference":
+                    if not self.optimize_simulation:
+                        # convolve spectra
+                        convolved_y = self.convolver.convolve_function(
+                            self.sp.spline_mesh, spline_result)
+                        spline_diff = convolved_y - self.sim_base_spline
+                        distance = self.dc.calculate(
+                            spline_diff, self.exp_spline)
 
-            if distance < lowest_distance:
-                lowest_distance = distance
+                    else:
+                        spline_result, spline_diff, result =\
+                            self.optimizer.optimize_difference(
+                                spline_result,
+                                self.sim_base_spline,
+                                self.exp_spline,
+                                self.convolver,
+                                self.sp,
+                                self.opt_bounds,
+                                shift_independently=False,
+                                scale_independently=False)
+                        distance = result.fun
 
-            print(f"Score for run {n}: "
-                  f"{float((distance)*100)}")
-            np.save(model.relax_path + "/model_sim_spectra_" +
-                    str(n) + ".npy", spline_result)
+                if distance < lowest_distance:
+                    lowest_distance = distance
 
-            # if self.comparison_spectra_type == "direct":
-            fig, axes = plt.subplots(1, 1)
-            fig.set_size_inches(10, 10)
-            axes.plot(self.sp.spline_mesh, self.sim_base_spline, marker=".",
-                      linestyle="-", label="Simulation base")
-            axes.plot(self.sp.spline_mesh, spline_result, marker=".",
-                      linestyle="--", label="Simulation result")
-            axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
-            axes.set_xlabel(
-                "Energy (eV)", fontsize=24)
-            axes.set_xlim(
-                (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
-            axes.set_ylim((0, 2.5))
-            axes.legend(bbox_to_anchor=(0.48, 0.85),
-                        loc="lower left", fontsize=20)
-            plt.setp(axes.get_xticklabels(), fontsize=20)
-            plt.setp(axes.get_yticklabels(), fontsize=16)
-            filename = model.relax_path + "/" + "experiment_vs_sim_spectra_" +\
-                str(n) + ".png"
-            plt.savefig(filename, format="png", dpi=300)
-            if self.comparison_spectra_type == "difference":
+                print(f"Score for run {n}: "
+                      f"{float((distance)*100)}")
+                np.save(model.relax_path + "/model_sim_spectra_" +
+                        str(n) + ".npy", spline_result)
+
+                # if self.comparison_spectra_type == "direct":
                 fig, axes = plt.subplots(1, 1)
                 fig.set_size_inches(10, 10)
-                axes.plot(self.sp.spline_mesh, self.exp_spline, marker=".",
-                          linestyle="-", label="Experiment")
-                axes.plot(self.sp.spline_mesh, spline_diff, marker=".",
-                          linestyle="--", label=self.simulation_code)
-                axes.set_ylabel(
-                    r"$\Delta$ Absorbance (arbitrary units)", fontsize=24)
+                axes.plot(self.sp.spline_mesh, self.sim_base_spline, marker=".",
+                          linestyle="-", label="Simulation base")
+                axes.plot(self.sp.spline_mesh, spline_result, marker=".",
+                          linestyle="--", label="Simulation result")
+                axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
                 axes.set_xlabel(
                     "Energy (eV)", fontsize=24)
                 axes.set_xlim(
                     (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
-                exp_y_max = np.amax(self.exp_spline)
-                exp_y_min = np.amin(self.exp_spline)
-                axes.set_ylim((1.1*exp_y_min, 1.1*exp_y_max))
+                axes.set_ylim((0, 2.5))
                 axes.legend(bbox_to_anchor=(0.48, 0.85),
                             loc="lower left", fontsize=20)
                 plt.setp(axes.get_xticklabels(), fontsize=20)
                 plt.setp(axes.get_yticklabels(), fontsize=16)
-                filename = model.relax_path + "/" + "experiment_vs_sim_spectra_diff_" +\
+                filename = model.relax_path + "/" + "experiment_vs_sim_spectra_" +\
                     str(n) + ".png"
                 plt.savefig(filename, format="png", dpi=300)
-        print("Made it to the end!")
+                if self.comparison_spectra_type == "difference":
+                    fig, axes = plt.subplots(1, 1)
+                    fig.set_size_inches(10, 10)
+                    axes.plot(self.sp.spline_mesh, self.exp_spline, marker=".",
+                              linestyle="-", label="Experiment")
+                    axes.plot(self.sp.spline_mesh, spline_diff, marker=".",
+                              linestyle="--", label=self.simulation_code)
+                    axes.set_ylabel(
+                        r"$\Delta$ Absorbance (arbitrary units)", fontsize=24)
+                    axes.set_xlabel(
+                        "Energy (eV)", fontsize=24)
+                    axes.set_xlim(
+                        (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
+                    exp_y_max = np.amax(self.exp_spline)
+                    exp_y_min = np.amin(self.exp_spline)
+                    axes.set_ylim((1.1*exp_y_min, 1.1*exp_y_max))
+                    axes.legend(bbox_to_anchor=(0.48, 0.85),
+                                loc="lower left", fontsize=20)
+                    plt.setp(axes.get_xticklabels(), fontsize=20)
+                    plt.setp(axes.get_yticklabels(), fontsize=16)
+                    filename = model.relax_path + "/" + "experiment_vs_sim_spectra_diff_" +\
+                        str(n) + ".png"
+                    plt.savefig(filename, format="png", dpi=300)
+            print("Made it to the end!")
 
-        if model.Xsim1 == 'XANES':
-            # Minimizing the obj vals
-            model.obj1_val = float((lowest_distance)*100)
-        elif model.Xsim2 == 'XANES':
-            model.obj2_val = float((lowest_distance)*100)
-        elif model.Xsim3 == 'XANES':
-            model.obj3_val = float((lowest_distance)*100)
-        elif model.Xsim4 == 'XANES':
-            model.obj4_val = float((lowest_distance)*100)
+            if model.Xsim1 == 'XANES':
+                # Minimizing the obj vals
+                model.obj1_val = float((lowest_distance)*100)
+            elif model.Xsim2 == 'XANES':
+                model.obj2_val = float((lowest_distance)*100)
+            elif model.Xsim3 == 'XANES':
+                model.obj3_val = float((lowest_distance)*100)
+            elif model.Xsim4 == 'XANES':
+                model.obj4_val = float((lowest_distance)*100)
 
-        return model, lowest_distance
+            return model, lowest_distance
+        else:
+            self.run_simulation(model)
+            lowest_distance = np.random.uniform(0, 5)
+            if model.Xsim1 == 'XANES':
+                # Minimizing the obj vals
+                model.obj1_val = float((lowest_distance)*100)
+            elif model.Xsim2 == 'XANES':
+                model.obj2_val = float((lowest_distance)*100)
+            elif model.Xsim3 == 'XANES':
+                model.obj3_val = float((lowest_distance)*100)
+            elif model.Xsim4 == 'XANES':
+                model.obj4_val = float((lowest_distance)*100)
+
+            return model, lowest_distance
 
 
 class pdf_of_model(object):

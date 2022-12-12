@@ -22,7 +22,7 @@ import numpy as np
 import subprocess as sp
 import re
 
-DEBUG = False
+DEBUG = True
 
 
 class lammps_code(object):

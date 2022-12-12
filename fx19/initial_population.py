@@ -252,23 +252,27 @@ class make_random_model(object):
 
         # get species and make an empty lattice box
         species, _ = self.get_n_species()
-    
+
         # Shuffle the lattice parameters to increase diversity in mating steps
         if shuffle:
-            tmp = [0,1,2]
+            tmp = [0, 1, 2]
             np.random.shuffle(tmp)
-            self.box_abc = [self.box_abc[tmp[0]], self.box_abc[tmp[1]], self.box_abc[tmp[2]]]
-            self.box_angles = [self.box_angles[tmp[0]], self.box_angles[tmp[1]], self.box_angles[tmp[2]]]
+            self.box_abc = [self.box_abc[tmp[0]],
+                            self.box_abc[tmp[1]], self.box_abc[tmp[2]]]
+            self.box_angles = [self.box_angles[tmp[0]],
+                               self.box_angles[tmp[1]], self.box_angles[tmp[2]]]
 
         # Perturb the abc of the box by a normal distribution
         if perturbShape is not None:
             for i in range(3):
-                self.box_abc[i] = self.box_abc[i] * np.random.normal(1, perturbShape)
+                self.box_abc[i] = self.box_abc[i] * \
+                    np.random.normal(1, perturbShape)
 
         # Perturb the angles of the box by a normal distribution
         if perturbAngle is not None:
             for i in range(3):
-                self.box_angles[i] = self.box_angles[i] * np.random.normal(1, perturbAngle)
+                self.box_angles[i] = self.box_angles[i] * \
+                    np.random.normal(1, perturbAngle)
 
         latt = Lattice.from_parameters(
             self.box_abc[0], self.box_abc[1], self.box_abc[2],
@@ -835,6 +839,15 @@ class make_random_molecule_model(object):
         else:
             self.fragments_directory = str_constraints['fragments_directory']
 
+        if 'number_of_fragments' in str_constraints:
+            nf = str_constraints['number_of_fragments']
+            if type(nf) is int:
+                self.number_of_fragments = [nf, nf + 1]
+            else:
+                self.number_of_fragments = nf
+        else:
+            self.number_of_fragments = [6, 7]
+
         # dictionary of min_dist for different bonds
         self.min_dist_dict = str_constraints['min_dist_dict']
         self.element_syms = str_constraints['element_syms']
@@ -870,7 +883,6 @@ class make_random_molecule_model(object):
         self.assembly_attempts = 100
         self.attachment_attempts = 10
         self.fragment_rotation_attempts = 200
-        self.number_of_fragments = 6
         self.add_H = False
         self.bond_lengths = self._load_bond_length_data()
 
@@ -1535,9 +1547,12 @@ class make_random_molecule_model(object):
                        for i in addable_fragments]
         assembly_probabilities = np.array(frag_counts)/np.sum(frag_counts)
 
+        # Choose number of fragments which will comprise this molecule
+        nf = np.random.randint(self.number_of_fragments)
+
         # Choose the fragments which will comprise this molecule at random
         chosen_fragments = np.random.choice(addable_fragments,
-                                            size=self.number_of_fragments,
+                                            size=nf,
                                             replace=True,
                                             p=assembly_probabilities)
 
@@ -1625,7 +1640,7 @@ class make_random_molecule_model(object):
                     # print(f"Now molecule is: {molecule}")
                     added_fragments += 1
                     self.attached_fragments += 1
-            if added_fragments == self.number_of_fragments:
+            if added_fragments == len(chosen_fragments):
                 assembled = True
                 self._attach_counter_ions(molecule, molecule_astr)
 

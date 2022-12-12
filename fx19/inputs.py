@@ -61,11 +61,6 @@ def make_objects(i_dict):
         random_model_obj = initial_population.make_random_model(
             str_constraints)
         all_objects['random_model_obj'] = random_model_obj
-    if str_constraints['shape'] == 'molecule':
-        random_model_obj = initial_population.make_random_molecule_model(
-            str_constraints
-        )
-        all_objects['random_model_obj'] = random_model_obj
 
     # make energy_code object
     energy_params = get_energy_params(i_dict)
@@ -351,6 +346,11 @@ def make_objects(i_dict):
     hop = structure_operations.basinhopping(basinhopping_params)
     # all_objects['hop'] = hop
 
+    if str_constraints['shape'] == 'molecule':
+        random_model_obj = structure_operations.mol_ops(hop, str_constraints)
+        all_objects['random_model_obj'] = random_model_obj
+        all_objects['evolve'] = random_model_obj
+
     # For gb, overlap and remove sites is used for random models
     gb_ops_obj = None
     if str_constraints['shape'] == 'gb':
@@ -364,7 +364,6 @@ def make_objects(i_dict):
     # Evolve object - wrapper on mating and basinhopping
     evolve_params = get_evolve_params(str_constraints)
     if str_constraints['shape'] == 'cluster' or\
-            str_constraints['shape'] == 'molecule' or\
             str_constraints['shape'] == 'bulk':
         evolve = structure_operations.Evolve(mate, hop, evolve_params)
         all_objects['evolve'] = evolve
