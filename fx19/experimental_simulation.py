@@ -52,6 +52,7 @@ from fx19.fingerprinting import DistanceCalculator
 import re
 from collections import Counter
 from pymatgen.core.lattice import Lattice
+import shutil
 
 DEBUG = True
 
@@ -88,129 +89,7 @@ class xanes_of_model(object):
         print("Initializing XANES module.")
         # main path as in energy.py
         self.name = 'XANES'
-        self.main_path = xanes_params['main_path']
-        self.simulation_code = xanes_params['simulation_code']
-        self.input_yaml_filepath = xanes_params['input_yaml_filepath']
-        self.comparison_spectra_type = xanes_params['comparison_spectra_type']
-        self.code_folder = xanes_params['code_folder']
-
-        if self.simulation_code == "FEFF":
-            self.simulator = simulate.Feff(self.input_yaml_filepath)
-        elif self.simulation_code == "FDMNES":
-            self.simulator = simulate.Fdmnes(self.input_yaml_filepath)
-        else:
-            self.simulator = None
-
-        if "exp_filepath" in xanes_params:
-            self.exp_filepath =\
-                xanes_params["exp_filepath"]
-        else:
-            self.exp_filepath = "/experiment_base_ref.dat"
-
-        print(self.exp_filepath)
-
-        if self.comparison_spectra_type == "difference":
-            if "comp_base_ref_filepath" in xanes_params:
-                self.comp_base_ref_filepath =\
-                    xanes_params["comp_base_ref_filepath"]
-            else:
-                self.comp_base_ref_filepath = "/computational_base_ref.dat"
-
-        if 'exec_cmd' in xanes_params:
-            self.exec_cmd = xanes_params['exec_cmd']
-        else:
-            self.exec_cmd = "./mpirun_fdmnes -np 4"
-
-        if 'mpi_cmd' in xanes_params:
-            self.mpi_cmd = xanes_params['mpi_cmd']
-        else:
-            self.mpi_cmd = None
-
-        if 'spectra_distance_metric' in xanes_params:
-            self.dc = xtk_distance.DistanceCalculator(
-                xanes_params['spectra_distance_metric'])
-        else:
-            # options are any of those in fingerprinting.DistanceCalculator
-            self.dc = xtk_distance.DistanceCalculator('euclidean')
-
-        self.sp = processing.SpectraProcessing()
-        if 'spline_mesh_params' in xanes_params:
-            spline_min = xanes_params['spline_mesh_params'][0]
-            spline_max = xanes_params['spline_mesh_params'][1]
-            spline_step = xanes_params['spline_mesh_params'][2]
-            self.sp.spline_mesh = np.arange(
-                spline_min, spline_max, spline_step)
-        else:
-            self.sp.spline_mesh = np.arange(7110, 7165, 0.1)
-
-        if 'convolution' in xanes_params:
-            self.extract_fermi_energy =\
-                xanes_params['convolution']['extract_fermi_energy']
-            self.convolver = convolution.Convolution(
-                kernel_type=xanes_params['convolution']['kernel'],
-                x_dependence=xanes_params['convolution']['x_dependence'],
-                kernel_fwhm_args=xanes_params['convolution']['arguments'])
-        else:
-            self.extract_fermi_energy = False
-            if self.simulation_code == "FEFF":
-                self.convolver = convolution.Convolution(
-                    kernel_type="lorentzian",
-                    g_ch=0.3,
-                    kernel_step=0.2
-                )
-            elif self.simulation_code == "FDMNES":
-                self.extract_fermi_energy = True
-                params = {'g_ch': 1.33,
-                          'g_max': 15,
-                          'e_cent': 23.5,
-                          'e_larg': 23.5,
-                          'fermi_energy': 0
-                          }
-                self.convolver = convolution.Convolution(
-                    kernel_type="lorentzian",
-                    x_dependence="arctan",
-                    kernel_fwhm_args=params
-                )
-
-        self.optimize_simulation = True
-        if self.optimize_simulation or\
-                self.comparison_spectra_type == "difference":
-            if 'optimization_params' in xanes_params:
-                self.optimizer = optimization.Optimizer(
-                    metric=xanes_params['optimization_params']['metric'],
-                    opt_method=xanes_params['optimization_params']['opt_method'],
-                    opt_options=xanes_params['optimization_params']['opt_options'],
-                    opt_window=xanes_params['optimization_params']['opt_window']
-                )
-                self.opt_bounds = xanes_params['optimization_params']['opt_bounds']
-            else:
-                self.optimizer = optimization.Optimizer(
-                    metric='euclidean'
-                )
-                self.opt_bounds = {
-                    'shift': (-10, 10),
-                    'scale': (0.01, 10.0),
-                    'g_ch': (0.75, 5),
-                    'g_max': (5, 20),
-                    'e_cent': (5, 50),
-                    'e_larg': (5, 50)}
-
-        self.constant_broadening = False
-
-        self.cutting_energy_correction = 0.0  # was -6.0
-
-        # Gather experimental data
-        self.exp_data = self.gather_experimental_data(self.exp_filepath)
-        self.exp_spline = self.sp.fit_spline(self.exp_data['Energy'],
-                                             self.exp_data['Mu'],
-                                             type="cubic")
-
-        if self.comparison_spectra_type == "difference":
-            self.sim_base_data = simulate.get_experiment_results(
-                self.comp_base_ref_filepath, headers=["Energy", 'Mu'], data_line=0, sortcolumn=0)
-            self.sim_base_spline = self.sp.fit_spline(self.sim_base_data['Energy'],
-                                                      self.sim_base_data['Mu'],
-                                                      type="cubic")
+        self.set_params(xanes_params)
 
     def set_params(self, xanes_params):
         """
@@ -247,6 +126,11 @@ class xanes_of_model(object):
             else:
                 raise KeyError('Error, did not provide comp_base_ref_filepath'
                                ' key.')
+
+        if 'exec_cmd' in xanes_params:
+            self.exec_cmd = xanes_params['exec_cmd']
+        else:
+            self.exec_cmd = "./mpirun_fdmnes -np 4"
 
         # only needed for FEFF
         if 'mpi_cmd' in xanes_params:
@@ -295,7 +179,7 @@ class xanes_of_model(object):
             try:
                 self.extract_fermi_energy =\
                     xanes_params['convolution']['extract_fermi_energy']
-            except:
+            except KeyError:
                 print("Error! Missing extract_fermi_energy key.")
                 self.extract_fermi_energy = False
         else:
@@ -325,13 +209,14 @@ class xanes_of_model(object):
         if self.optimize_simulation or\
                 self.comparison_spectra_type == "difference":
             if 'optimization_params' in xanes_params:
+                op = xanes_params['optimization_params']
                 self.optimizer = optimization.Optimizer(
-                    metric=xanes_params['optimization_params']['metric'],
-                    opt_method=xanes_params['optimization_params']['opt_method'],
-                    opt_options=xanes_params['optimization_params']['opt_options'],
-                    opt_window=xanes_params['optimization_params']['opt_window']
+                    metric=op['metric'],
+                    opt_method=op['opt_method'],
+                    opt_options=op['opt_options'],
+                    opt_window=op['opt_window']
                 )
-                self.opt_bounds = xanes_params['optimization_params']['opt_bounds']
+                self.opt_bounds = op['opt_bounds']
             else:
                 self.optimizer = optimization.Optimizer(
                     metric='euclidean'
@@ -345,6 +230,14 @@ class xanes_of_model(object):
                     'e_larg': (5, 50),
                     'fermi_energy': (-10, 10)}
 
+            self.shift_independently = False
+            self.scale_independently = False
+            if self.comparison_spectra_type == "difference":
+                if 'shift_targ' in self.opt_bounds:
+                    self.shift_independently = True
+                if 'scale_targ' in self.opt_bounds:
+                    self.scale_independently = True
+
         self.constant_broadening = False
 
         self.cutting_energy_correction = 0.0  # was -6.0
@@ -357,10 +250,12 @@ class xanes_of_model(object):
 
         if self.comparison_spectra_type == "difference":
             self.sim_base_data = simulate.get_experiment_results(
-                self.comp_base_ref_filepath, headers=["Energy", 'Mu'], data_line=0, sortcolumn=0)
-            self.sim_base_spline = self.sp.fit_spline(self.sim_base_data['Energy'],
-                                                      self.sim_base_data['Mu'],
-                                                      type="cubic")
+                self.comp_base_ref_filepath, headers=["Energy", 'Mu'],
+                data_line=0, sortcolumn=0)
+            self.sim_base_spline = self.sp.fit_spline(
+                self.sim_base_data['Energy'],
+                self.sim_base_data['Mu'],
+                type="cubic")
 
     def _set_optimization_parameters(self, opt_params=None):
         """
@@ -369,6 +264,7 @@ class xanes_of_model(object):
         Arguments:
             opt_params (dict): optimization parameter settings
         """
+        pass
 
     def gather_experimental_data(self, filepath, delimit=None,
                                  columns=['Energy', 'Mu']):
@@ -404,30 +300,36 @@ class xanes_of_model(object):
         simulation_path = model.relax_path + "/" + self.simulation_code
         exec_cmd = self.exec_cmd.split()
         os.mkdir(simulation_path)
-        iron_three = False
-        oxygen = False
-        for i in model.astr.sites:
-            if i.specie.symbol == "Fe":
-                if i.specie.oxi_state == 3:
-                    iron_three = True
-            elif i.specie.symbol == "O":
-                oxygen = True
-        if iron_three and oxygen:
-            self.simulator.param_dict['feff_cards']['ION'] =\
-                '0 0.15\nION 1 0.05\nION 2 0.05\nION 3 -0.03\nION 4 -0.03'
-        elif iron_three and not oxygen:
-            self.simulator.param_dict['feff_cards']['ION'] =\
-                "0 0.15\nION 1 0.05\nION 2 0.05"
-        elif oxygen and not iron_three:
-            self.simulator.param_dict['feff_cards']['ION'] =\
-                "3 -0.03\nION 4 -0.03"
-        else:
-            self.simulator.param_dict['ION'] = None
+        # iron_three = False
+        # oxygen = False
+        # for i in model.astr.sites:
+        #     if i.specie.symbol == "Fe":
+        #         if i.specie.oxi_state == 3:
+        #             iron_three = True
+        #     elif i.specie.symbol == "O":
+        #         oxygen = True
+        # if iron_three and oxygen:
+        #     self.simulator.param_dict['feff_cards']['ION'] =\
+        #         '0 0.15\nION 1 0.05\nION 2 0.05\nION 3 -0.03\nION 4 -0.03'
+        # elif iron_three and not oxygen:
+        #     self.simulator.param_dict['feff_cards']['ION'] =\
+        #         "0 0.15\nION 1 0.05\nION 2 0.05"
+        # elif oxygen and not iron_three:
+        #     self.simulator.param_dict['feff_cards']['ION'] =\
+        #         "3 -0.03\nION 4 -0.03"
+        # else:
+        #     self.simulator.param_dict['ION'] = None
         self.simulator.prepare_simulation(
             model.astr, simulation_path, True, self.code_folder, self.mpi_cmd)
 
         if not DEBUG:
             results = self.simulator.run(exec_cmd, simulation_path)
+
+            # clean the simulation directory after use if FEFF
+            if self.simulation_code == "FEFF":
+                shutil.copy(simulation_path + "/FEFF/xmu.dat", simulation_path + "/xmu.dat")
+                shutil.copy(simulation_path + "/FEFF/feff.inp", simulation_path + "/feff.inp")
+                shutil.rmtree(simulation_path + "/FEFF")
             return results
 
     def evaluate_obj(self, model):
@@ -461,7 +363,6 @@ class xanes_of_model(object):
         """
 
         if not DEBUG:
-            print(model.astr)
             results = self.run_simulation(model)
 
             lowest_distance = np.inf
@@ -471,6 +372,19 @@ class xanes_of_model(object):
                     i['tddft_y_array']
                 spline_result = self.sp.fit_spline(
                     x_result, y_result, type="cubic")
+
+                if self.extract_fermi_energy and\
+                        self.simulation_code == "FDMNES":
+                    # set fermi energy of convolver. Add edge energy as
+                    # "fermi_energy" is relative to the energy
+                    self.convolver.fermi_energy =\
+                        i['edge_energy'] + i['fermi_energy']
+
+                    if self.opt_bounds['fermi_energy'][1] <\
+                            self.convolver.fermi_energy:
+                        self.opt_bounds['fermi_energy'][0] += i['edge_energy']
+                        self.opt_bounds['fermi_energy'][1] += i['edge_energy']
+
                 # options:
                 # - align spectra (optimizing scale and shift)
                 # - convolve spectra (optimize or not)
@@ -519,8 +433,8 @@ class xanes_of_model(object):
                                 self.convolver,
                                 self.sp,
                                 self.opt_bounds,
-                                shift_independently=False,
-                                scale_independently=False)
+                                shift_independently=self.shift_independently,
+                                scale_independently=self.scale_independently)
                         distance = result.fun
 
                 if distance < lowest_distance:
@@ -534,7 +448,8 @@ class xanes_of_model(object):
                 # if self.comparison_spectra_type == "direct":
                 fig, axes = plt.subplots(1, 1)
                 fig.set_size_inches(10, 10)
-                axes.plot(self.sp.spline_mesh, self.sim_base_spline, marker=".",
+                axes.plot(self.sp.spline_mesh,
+                          self.sim_base_spline, marker=".",
                           linestyle="-", label="Simulation base")
                 axes.plot(self.sp.spline_mesh, spline_result, marker=".",
                           linestyle="--", label="Simulation result")
@@ -548,9 +463,11 @@ class xanes_of_model(object):
                             loc="lower left", fontsize=20)
                 plt.setp(axes.get_xticklabels(), fontsize=20)
                 plt.setp(axes.get_yticklabels(), fontsize=16)
-                filename = model.relax_path + "/" + "experiment_vs_sim_spectra_" +\
+                filename = model.relax_path + "/" +\
+                    "experiment_vs_sim_spectra_" +\
                     str(n) + ".png"
                 plt.savefig(filename, format="png", dpi=300)
+
                 if self.comparison_spectra_type == "difference":
                     fig, axes = plt.subplots(1, 1)
                     fig.set_size_inches(10, 10)
@@ -571,10 +488,10 @@ class xanes_of_model(object):
                                 loc="lower left", fontsize=20)
                     plt.setp(axes.get_xticklabels(), fontsize=20)
                     plt.setp(axes.get_yticklabels(), fontsize=16)
-                    filename = model.relax_path + "/" + "experiment_vs_sim_spectra_diff_" +\
+                    filename = model.relax_path + "/" +\
+                        "experiment_vs_sim_spectra_diff_" +\
                         str(n) + ".png"
                     plt.savefig(filename, format="png", dpi=300)
-            print("Made it to the end!")
 
             if model.Xsim1 == 'XANES':
                 # Minimizing the obj vals
@@ -626,7 +543,8 @@ class pdf_of_model(object):
         self.Biso_val = 0.71
         # default structure scale factor
         self.scale = 1.0
-        # quadratic term related to sharpness of first peak (from pdfgui manual)
+        # quadratic term related to sharpness of first peak
+        # (from pdfgui manual)
         self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
         self.qdamp = 0.043  # G(r) intensity decereases with r

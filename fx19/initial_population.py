@@ -1360,7 +1360,6 @@ class make_random_molecule_model(object):
                     optimal_angles = [xθ, zθ_two]
                     optimal_vector = np.copy(current_vector)
                     smallest_difference = expec_difference
-                    print(current_dist)
 
                 (current_vector, zθ_one, xθ,
                     zθ_two) = self._generate_vector_and_angles()

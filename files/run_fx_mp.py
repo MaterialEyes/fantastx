@@ -93,7 +93,7 @@ def create_and_eval(seed, model_obj, evolve, select, pool, reg_id, energy_code,
     # First, set all possible random number generators with the provided
     # random number seed (important with multiprocessing!)
     np.random.seed(seed)
-    sp.random.seed(seed)
+    # sp.random.seed(seed)
     random.seed(seed)
     # create model
     new_model = make_model(model_obj, evolve, select,
@@ -131,6 +131,8 @@ seed_multiplier = 102573
 try:
     seed_multiplier = int(datetime.datetime.now().strftime(
         '%s%f')) % (2**32 - total_models_needed)
+    if seed_multiplier > 2**32:
+        seed_multiplier = os.environ['SLURM_JOB_ID']
 except:
     print("Tried and failed to set random seed using the date and time.\n")
 

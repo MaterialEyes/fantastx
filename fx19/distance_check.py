@@ -254,8 +254,7 @@ def check_all_bonds(astr, min_dist_dict, cum_sum):
             elif coords in sp5_coords:
                 sp_each_pair.append('sp5')
             else:
-                print('The species of the coords is not identified')
-                print(coords)
+                print(f'The species of the coords {coords} is not identified')
         species_pairs.append(sp_each_pair)
 
     keys = ['sp1_sp1', 'sp1_sp2', 'sp1_sp3', 'sp1_sp4', 'sp1_sp5',

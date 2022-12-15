@@ -596,7 +596,7 @@ class vasp_code(object):
             incar_file.write(
                 "\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str
             )
-            print("\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str)
+            # print("\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str)
             incar_file.close()
 
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
@@ -706,7 +706,7 @@ class vasp_code(object):
                 relaxed_astr.sort()
                 self.move_atoms_inside(relaxed_astr)
                 model.astr = relaxed_astr
-            except:
+            except FileNotFoundError:
                 print('Relaxed structure not available in CONTCAR')
 
             # evaluate objective function and save as model attribute
@@ -717,17 +717,14 @@ class vasp_code(object):
             # DU
             # Evaluate free energy by calculating
             # chemical potential contribution
-            if self.shape == "molecule":
-                model.obj0_val = total_energy/model.astr.num_sites
-            else:
-                free_en = total_energy
-                for elem in astr_elems:
-                    if elem in self.sym_mu_dict.keys():
-                        free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
-                    else:
-                        print("Error. VASP species " + elem +
-                              " not contained in input yaml file.")
-                model.obj0_val = float(free_en)
+            free_en = total_energy
+            for elem in astr_elems:
+                if elem in self.sym_mu_dict.keys():
+                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                else:
+                    print("Error. VASP species " + elem +
+                          " not contained in input yaml file.")
+            model.obj0_val = float(free_en)
 
     def move_atoms_inside(self, astr):
         """

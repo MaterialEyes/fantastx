@@ -1269,7 +1269,7 @@ class basinhopping(object):
                     num_perturbed += 1
             # print(target_astr)
 
-        print(f"Post basinhopping: {target_astr}")
+        # print(f"Post basinhopping: {target_astr}")
 
         if num_perturbed >= jumps_needed:
             return target_astr, inheritance
@@ -2065,7 +2065,6 @@ class mol_ops(object):
                     optimal_angles = [xθ, zθ_two]
                     optimal_vector = np.copy(current_vector)
                     smallest_difference = expec_difference
-                    print(current_dist)
 
                 (current_vector, zθ_one, xθ,
                     zθ_two) = self._generate_vector_and_angles()
@@ -2320,11 +2319,107 @@ class mol_ops(object):
              to the molecule.
         """
         if self.counter_ions is not None:
-            if len(molecule["counter_ions"]) != 0:
-                molecule_astr.remove_sites(molecule["counter_ions"])
-                for i in molecule["counter_ions"]:
-                    molecule["fixed_atoms"].remove(i)
+            if "counter_ions" in molecule:
+                molecule, molecule_astr =\
+                    self._remove_sites(molecule, molecule_astr,
+                                       sites=molecule["counter_ions"])
             self._attach_counter_ions(molecule, molecule_astr)
+
+    def _update_molecule_mapping(self, molecule, s_map):
+        """
+        Updating the mapping of a molecule's dictionary representation.
+        This mapping can be for removal of sites or for sorting the molecule.
+
+        Arguments:
+            molecule (dict): dictionary representation of the molecule
+            s_map (dict): mapping of old structure site ids to new site ids
+
+        Returns:
+            (dict): updated molecule dictionary
+        """
+        molecule["attachment_sites"] =\
+            [s_map[i] for i in molecule["attachment_sites"]]
+        molecule["fixed_atoms"] =\
+            [s_map[i] for i in molecule["fixed_atoms"]]
+        if "counter_ions" in molecule:
+            molecule["counter_ions"] =\
+                [s_map[i] for i in molecule["counter_ions"]]
+
+        for fragment in molecule["fragments"]:
+            fragment["molecule_attach_site"] =\
+                s_map[fragment["molecule_attach_site"]]
+            fragment["site_ids"] =\
+                [s_map[i] for i in fragment["site_ids"]]
+
+        mol_frag_vector_keys = list(molecule["fragment_vectors"].keys())
+        for key in mol_frag_vector_keys:
+            val = molecule["fragment_vectors"][key]
+            molecule["fragment_vectors"].pop(key)
+            molecule["fragment_vectors"][s_map[key]] = val
+
+        return molecule
+
+    def _remove_sites(self, molecule, molecule_astr, fragment=None, sites=None):
+        """
+        Remove sites from a molecule's structure as well as it's
+        dictionary representation. Remove by either providing the fragment
+        which the sites belong to, or an iterable of the site ids within the
+        structure.
+
+        Arguments:
+            molecule (dict): dictionary representation of the molecule
+            molecule_astr (obj): pymatgen structure corresponding to the
+             molecule
+            fragment (dict): fragment being removed, if an entire fragment is
+             being removed. None otherwise
+            sites (iterable): collection of site ids to remove, if fragment is
+             None.
+
+        Returns:
+            (dict, obj):
+            - molecule dictionary representation
+            - molecule structure
+        """
+        if fragment is not None:
+            molecule["fragment_vectors"][
+                fragment["molecule_attach_site"]].remove(
+                    fragment["fragment_vector"])
+            a_index = molecule["attachment_sites"].index(
+                fragment["molecule_attach_site"])
+            molecule["available_attachments"][a_index] += 1
+            molecule["fragments"].remove(fragment)
+
+            sites = fragment["site_ids"]
+        try:
+            for i in sites:
+                if "counter_ions" in molecule:
+                    if i in molecule["counter_ions"]:
+                        molecule["counter_ions"].remove(i)
+                        if len(molecule["counter_ions"]) == 0:
+                            del molecule["counter_ions"]
+                if "fixed_atoms" in molecule:
+                    if i in molecule["fixed_atoms"]:
+                        molecule["fixed_atoms"].remove(i)
+                        if len(molecule["fixed_atoms"]) == 0:
+                            del molecule["fixed_atoms"]
+                if i in molecule["attachment_sites"]:
+                    a_index = molecule["attachment_sites"].index(i)
+                    molecule["available_attachments"].pop(a_index)
+                    molecule["total_avail_attachments"].pop(a_index)
+                    molecule["attachment_sites"].pop(a_index)
+            # update indexing across molecule
+            s_map = {i: i for i in range(molecule_astr.num_sites)}
+            for key in s_map.keys():
+                for i in sites:
+                    if i < key:
+                        s_map[key] -= 1
+            molecule = self._update_molecule_mapping(molecule, s_map)
+            molecule_astr.remove_sites(sites)
+
+        except TypeError:
+            print("Error! Neither fragment nor site_ids provided for removal")
+
+        return molecule, molecule_astr
 
     def build_molecule(self):
         """
@@ -2344,7 +2439,7 @@ class mol_ops(object):
         # Initialize the molecule with only a single seed atom
         molecule, molecule_astr = self._initialize_molecule(
             starting_fragment)
-        print("Initialized molecule!")
+        print("Initialized molecule!\n")
 
         # Add fragments
         assembled = False
@@ -2359,7 +2454,7 @@ class mol_ops(object):
                     assembly_attempts += 1
                     molecule, molecule_astr =\
                         self._initialize_molecule(starting_fragment)
-                    print("Re initialized molecule")
+                    print("Re initialized molecule.\n")
                     break
                 else:
                     # print(f"Now molecule is: {molecule}")
@@ -2369,38 +2464,17 @@ class mol_ops(object):
                 self._attach_counter_ions(molecule, molecule_astr)
 
         if assembled:
-            # Now, sort molecule_astr and molecule representation
             s_indices = np.argsort(molecule_astr)
             s_map = {s_indices[i]: i for i in range(len(s_indices))}
-            molecule["attachment_sites"] =\
-                [s_map[i] for i in molecule["attachment_sites"]]
-            molecule["fixed_atoms"] =\
-                [s_map[i] for i in molecule["fixed_atoms"]]
-            if "counter_ions" in molecule:
-                molecule["counter_ions"] =\
-                    [s_map[i] for i in molecule["counter_ions"]]
-
-            for fragment in molecule["fragments"]:
-                fragment["molecule_attach_site"] =\
-                    s_map[fragment["molecule_attach_site"]]
-                fragment["site_ids"] =\
-                    [s_map[i] for i in fragment["site_ids"]]
-
-            mol_frag_vector_keys = list(molecule["fragment_vectors"].keys())
-            for key in mol_frag_vector_keys:
-                val = molecule["fragment_vectors"][key]
-                molecule["fragment_vectors"].pop(key)
-                molecule["fragment_vectors"][s_map[key]] = val
-
+            molecule = self._update_molecule_mapping(molecule, s_map)
             site_array = np.array(molecule_astr.sites)
             sorted_sites = site_array[s_indices]
             molecule_astr = Structure.from_sites(
                 sorted_sites,
                 charge=molecule_astr._charge)
-            print("Assembled and sorted molecule!")
         else:
             print("Failed to assemble molecule within "
-                  f"{self.assembly_attempts} attempts.")
+                  f"{self.assembly_attempts} attempts.\n")
 
         return molecule, molecule_astr.get_sorted_structure()
 
@@ -2448,12 +2522,11 @@ class mol_ops(object):
             # make a copy
         else:
             parent = copy.deepcopy(model)
-        parent_astr = parent.astr
-        parent_comp = parent_astr.composition.as_dict()
+        astr = parent.astr
         inheritance = [parent.label]
-        parent_mol_rep = parent.molecule_representation
+        molecule = parent.molecule_representation
 
-        current_mol_num_frag = len(parent_mol_rep["fragments"])
+        current_mol_num_frag = len(molecule["fragments"])
         new_num_frag = np.random.randint(self.number_of_fragments)
         while new_num_frag == current_mol_num_frag:
             new_num_frag = np.random.randint(self.number_of_fragments)
@@ -2461,18 +2534,70 @@ class mol_ops(object):
         if new_num_frag > current_mol_num_frag:
             # add fragments
             # choose fragments
+            addable_fragments = list(self.fragments_dict.keys())[1:]
+            frag_counts = [self.fragments_dict[i]["count"]
+                           for i in addable_fragments]
+            assembly_probabilities = np.array(frag_counts)/np.sum(frag_counts)
+
+            # Choose number of fragments which will comprise this molecule
+            nf = np.random.randint(self.number_of_fragments[0],
+                                   self.number_of_fragments[1])
+
+            # Choose the fragments which will comprise this molecule at random
+            nf = new_num_frag - current_mol_num_frag
+            chosen_fragments = np.random.choice(addable_fragments,
+                                                size=nf,
+                                                replace=True,
+                                                p=assembly_probabilities)
 
             # add fragments
+            mol_copy = copy.deepcopy(molecule)
+            astr_copy = copy.deepcopy(astr)
+            added_fragments = 0
+            attach_attempts = 0
+            assembled = False
+            while attach_attempts < self.assembly_attempts:
+                for fragment in chosen_fragments:
+                    attached, molecule, astr =\
+                        self.attach_fragment(
+                            fragment, molecule, astr)
+                    if attached:
+                        added_fragments += 1
+                    if not attached:
+                        attach_attempts += 1
+                        molecule = copy.deepcopy(mol_copy)
+                        astr = copy.deepcopy(astr_copy)
+                        break
+                    else:
+                        # print(f"Now molecule is: {molecule}")
+                        added_fragments += 1
+            if added_fragments == len(chosen_fragments):
+                assembled = True
+                self._reset_counter_ions(molecule, astr)
 
-            pass
+            if assembled:
+                s_indices = np.argsort(astr)
+                s_map = {s_indices[i]: i for i in range(len(s_indices))}
+                molecule = self._update_molecule_mapping(molecule, s_map)
+                site_array = np.array(astr.sites)
+                sorted_sites = site_array[s_indices]
+                astr = Structure.from_sites(
+                    sorted_sites,
+                    charge=astr._charge)
+            else:
+                print("Failed to assemble molecule within "
+                      f"{self.assembly_attempts} attempts.\n")
         else:
             # remove fragments
-            for _ in range(current_mol_num_frag - new_num_frag):
-                pass
-            pass
+            ns = current_mol_num_frag - new_num_frag
+            frags_to_remove = np.random.choice(molecule["fragments"],
+                                               size=ns,
+                                               replace=False)
+            for frag in frags_to_remove:
+                molecule, astr = self._remove_sites(molecule, astr, frag)
+            self._reset_counter_ions(molecule, astr)
 
-        # reset counter ions
-        self._reset_counter_ions(parent_mol_rep, parent_astr)
+        return astr, inheritance, molecule
 
     def get_model(self, select, pool, reg_id):
         """
