@@ -367,7 +367,7 @@ def get_all_image_distances(p1, p2, lattice, coords_are_cartesian=True):
     for i in range(2):
         for j in range(2):
             for k in range(2):
-                if i != 0 and j != 0 and k != 0:
+                if i != 0 or j != 0 or k != 0:
                     new_image = np.multiply([i, j, k], signs) + base_image
                     new_d, _ = lattice.get_distance_and_image(f1, f2,
                                                               new_image)
@@ -378,7 +378,8 @@ def get_all_image_distances(p1, p2, lattice, coords_are_cartesian=True):
     return distances, images
 
 
-def vector_connecting_points(p1, p2, lattice=None, coords_are_cartesian=False):
+def vector_connecting_points(p1, p2, lattice=None, coords_are_cartesian=False,
+                             get_minimal_vector=False):
     """
     Calculates the vector connecting cartesian point p1 to cartesian point p2.
     If lattice is not `None`, then employs periodic boundary conditions.
@@ -387,6 +388,8 @@ def vector_connecting_points(p1, p2, lattice=None, coords_are_cartesian=False):
         p1 (iterable): cartesian coordinates of site 1
         p2 (iterable): cartesian coordinates of site 2
         lattice (obj): pymatgen lattice object that the points reside in
+        get_minimal_vector (bool): True if want to reduce vector to the vector
+         corresponding to the atomic coordinates with minimal image distance
 
     Returns:
         (array): the vector connecting p1 to p2, in cartesian coordinates
@@ -402,7 +405,8 @@ def vector_connecting_points(p1, p2, lattice=None, coords_are_cartesian=False):
         else:
             fvec = np.subtract(p2, p1)
 
-        fvec = np.subtract(fvec, np.round(fvec))
+        if get_minimal_vector:
+            fvec = np.subtract(fvec, np.round(fvec))
         cvec = lattice.get_cartesian_coords(fvec)
 
     return cvec
@@ -429,7 +433,8 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
 
 def get_bonded_neighbors(one_point, many_points, one_species,
                          many_species, inv_syms, max_dist_dict,
-                         lattice, coords_are_cartesian=True,
+                         neighbor_cutoff, lattice,
+                         coords_are_cartesian=True,
                          available_bonds=None):
     """
     Gets the bonded neighbors for an atom given full information for a set of
@@ -452,6 +457,10 @@ def get_bonded_neighbors(one_point, many_points, one_species,
         max_dist_dict (dict): dictionary of the maximum bond distances with
          respect to different species
 
+        neighbor_cutoff (float): distance within which to consider two atoms
+         "neighbors" within the lattice, useful for preventing bonding atoms
+         at angles which would be too close to these neighbors.
+
         lattice (obj): Pymatgen `Lattice` object which contains the species.
          If provided, all distances are calculated using periodic boundary
          conditions.
@@ -471,9 +480,10 @@ def get_bonded_neighbors(one_point, many_points, one_species,
         sym2 = inv_syms[many_species[index]]
         key1 = sym1 + '_' + sym2
         key2 = sym2 + '_' + sym1
+        ref_dist = 0.0
         if key1 in max_dist_dict:
             ref_dist = max_dist_dict[key1]
-        else:
+        elif key2 in max_dist_dict:
             ref_dist = max_dist_dict[key2]
 
         if lattice is None:
@@ -487,11 +497,16 @@ def get_bonded_neighbors(one_point, many_points, one_species,
                 if available_bonds is not None:
                     if available_bonds[index] == 0:
                         return None
-                bonds[index] = vector_connecting_points(
-                    one_point, each_point, None)
+                bonds[index] = [[vector_connecting_points(
+                    one_point, each_point, None)]]
+            elif d <= neighbor_cutoff:
+                bonds[index].append([vector_connecting_points(
+                    one_point, each_point, None)])
         else:
             dists, images = get_all_image_distances(
                 one_point, each_point, lattice, coords_are_cartesian)
+
+            # print(f"dists: {dists}, images: {images}")
 
             p1 = one_point
             p2 = each_point
@@ -501,17 +516,35 @@ def get_bonded_neighbors(one_point, many_points, one_species,
 
             new_bonds = 0
             for d, i in zip(dists, images):
+                # print(f"distance: {d}, image: {i}")
                 if d <= ref_dist:
                     vec = vector_connecting_points(
-                        p1 + i, p2, lattice, False)
+                        p1, p2 + i, lattice, False, False)
+                    # print(
+                    #     f"Passed sanity check: {np.isclose(np.linalg.norm(vec), d)}")
                     if index in bonds:
-                        bonds[index].append(vec)
+                        bonds[index][0].append(vec)
                     else:
-                        bonds[index] = [vec]
+                        bonds[index] = [[vec], []]
                     if available_bonds is not None:
                         if available_bonds[index] == new_bonds:
                             return None
                     new_bonds += 1
+                elif d <= neighbor_cutoff:
+                    # print(f"Point 1: {p1}")
+                    # print(f"Image: {i}")
+                    # print(f"Coords are cartesian: {coords_are_cartesian}")
+                    vec = vector_connecting_points(
+                        p1, p2 + i, lattice, False, False)
+                    # print(f"Vector distance: {np.linalg.norm(vec)}")
+                    # print(f"Point 1: {p1 + i}, point 2: {p2}")
+                    # print(f"Vector: {vec}")
+                    # print(
+                    #     f"Passed sanity check: {np.isclose(np.linalg.norm(vec), d)}")
+                    if index in bonds:
+                        bonds[index][1].append(vec)
+                    else:
+                        bonds[index] = [[], [vec]]
 
     return bonds
 
@@ -562,6 +595,9 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
     """
     sym1 = inv_syms[one_species]
     dists_ok = False
+    # print(f"Symbol being tested: {sym1}")
+    # print(f"Many points: {many_points}")
+    # print(f"This point: {one_point}")
     for index, each_point in enumerate(many_points):
         if lattice is None:
             if coords_are_cartesian:
@@ -581,6 +617,8 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
 
         # d = dist(one_point, each_point)
         sym2 = inv_syms[many_species[index]]
+        # print(f"Symbol of the other point: {sym2}")
+        # print(f"Distance: {d}")
         key1 = sym1 + '_' + sym2
         key2 = sym2 + '_' + sym1
         if key1 in min_dist_dict:
@@ -599,6 +637,8 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
                     dists_ok = True
         else:
             dists_ok = True
+
+    # print(f"Distances ok: {dists_ok}")
 
     return dists_ok
 

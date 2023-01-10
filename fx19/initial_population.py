@@ -211,7 +211,7 @@ class make_random_model(object):
         return cluster
 
     def get_bulk_structure(self, shuffle=False, perturbShape=0.05, perturbAngle=0.05,
-                           splitting_arangements={(2, 2, 1): 0.5, (3, 1, 1): 0.5}):
+                           splitting_arangements={(2, 2, 1): 0.5, (1, 1, 1): 0.5}):
         """
         Creates a new model for the initial population with a random structure
         of bulk geometry. The steps that it
@@ -227,54 +227,65 @@ class make_random_model(object):
         """
         max_bond_dist = max(self.max_dist_dict.values())
 
-        # get species and make an empty lattice box
-        species, _ = self.get_n_species()
+        built_structure = False
+        while not built_structure:
 
-        # Shuffle the lattice parameters to increase diversity in mating steps
-        if shuffle:
-            tmp = [0, 1, 2]
-            np.random.shuffle(tmp)
-            self.box_abc = [self.box_abc[tmp[0]],
-                            self.box_abc[tmp[1]], self.box_abc[tmp[2]]]
-            self.box_angles = [self.box_angles[tmp[0]],
-                               self.box_angles[tmp[1]], self.box_angles[tmp[2]]]
+            # get species and make an empty lattice box
+            species, _ = self.get_n_species()
 
-        # Perturb the abc of the box by a normal distribution
-        if perturbShape is not None:
-            for i in range(3):
-                self.box_abc[i] = self.box_abc[i] * \
-                    np.random.normal(1, perturbShape)
+            # Shuffle the lattice parameters to increase diversity in mating steps
+            if shuffle:
+                tmp = [0, 1, 2]
+                np.random.shuffle(tmp)
+                self.box_abc = [self.box_abc[tmp[0]],
+                                self.box_abc[tmp[1]], self.box_abc[tmp[2]]]
+                self.box_angles = [self.box_angles[tmp[0]],
+                                   self.box_angles[tmp[1]], self.box_angles[tmp[2]]]
 
-        # Perturb the angles of the box by a normal distribution
-        if perturbAngle is not None:
-            for i in range(3):
-                self.box_angles[i] = self.box_angles[i] * \
-                    np.random.normal(1, perturbAngle)
+            # Perturb the abc of the box by a normal distribution
+            if perturbShape is not None:
+                for i in range(3):
+                    self.box_abc[i] = self.box_abc[i] * \
+                        np.random.normal(1, perturbShape)
 
-        latt = Lattice.from_parameters(
-            self.box_abc[0], self.box_abc[1], self.box_abc[2],
-            self.box_angles[0], self.box_angles[1], self.box_angles[2])
+            # Perturb the angles of the box by a normal distribution
+            if perturbAngle is not None:
+                for i in range(3):
+                    self.box_angles[i] = self.box_angles[i] * \
+                        np.random.normal(1, perturbAngle)
 
-        if splitting_arangements is None:
-            built_structure = False
-            while not built_structure:
-                cart_coords = self.get_n_coords_linear_bulk(
-                    species, latt)
-                if cart_coords is None:
-                    continue
-                bulk = Structure(latt, species, cart_coords,
-                                 coords_are_cartesian=True)
+            latt = Lattice.from_parameters(
+                self.box_abc[0], self.box_abc[1], self.box_abc[2],
+                self.box_angles[0], self.box_angles[1], self.box_angles[2])
 
-                # check if atleast one nearest neighbor (nn) less
-                # than max_bond_dist
-                for i in range(len(bulk.sites)):
-                    nn = bulk.get_neighbors(bulk.sites[i], max_bond_dist)
-                    if len(nn) < 1:
+            n_attempts = 0
+            while n_attempts < 10:
+                if splitting_arangements is None:
+                    cart_coords = self.get_n_coords_linear_bulk(
+                        species, latt)
+                    if cart_coords is None:
+                        n_attempts += 1
                         continue
+                    bulk = Structure(latt, species, cart_coords,
+                                     coords_are_cartesian=True)
 
-                built_structure = True
-        else:
-            bulk = self.tile_lattice(species, latt, splitting_arangements)
+                    # check if atleast one nearest neighbor (nn) less
+                    # than max_bond_dist
+                    for i in range(len(bulk.sites)):
+                        nn = bulk.get_neighbors(bulk.sites[i], max_bond_dist)
+                        if len(nn) < 1:
+                            continue
+
+                    built_structure = True
+                    break
+                else:
+                    bulk = self.tile_lattice(
+                        species, latt, splitting_arangements)
+                    if bulk is None:
+                        n_attempts += 1
+                        continue
+                    built_structure = True
+                    break
 
         return bulk
 
@@ -603,6 +614,9 @@ class make_random_model(object):
 
             list: the cartesian coordinates
         """
+        # print(f"Small lattice: {latt.matrix}")
+
+        neighbor_cutoff = 3.5
         # shuffle the species prior to assembly
         np.random.shuffle(species)
         num_atoms = len(species)
@@ -683,15 +697,14 @@ class make_random_model(object):
 
             # Make sure that the coordinate is
             if coords_added > 1:
-                min_distance = 3 * np.pi / 8  # minimum angular distance
+                min_distance = 3.0 * np.pi / 8  # minimum angular distance
                 new_point, failed_addition = self.get_max_sep_point_on_sphere(
                     radius,
                     min_distance,
                     attached_bonds[ref_atom],
-                    200)
+                    20)
 
                 if failed_addition:
-                    # print(f"Failed addition")
                     # print(
                     #     f"Failed addition. Number of attached bonds: {len(attached_bonds[ref_atom])}")
                     # print(f"Number of available bonds: {available_bonds}")
@@ -712,7 +725,7 @@ class make_random_model(object):
                                                 self.max_dist_dict,
                                                 latt):
                 failed_dist_attempts += 1
-                if failed_dist_attempts > 25:
+                if failed_dist_attempts > 1000:
                     # print(f"Failed dist check.")
                     failed_addition = True
                     failed_dist_attempts = 0
@@ -727,39 +740,54 @@ class make_random_model(object):
             # update all bond information
             new_bonds = dc.get_bonded_neighbors(new_point, coords, new_sps,
                                                 species_added, inv_syms,
-                                                self.max_dist_dict,
+                                                self.max_dist_dict, neighbor_cutoff,
                                                 latt, True, available_bonds)
+            # print(f"New bonds: {new_bonds}")
             bonds_valid = new_bonds is not None
             if bonds_valid:
-                bonds_valid = sum([len(i) for i in new_bonds.values()]) <= \
+                bonds_valid = sum([len(i[0]) for i in new_bonds.values()]) <= \
                     self.max_bonds[new_sps]
                 bonds_valid = not np.any(
-                    [available_bonds[index] < len(vecs) for index, vecs in new_bonds.items()])
+                    [available_bonds[index] < len(vecs[0]) for index, vecs in new_bonds.items()])
+                if not bonds_valid:
+                    print("Bonds not valid!")
             if not bonds_valid:
                 failed_dist_attempts += 1
-                if failed_dist_attempts > 25:
-                    print("Failed bond check. Too many bonds.")
+                if failed_dist_attempts > 1000:
+                    # print("Failed bond check. Too many bonds.")
                     failed_addition = True
                     failed_dist_attempts = 0
                 continue
             if sum([len(i) for i in new_bonds.values()]) == 0:
                 print("Ruh roh. number of new bonds is zero!")
 
+            # print(f"Successful addition. New bonds created: {new_bonds}")
+            # print(f"Prior available bonds: {available_bonds}")
             for index, vecs in new_bonds.items():
-                available_bonds[index] -= len(vecs)
-                for vec in vecs:
+                available_bonds[index] -= len(vecs[0])
+                if len(available_bonds) <= coords_added:
+                    available_bonds.append(
+                        self.max_bonds[new_sps] - len(vecs[0]))
+                else:
+                    available_bonds[-1] -= len(vecs[0])
+
+                combined_vecs = vecs[0]  # + vecs[1]
+                for vec in combined_vecs:
                     bond_vector = vec/np.linalg.norm(vec)
-                    attached_bonds[index].append(bond_vector)
+                    attached_bonds[index].append(-bond_vector)
                     if len(attached_bonds) <= coords_added:
-                        attached_bonds.append([-bond_vector])
-                        available_bonds.append(self.max_bonds[new_sps] - 1)
+                        attached_bonds.append([bond_vector])
                     else:
-                        attached_bonds[-1].append(-bond_vector)
-                        available_bonds[-1] -= 1
+                        attached_bonds[-1].append(bond_vector)
+            # print(f"Updated available bonds: {available_bonds}")
+            # print(f"Updated attached bonds: {attached_bonds}")
 
             coords.append(new_point)
             coords_added += 1
             species_added.append(new_sps)
+            # print(f"Updated coords: {coords}")
+
+            # print(f"Updated coords: {coords}")
 
             # newest atom will be first atom to try to add other new atoms to
             old_point = new_point
@@ -837,16 +865,25 @@ class make_random_model(object):
             extra_s = int(minimal_s * n_cells - s)
             extra_comp.extend([sp]*extra_s)
 
+        print(f"Minimal composition being used: {minimal_comp}")
+        print(f"Extra composition being used: {extra_comp}")
+
         # now build the small cell
         built_small_cell = False
-        while not built_small_cell:
+        n_attempts = 0
+        while not built_small_cell and n_attempts < 10:
             cart_coords = self.get_n_coords_linear_bulk(
                 minimal_comp, small_lattice)
             if cart_coords is None:
+                n_attempts += 1
                 continue
             bulk = Structure(small_lattice, minimal_comp, cart_coords,
                              coords_are_cartesian=True)
             built_small_cell = True
+            break
+
+        if n_attempts == 10:
+            return None
 
         # now tile the full cell and remove extra atoms
         bulk.make_supercell(divisions)
@@ -907,12 +944,11 @@ class make_random_model(object):
             - the random cartesian coordinates on the sphere
             - whether or not the point achieved the desired ang. separation
         """
-
+        # print(f"Other points for separation: {other_points}")
         farthest_distance = -1
         new_point_attempt = 0
         failed_addition = False
-        while new_point_attempt <= n_attempts and\
-                farthest_distance < min_ang_distance:
+        while new_point_attempt <= n_attempts and farthest_distance < min_ang_distance:
             # Grab proposed vector
             new_point = self.get_point_on_sphere(r)
             current_vector = new_point / np.linalg.norm(new_point)
@@ -935,8 +971,11 @@ class make_random_model(object):
 
             new_point_attempt += 1
 
-        if farthest_distance < min_ang_distance:
-            failed_addition = True
+        # if farthest_distance < min_ang_distance:
+        #     failed_addition = True
+
+        # print(f"Farthest distance: {farthest_distance}")
+        # print(f"Optimal point: {optimal_point}")
 
         return optimal_point, failed_addition
 
