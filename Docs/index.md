@@ -1,8 +1,11 @@
-## FANTASTX - Fully Automated Nanoscale To Atomic Structure from Theory and eXperiments
+# FANTASTX - Fully Automated Nanoscale To Atomic Structure from Theory and eXperiments
 
 FANTASTX is an automated spectra-to-structure inversion code. Taking experimental spectroscopy or microscopy characterization data as input, FANTASTX searches for candidate atomic configurations which are both physically plausible and realizable. FANTASTX interfaces with classical molecular dynamics simulations codes and density functional theory codes to perform structural relaxation and measure the potential energy of each configuration, using the total or formation energy as an objective function. It also interfaces with various simulation codes to perform forward simulations of spectroscopy and microscopy experiments, using the quantified mismatch between the simulated data and the experimental data as another objective function. The fitness of each proposed atomic configuration is assessed on the basis of one or more of these objectives. 
 
 Automated structure search is conducted by employing an evolutionary algorithm approach. FANTASTX constructs an initial population of candidate atomic configurations from user provided structures or FANTASTX-generated random configurations, and evaluates the fitness of each of these configurations using the methodology described above. Genetic operations are then employed to create new child configurations from this initial population, choosing parents using one of FANTASTX's implemented evolutionary selection algorithms. 
+
+<p style="text-align:center;"><img src="images/fantastx_overview.png" alt="fantastx_overview" width="800" height="800"/></p>
+<p style="text-align:center;"> Overview of the FANTASTX methodology </p>
 
 ### Capabilities
 
@@ -34,5 +37,5 @@ FANTASTX also supports a variety of selection algorithms for choosing parent con
 2. **$\epsilon$-MOEA**: two parallel sets of configurations are maintained. The archive, which consists of the non-dominated configurations but discretized such that only one configuration from each $\epsilon$ box in objective space is kept (keeping the configuration closest to the optimal corner of the $\epsilon$ box), and the population, a fixed number pool of the remaining configurations (updated via replacement). Parents are chosen by selecting one model at random from the archive, and the non-dominated model out of two models chosen from the population. 
 3. **Cluster Selection**: each atomic configuration is assigned a structural fingerprint (a tensor representation of the structure which is invariant to euclidean transformations or coordinate permutations), which are then used to cluster the configurations. Each configuration is then assigned a fitness based on its non-domination rank within its cluster, with each cluster assigned the same base fitness as every other cluster.
 
-## Usage
+### Usage
 The FANTASTX workflow is entirely automated. The only necessary inputs are the experimental data which is the target of inversion, input files for the chosen structural relaxation code, and a YAML file which provides FANTASTX with necessary variables. Several examples of using FANTASTX are contained within this documentation, and can be found [here](examples).

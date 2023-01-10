@@ -339,6 +339,75 @@ def dist_pbc_pymatgen(p1, p2, lattice):
     return d
 
 
+def get_all_image_distances(p1, p2, lattice, coords_are_cartesian=True):
+    """
+    Calculates the distance between a point and all periodic replicas of
+    another point, using pymatgen lattice functions.
+
+    Arguments:
+        p1 and p2: coordinates of each point
+        lattice (obj): pymatgen lattice object of the structure
+        coords_are_cartesian (bool): True if p1 and p2 are cartesian
+
+    Returns:
+        (list, list): all periodic replica distances, and all corresponding
+         images
+    """
+    if coords_are_cartesian:
+        f1 = lattice.get_fractional_coords(p1)
+        f2 = lattice.get_fractional_coords(p2)
+    else:
+        f1, f2 = p1, p2
+
+    d, base_image = lattice.get_distance_and_image(f1, f2, None)
+    reference = np.floor(f2 + base_image)
+    signs = [-1 if i == 0 else 1 for i in reference]
+
+    distances, images = [d], [base_image]
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                if i != 0 and j != 0 and k != 0:
+                    new_image = np.multiply([i, j, k], signs) + base_image
+                    new_d, _ = lattice.get_distance_and_image(f1, f2,
+                                                              new_image)
+
+                    distances.append(new_d)
+                    images.append(new_image)
+
+    return distances, images
+
+
+def vector_connecting_points(p1, p2, lattice=None, coords_are_cartesian=False):
+    """
+    Calculates the vector connecting cartesian point p1 to cartesian point p2.
+    If lattice is not `None`, then employs periodic boundary conditions.
+
+    Arguments:
+        p1 (iterable): cartesian coordinates of site 1
+        p2 (iterable): cartesian coordinates of site 2
+        lattice (obj): pymatgen lattice object that the points reside in
+
+    Returns:
+        (array): the vector connecting p1 to p2, in cartesian coordinates
+    """
+
+    if lattice is None:
+        cvec = p2 - p1
+    else:
+
+        if coords_are_cartesian:
+            fvec = np.subtract(lattice.get_fractional_coords(p2),
+                               lattice.get_fractional_coords(p1))
+        else:
+            fvec = np.subtract(p2, p1)
+
+        fvec = np.subtract(fvec, np.round(fvec))
+        cvec = lattice.get_cartesian_coords(fvec)
+
+    return cvec
+
+
 def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
     """
     Checks the distances of one point to a list of many points
@@ -358,6 +427,95 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
     return True
 
 
+def get_bonded_neighbors(one_point, many_points, one_species,
+                         many_species, inv_syms, max_dist_dict,
+                         lattice, coords_are_cartesian=True,
+                         available_bonds=None):
+    """
+    Gets the bonded neighbors for an atom given full information for a set of
+    atoms it is embedded in. Checks if bond limits are satisifed if provided
+
+    Arguments:
+        one_point (iterable): Cartesian coordinates of the new atom
+
+        many_points (iterable): Cartesian coordinates of the atoms which
+         currently reside in the structure
+
+        one_species (str): species of the new atom
+
+        many_species (iterable): strings corresponding to the species of the
+         atoms which currently reside in the structure
+
+        inv_syms (dict): the mapping of each atomic species to their
+         designation in the input yaml file (sp1, sp2, etc)
+
+        max_dist_dict (dict): dictionary of the maximum bond distances with
+         respect to different species
+
+        lattice (obj): Pymatgen `Lattice` object which contains the species.
+         If provided, all distances are calculated using periodic boundary
+         conditions.
+
+        coords_are_cartesian (bool): True if the provided coordinates are
+         cartesian, False, if the provided coordinates are fractional
+
+    Returns:
+
+        (dict): dictionary mapping bonded neighbor indices to bond vectors
+         which go from the bonded neighbor to the target atom
+    """
+    sym1 = inv_syms[one_species]
+    bonds = {}
+    images = []
+    for index, each_point in enumerate(many_points):
+        sym2 = inv_syms[many_species[index]]
+        key1 = sym1 + '_' + sym2
+        key2 = sym2 + '_' + sym1
+        if key1 in max_dist_dict:
+            ref_dist = max_dist_dict[key1]
+        else:
+            ref_dist = max_dist_dict[key2]
+
+        if lattice is None:
+            if coords_are_cartesian:
+                d = dist(one_point, each_point)
+            else:
+                print("Error! Provided coordinates are not cartesian, but"
+                      " no lattice was provided.")
+                return None
+            if d <= ref_dist:
+                if available_bonds is not None:
+                    if available_bonds[index] == 0:
+                        return None
+                bonds[index] = vector_connecting_points(
+                    one_point, each_point, None)
+        else:
+            dists, images = get_all_image_distances(
+                one_point, each_point, lattice, coords_are_cartesian)
+
+            p1 = one_point
+            p2 = each_point
+            if coords_are_cartesian:
+                p1 = lattice.get_fractional_coords(one_point)
+                p2 = lattice.get_fractional_coords(each_point)
+
+            new_bonds = 0
+            for d, i in zip(dists, images):
+                if d <= ref_dist:
+                    vec = vector_connecting_points(
+                        p1 + i, p2, lattice, False)
+                    if index in bonds:
+                        bonds[index].append(vec)
+                    else:
+                        bonds[index] = [vec]
+                    if available_bonds is not None:
+                        if available_bonds[index] == new_bonds:
+                            return None
+                    new_bonds += 1
+
+    return bonds
+
+
 def satisfies_all_dists_quick(one_point, many_points, one_species,
                               many_species, inv_syms, min_dist_dict,
                               max_dist_dict=None, lattice=None,
@@ -365,7 +523,7 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
     """
     Function to check that a new coordinate being added to an existing
     structure satisfies all minimum distance constraints, as well as maximum
-    distanct constraints if provided. To be used with initial_population and
+    distance constraints if provided. To be used with initial_population and
     basinhopping methods. This is an alternate implementation of the function
     satisfies_all_dists, which looks for atoms within a sphere around a point
     before comparing distances. Both methods are O(N^2) but this method does
@@ -398,6 +556,9 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
 
         coords_are_cartesian (bool): True if the provided coordinates are
          cartesian, False, if the provided coordinates are fractional
+
+        return_neighbors (bool): True if the indices of bonded neighbors
+         should be checked for and returned.
     """
     sym1 = inv_syms[one_species]
     dists_ok = False

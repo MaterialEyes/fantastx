@@ -154,28 +154,6 @@ class make_random_model(object):
             self.max_num_sp.append(
                 str_constraints['species' + str(index)]['max_num'])
 
-        # variables will be labeled as species1, min_num_sp1, max_num_sp1, etc
-        # If species are all properly labeled in order:
-        # (and storing them as individual variables)
-        # for index in range(1, self.num_species + 1):
-        #     setattr(self, 'sym_species' + str(index),
-        #             str_constraints['species' + str(index)]['name'])
-        #     setattr(self, 'min_num_sp' + str(index),
-        #             str_constraints['species' + str(index)]['min_num'])
-        #     setattr(self, 'max_num_sp' + str(index),
-        #             str_constraints['species' + str(index)]['max_num'])
-
-        # If species are not all in order, find species in str_constraints
-        # for key in str_constraints:
-        #     if key[:7] == 'species':
-        #         index = key[7:]
-        #         setattr(self, 'sym_species' + index,
-        #                 str_constraints[key]['name'])
-        #         setattr(self, 'min_num_sp' + index,
-        #                 str_constraints[key]['min_num'])
-        #         setattr(self, 'max_num_sp' + index,
-        #                 str_constraints[key]['max_num'])
-
     def get_cluster_in_box(self):
         """
         Creates a new model for the initial population with a random structure
@@ -232,7 +210,8 @@ class make_random_model(object):
 
         return cluster
 
-    def get_bulk_structure(self, shuffle=False, perturbShape=0.05, perturbAngle=0.05):
+    def get_bulk_structure(self, shuffle=False, perturbShape=0.05, perturbAngle=0.05,
+                           splitting_arangements={(2, 2, 1): 0.5, (3, 1, 1): 0.5}):
         """
         Creates a new model for the initial population with a random structure
         of bulk geometry. The steps that it
@@ -246,8 +225,6 @@ class make_random_model(object):
             `structure`: the pymatgen structure object corresponding to the
              bulk.
         """
-        print(self.min_dist_dict)
-        print(self.max_dist_dict)
         max_bond_dist = max(self.max_dist_dict.values())
 
         # get species and make an empty lattice box
@@ -278,23 +255,26 @@ class make_random_model(object):
             self.box_abc[0], self.box_abc[1], self.box_abc[2],
             self.box_angles[0], self.box_angles[1], self.box_angles[2])
 
-        built_structure = False
-        while not built_structure:
-            cart_coords = self.get_n_coords_linear_bulk(
-                species, latt)
-            if cart_coords is None:
-                continue
-            bulk = Structure(latt, species, cart_coords,
-                             coords_are_cartesian=True)
-
-            # check if atleast one nearest neighbor (nn) less
-            # than max_bond_dist
-            for i in range(len(bulk.sites)):
-                nn = bulk.get_neighbors(bulk.sites[i], max_bond_dist)
-                if len(nn) < 1:
+        if splitting_arangements is None:
+            built_structure = False
+            while not built_structure:
+                cart_coords = self.get_n_coords_linear_bulk(
+                    species, latt)
+                if cart_coords is None:
                     continue
+                bulk = Structure(latt, species, cart_coords,
+                                 coords_are_cartesian=True)
 
-            built_structure = True
+                # check if atleast one nearest neighbor (nn) less
+                # than max_bond_dist
+                for i in range(len(bulk.sites)):
+                    nn = bulk.get_neighbors(bulk.sites[i], max_bond_dist)
+                    if len(nn) < 1:
+                        continue
+
+                built_structure = True
+        else:
+            bulk = self.tile_lattice(species, latt, splitting_arangements)
 
         return bulk
 
@@ -312,7 +292,7 @@ class make_random_model(object):
             `model`: the random `model` object
         """
         if self.shape == "bulk":
-            astr = self.get_bulk_structure()
+            astr = self.get_bulk_structure()  # False, None, None)
         else:
             astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
@@ -505,6 +485,8 @@ class make_random_model(object):
                 failed_addition = False
                 continue
 
+            print("Made it to checkpoint 1.")
+
             # Draw the bond length from a uniform distribution
             dist_key = inv_syms[old_sps] + '_' + inv_syms[new_sps]
             if inv_syms[old_sps] > inv_syms[new_sps]:
@@ -512,6 +494,8 @@ class make_random_model(object):
             min_bond_dist = self.min_dist_dict[dist_key]
             max_bond_dist = self.max_dist_dict[dist_key]
             radius = unif(min_bond_dist, max_bond_dist)
+
+            print("Made it to checkpoint 2.")
 
             # Make sure that the coordinate is
             if coords_added > 1:
@@ -527,6 +511,8 @@ class make_random_model(object):
             else:
                 new_point = self.get_point_on_sphere(radius)
 
+            print("Made it to checkpoint 3")
+
             # translate the point near the old_point
             new_point = new_point + old_point
 
@@ -538,6 +524,8 @@ class make_random_model(object):
                     failed_addition = True
                     outside_cluster_attempts = 0
                 continue
+
+            print("Made it to checkpoint 4")
 
             # check distances with all previous points, accounting for the
             # presence of multiple species. This is important to account for
@@ -559,12 +547,27 @@ class make_random_model(object):
             species_added.append(new_sps)
 
             # update all bond information
-            available_bonds[ref_atom] -= 1
-            bond_vector = (new_point - old_point)
-            bond_vector = bond_vector/np.linalg.norm(bond_vector)
-            attached_bonds[ref_atom].append(bond_vector)
-            attached_bonds.append([-bond_vector])
-            available_bonds.append(self.max_bonds[new_sps] - 1)
+            new_bonds = dc.get_bonded_neighbors(new_point, coords, new_sps,
+                                                species_added, inv_syms,
+                                                self.max_dist_dict)
+            if new_bonds is None:
+                print("New bonds is None")
+                failed_dist_attempts += 1
+                if failed_dist_attempts > 10:
+                    failed_addition = True
+                    failed_dist_attempts = 0
+                continue
+            print(f"Number of new bonds is: {len(new_bonds)}")
+            for index, vec in new_bonds.items():
+                available_bonds[index] -= 1
+                bond_vector = vec/np.linalg.norm(vec)
+                attached_bonds[index].append(bond_vector)
+                if len(attached_bonds) <= len(coords):
+                    attached_bonds.append([-bond_vector])
+                    available_bonds.append(self.max_bonds[new_sps] - 1)
+                else:
+                    attached_bonds[-1].append(-bond_vector)
+                    available_bonds[-1] -= 1
 
             # newest atom will be first atom to try to add other new atoms to
             old_point = new_point
@@ -617,16 +620,23 @@ class make_random_model(object):
         # Iterate through each of the remaining species and add them in turn
         ref_atom = 0
         non_referenced_atoms = []
-        flipped_species = (self.num_species == 1)
+        exchanged_species = (self.num_species == 1)
         failed_addition = False
         failed_dist_attempts = 0
         while coords_added < num_atoms:
             new_sps = species[coords_added]
 
-            # Check if same-species bonding is allowed
+            dist_key = inv_syms[old_sps] + '_' + inv_syms[new_sps]
+            if inv_syms[old_sps] > inv_syms[new_sps]:
+                dist_key = inv_syms[new_sps] + '_' + inv_syms[old_sps]
             bond_ok = True
-            if not self.allow_self_bonding:
-                bond_ok = (new_sps != old_sps)
+            if dist_key not in self.max_dist_dict:
+                bond_ok = False
+
+            # Check if bonding is allowed
+            # bond_ok = True
+            # if not self.allow_self_bonding:
+            #     bond_ok = (new_sps != old_sps)
 
             target_bonds_avail = available_bonds[ref_atom]
 
@@ -635,18 +645,24 @@ class make_random_model(object):
             # atomic species if possible and repeat.
             # If neither is possible, then return None
             if failed_addition or not bond_ok or target_bonds_avail == 0:
-                if len(non_referenced_atoms) == 0 and not flipped_species:
-                    # attempt to flip the species
+                # print(
+                #     f"Updating. failed_addition: {failed_addition}; bond_ok: {bond_ok}; target_bonds_avail: {target_bonds_avail}")
+                if len(non_referenced_atoms) == 0 and not exchanged_species:
+                    # attempt to exchange the species with another
                     for n, sp in enumerate(species[coords_added:]):
                         if sp != new_sps:
-                            species[coords_added] = sp
-                            species[coords_added + n] = new_sps
+                            species.pop(coords_added)
+                            species.pop(coords_added + n - 1)
+                            species.insert(coords_added, sp)
+                            species.append(new_sps)
                             break
                         if n == len(species[coords_added:]) - 1:
+                            # print("FAILED")
                             return None
-                    flipped_species = True
+                    exchanged_species = True
                     non_referenced_atoms = [i for i in range(coords_added)]
-                elif len(non_referenced_atoms) == 0 and flipped_species:
+                elif len(non_referenced_atoms) == 0 and exchanged_species:
+                    # print("failed")
                     return None
 
                 # choose a new atom at random to add to
@@ -667,14 +683,18 @@ class make_random_model(object):
 
             # Make sure that the coordinate is
             if coords_added > 1:
-                min_distance = 3 * np.pi / 8
+                min_distance = 3 * np.pi / 8  # minimum angular distance
                 new_point, failed_addition = self.get_max_sep_point_on_sphere(
                     radius,
                     min_distance,
                     attached_bonds[ref_atom],
-                    100)
+                    200)
 
                 if failed_addition:
+                    # print(f"Failed addition")
+                    # print(
+                    #     f"Failed addition. Number of attached bonds: {len(attached_bonds[ref_atom])}")
+                    # print(f"Number of available bonds: {available_bonds}")
                     continue
             else:
                 new_point = self.get_point_on_sphere(radius)
@@ -693,38 +713,150 @@ class make_random_model(object):
                                                 latt):
                 failed_dist_attempts += 1
                 if failed_dist_attempts > 25:
+                    # print(f"Failed dist check.")
                     failed_addition = True
                     failed_dist_attempts = 0
                 continue
 
             # add the new_point
+            # coords.append(new_point)
+            # coords_added += 1
+            # species_added.append(new_sps)
+
+            # update all bond information INCLUDING FOR NEIGHBORS
+            # update all bond information
+            new_bonds = dc.get_bonded_neighbors(new_point, coords, new_sps,
+                                                species_added, inv_syms,
+                                                self.max_dist_dict,
+                                                latt, True, available_bonds)
+            bonds_valid = new_bonds is not None
+            if bonds_valid:
+                bonds_valid = sum([len(i) for i in new_bonds.values()]) <= \
+                    self.max_bonds[new_sps]
+                bonds_valid = not np.any(
+                    [available_bonds[index] < len(vecs) for index, vecs in new_bonds.items()])
+            if not bonds_valid:
+                failed_dist_attempts += 1
+                if failed_dist_attempts > 25:
+                    print("Failed bond check. Too many bonds.")
+                    failed_addition = True
+                    failed_dist_attempts = 0
+                continue
+            if sum([len(i) for i in new_bonds.values()]) == 0:
+                print("Ruh roh. number of new bonds is zero!")
+
+            for index, vecs in new_bonds.items():
+                available_bonds[index] -= len(vecs)
+                for vec in vecs:
+                    bond_vector = vec/np.linalg.norm(vec)
+                    attached_bonds[index].append(bond_vector)
+                    if len(attached_bonds) <= coords_added:
+                        attached_bonds.append([-bond_vector])
+                        available_bonds.append(self.max_bonds[new_sps] - 1)
+                    else:
+                        attached_bonds[-1].append(-bond_vector)
+                        available_bonds[-1] -= 1
+
             coords.append(new_point)
             coords_added += 1
             species_added.append(new_sps)
-
-            # update all bond information
-            available_bonds[ref_atom] -= 1
-            bond_vector = (new_point - old_point)
-            bond_vector = bond_vector/np.linalg.norm(bond_vector)
-            attached_bonds[ref_atom].append(bond_vector)
-            attached_bonds.append([-bond_vector])
-            available_bonds.append(self.max_bonds[new_sps] - 1)
 
             # newest atom will be first atom to try to add other new atoms to
             old_point = new_point
             old_sps = new_sps
             ref_atom = coords_added - 1
             non_referenced_atoms = [i for i in range(coords_added - 1)]
-            flipped_species = (self.num_species == 1)
+            exchanged_species = (self.num_species == 1)
             failed_dist_attempts = 0
 
         # wrap coords into periodic box
-        for i in coords:
-            for j in range(3):
-                if i[j] < 0:
-                    i[j] += latt.abc[j]
+        # for i in coords:
+        #     for j in range(3):
+        #         if i[j] < 0:
+        #             i[j] += latt.abc[j]
+
+        print(available_bonds)
 
         return np.array(coords)
+
+    def tile_lattice(self, species, lattice, splitting_arangements):
+        """
+        Create a larger unit cell by tiling it with smaller constituent unit
+        cells. This method is similar to that adopted by Valle & Oganov, and
+        to that implemented in ASE.
+
+        Arguments:
+            species (list): species which will exist in the larger unit cell
+            lattice (obj): pymatgen lattice for the larger unit cell
+            splitting_arangements (dict): choices for how to split the unit
+             cell into smaller unit cells, along with the probability of
+             choosing each splitting arangement. Example:
+             {(2, 3, 1): 0.6, (1, 1, 1): 0.4} would give two splitting
+             choices: a division of one axis by 2 and another by 3, with a
+             probability of selecting that split of 60%; and a null split (no
+             divisions), with a probability of choosing a null split of 40%. 
+
+        Returns:
+            (array): coords of each of the species in the larger unit cell
+        """
+        assert np.isclose(sum(splitting_arangements.values()), 1)
+
+        # Choose splitting arangement
+        r = np.random.uniform()
+        cumprob = 0
+        for split, prob in splitting_arangements.items():
+            cumprob += prob
+            if cumprob > r:
+                break
+
+        # now apply split to lattice
+        divisions = np.random.choice(split, size=len(split), replace=False)
+        small_matrix = lattice.matrix / np.reshape(divisions, (-1, 1))
+        small_lattice = Lattice(small_matrix)
+
+        # enure that all minimal distances are possible within this lattice
+        min_length = min(small_lattice.abc)
+        min_distance = min(self.min_dist_dict.values())
+        assert min_length >= min_distance, "Chosen lattice splitting "\
+            "arrangement incompatible with min distance constraints"
+
+        # now determine minimal species arrangement that can tile the entire
+        # unit cell given this smaller unit cell
+        cum_species = {}
+        for sp in species:
+            if sp in cum_species:
+                cum_species[sp] += 1
+            else:
+                cum_species[sp] = 1
+        n_cells = np.prod(divisions)
+        minimal_comp = []
+        extra_comp = []
+        for sp, s in cum_species.items():
+            minimal_s = int(np.ceil(s / n_cells))
+            minimal_comp.extend([sp]*minimal_s)
+            extra_s = int(minimal_s * n_cells - s)
+            extra_comp.extend([sp]*extra_s)
+
+        # now build the small cell
+        built_small_cell = False
+        while not built_small_cell:
+            cart_coords = self.get_n_coords_linear_bulk(
+                minimal_comp, small_lattice)
+            if cart_coords is None:
+                continue
+            bulk = Structure(small_lattice, minimal_comp, cart_coords,
+                             coords_are_cartesian=True)
+            built_small_cell = True
+
+        # now tile the full cell and remove extra atoms
+        bulk.make_supercell(divisions)
+        while len(extra_comp) > 0:
+            random_site_index = np.random.randint(0, bulk.num_sites)
+            if bulk[random_site_index].specie.symbol == extra_comp[0]:
+                bulk.remove_sites((random_site_index,))
+                extra_comp.pop(0)
+
+        return bulk
 
     def get_point_on_sphere(self, r):
         """

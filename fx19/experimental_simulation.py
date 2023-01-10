@@ -36,6 +36,8 @@ except ImportError:
           " XANES simulations.")
 
 try:
+    import sys
+    sys.path.insert(0, '/home/dunruh/software/GSASII')
     import GSASIIscriptable as G2sc
 except ImportError:
     print('Install GSASIIscriptable for powder diffraction simulation.'
@@ -54,7 +56,7 @@ from collections import Counter
 from pymatgen.core.lattice import Lattice
 import shutil
 
-DEBUG = True
+DEBUG = False
 
 
 class xanes_of_model(object):
@@ -327,8 +329,10 @@ class xanes_of_model(object):
 
             # clean the simulation directory after use if FEFF
             if self.simulation_code == "FEFF":
-                shutil.copy(simulation_path + "/FEFF/xmu.dat", simulation_path + "/xmu.dat")
-                shutil.copy(simulation_path + "/FEFF/feff.inp", simulation_path + "/feff.inp")
+                shutil.copy(simulation_path + "/FEFF/xmu.dat",
+                            simulation_path + "/xmu.dat")
+                shutil.copy(simulation_path + "/FEFF/feff.inp",
+                            simulation_path + "/feff.inp")
                 shutil.rmtree(simulation_path + "/FEFF")
             return results
 

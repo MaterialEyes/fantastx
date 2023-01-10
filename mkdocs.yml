@@ -1,6 +1,20 @@
 site_name: FANTASTX Documentation
 docs_dir: Docs
-theme: material
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: blue grey
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue grey
+      accent: blue grey
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
 site_url: ""
 use_directory_urls: false
 
@@ -10,7 +24,7 @@ repo_name: MaterialEyes/fantastx
 repo_url: https://github.com/MaterialEyes/fantastx
 
 plugins:
-  - search
+  # - search # commented for 'build'
   - mkdocstrings:
       handlers:
         python:
@@ -72,15 +86,15 @@ nav:
   - API:
       - run_ops: run_ops-reference.md
       - inputs: inputs-reference.md
+      - structure_record: structure_record-reference.md
+      - initial_population: initial_population-reference.md
+      - structure_operations: structure_operations-reference.md
       - energy: energy-reference.md
-      - epsilonSelection: epsilonSelection-reference.md
-      - clusteredSelection: clusteredSelection-reference.md
+      - experimental_simulation: experimental_simulation-reference.md
       - selection: selection-reference.md
       - dominance: dominance-reference.md
+      - epsilonSelection: epsilonSelection-reference.md
+      - clusteredSelection: clusteredSelection-reference.md
       - fingerprinting: fingerprinting-reference.md
       - clustering: clustering-reference.md
       - distance_check: distance_check-reference.md
-      - structure_operations: structure_operations-reference.md
-      - structure_record: structure_record-reference.md
-      - experimental_simulation: experimental_simulation-reference.md
-      - initial_population: initial_population-reference.md

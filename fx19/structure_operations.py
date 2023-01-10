@@ -287,7 +287,7 @@ class mating(object):
     def get_attach_type(self):
         """
         Function to get the attach type - mirror and attach, or direct attach.
-        Probability of selecting each type is 50%. 
+        Probability of selecting each type is 50%.
 
         Returns:
             (str): 'direct' if attaching the slice as is, or 'mirror'
@@ -511,7 +511,7 @@ class mating(object):
         This is conducted by first orienting the first structure such that
         each of its lattice vectors are as close in norm to the respective
         lattice vectors of the second structure as possible. Then, both
-        structures are oriented to 
+        structures are oriented to
 
         Arguments:
             astr1 (obj): pymatgen `Structure` object which is the subject of
@@ -732,7 +732,7 @@ class mating(object):
              slices from parent two along the designated axis
 
             attach_type (str): how to attach the slices, 'mirror' for
-             mirrored or 'direct' if no mirroring should be performed. 
+             mirrored or 'direct' if no mirroring should be performed.
 
             axis (int): the cartesian axis along which to attach the slices
 
@@ -2381,9 +2381,24 @@ class mol_ops(object):
             - molecule structure
         """
         if fragment is not None:
-            molecule["fragment_vectors"][
-                fragment["molecule_attach_site"]].remove(
-                    fragment["fragment_vector"])
+            print(fragment)
+            print(molecule["fragment_vectors"])
+            print(fragment["fragment_vector"])
+            found_fragment = False
+            for key in molecule["fragment_vectors"].keys():
+                ind = 0
+                size = len(molecule["fragment_vectors"][key])
+                while ind != size and not np.array_equal(
+                        molecule["fragment_vectors"][key][ind],
+                        fragment["fragment_vector"]):
+                    ind += 1
+                if ind != size:
+                    molecule["fragment_vectors"][key].pop(ind)
+                    found_fragment = True
+                    break
+            if not found_fragment:
+                raise ValueError("Fragment not contained in molecule.")
+
             a_index = molecule["attachment_sites"].index(
                 fragment["molecule_attach_site"])
             molecule["available_attachments"][a_index] += 1
@@ -2447,13 +2462,12 @@ class mol_ops(object):
         while not assembled and assembly_attempts < self.assembly_attempts:
             added_fragments = 0
             for fragment in chosen_fragments:
-                attached, molecule, molecule_astr =\
-                    self.attach_fragment(
-                        fragment, molecule, molecule_astr)
+                attached, molecule, molecule_astr = self.attach_fragment(
+                    fragment, molecule, molecule_astr)
                 if not attached:
                     assembly_attempts += 1
-                    molecule, molecule_astr =\
-                        self._initialize_molecule(starting_fragment)
+                    molecule, molecule_astr = self._initialize_molecule(
+                        starting_fragment)
                     print("Re initialized molecule.\n")
                     break
                 else:
@@ -2511,7 +2525,7 @@ class mol_ops(object):
 
             model (obj): model to perturb, if provided
         """
-        if self.number_of_fragments[1] <= self.number_fragments[0] + 1:
+        if self.number_of_fragments[1] <= self.number_of_fragments[0] + 1:
             print("Cannot perturb_comp, fragment bounds are too"
                   "restrictive. Passing.")
             return None
@@ -2527,9 +2541,11 @@ class mol_ops(object):
         molecule = parent.molecule_representation
 
         current_mol_num_frag = len(molecule["fragments"])
-        new_num_frag = np.random.randint(self.number_of_fragments)
+        new_num_frag = np.random.randint(self.number_of_fragments[0],
+                                         self.number_of_fragments[1])
         while new_num_frag == current_mol_num_frag:
-            new_num_frag = np.random.randint(self.number_of_fragments)
+            new_num_frag = np.random.randint(self.number_of_fragments[0],
+                                             self.number_of_fragments[1])
 
         if new_num_frag > current_mol_num_frag:
             # add fragments

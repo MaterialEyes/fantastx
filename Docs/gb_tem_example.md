@@ -267,7 +267,7 @@ The **dm3_path** keyword provides the path to the dm3 file corresponding to the 
 
 See [this](CdTe_Tellurene_Analysis.ipynb) notebook for a guide on how to run the visualization of the results for this example. The objective plot corresponding to this example, comparing the formation energy and SSIM score of each configuration, is visualized below.
 
-<p style="text-align:center;"><img src="images/IrO2_objective_plots_flat.png" alt="iro2_pareto_front" width="400" height="400"/></p>
+<p style="text-align:center;"><img src="images/IrO2_objective_plots_flat.png" alt="iro2_pareto_front" width="800" height="800"/></p>
 
 The best structure found, here highlighted in red as the sole member of the $\epsilon$-MOEA archive, has both the lowest energy and lowest mismatch with experiment. This is an example where multi-objective optimization reliably accelerates the search process, but does not help find multiple candidate solutions, as here no Pareto front exists to sample solutions along. The best structure found is certainly the target structure, as can be observed above when comparing the experimental and simulated image side-by-side. 
 

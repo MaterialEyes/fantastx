@@ -22,7 +22,7 @@ import numpy as np
 import subprocess as sp
 import re
 
-DEBUG = True
+DEBUG = False
 
 
 class lammps_code(object):
@@ -471,6 +471,12 @@ class vasp_code(object):
         for key, value in energy_params['element_syms'].items():
             self.sym_mu_dict[value] = energy_params['mu'][key]
 
+        # parameters for LDAU calculations
+        self.perform_LDAU = True
+
+        # add magnetization
+        self.spin_polarized = True
+
         # default parameters for INCAR (only if necessary)
         # Or directly use the input files the user provided.
 
@@ -551,6 +557,8 @@ class vasp_code(object):
         shutil.copy(new_poscar, poscar)
         # copy INCAR, KPOINTS to the relax path. Modify the INCAR if the model is a molecule
         shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
+        pattern = re.compile("ISPIN")
+
         if self.shape == "molecule":
             if model.astr.charge != 0:
                 z_val_dict = {}
@@ -580,28 +588,60 @@ class vasp_code(object):
                     "\nNELECT = " + str(int(total_electrons)) + "\n")
                 incar_file.close()
 
-            incar_file = open(relax_path + '/INCAR', 'a')
-            # currently hard-coding in changes to MAGMOM
-            iron_sites = [i for i in range(model.astr.num_sites)
-                          if model.astr.sites[i].specie.symbol == "Fe"]
-            iron_magmoms = ["5.0" if model.astr.sites[i].specie.oxi_state >
-                            2.1 else "4.0" for i in iron_sites]
-            if iron_sites[0] == 0:
-                pre_iron_str = ""
-            else:
-                pre_iron_str = str(iron_sites[0]) + "*0.6 "
-            iron_str = " ".join(iron_magmoms) + " "
-            post_iron_str = str(model.astr.num_sites - iron_sites[-1] - 1)
-            post_iron_str += "*0.6\n"
-            incar_file.write(
-                "\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str
-            )
-            # print("\nMAGMOM = " + pre_iron_str + iron_str + post_iron_str)
-            incar_file.close()
+        incar_file = open(relax_path + '/INCAR', 'a')
+        magmom_str = self.get_magmom_string(model.astr, 5.0)
+        incar_file.write('\n' + magmom_str)
+
+        if self.perform_LDAU:
+            species = model.astr.types_of_specie
+            LDAUL_str = "LDAUL = "
+            LDAUU_str = "LDAUU = "
+            for spec in species:
+                if spec.is_transition_metal:
+                    LDAUL_str += "2 "
+                    LDAUU_str += "6.2 "
+                else:
+                    LDAUL_str += "0 "
+                    LDAUU_str += "0 "
+            LDAUL_str += "\n"
+            LDAUU_str += "\n"
+            incar_file.write("\n" + LDAUL_str)
+            incar_file.write(LDAUU_str)
+
+        incar_file.close()
 
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
         print('Job prep finished. Submitting...')
+
+    def get_magmom_string(self, structure, init_mag=6.0):
+        """
+        Get the MAGMOM input for the INCAR
+
+        Arguments:
+            structure (obj): pymatgen structure object
+            init_mag (float): initial magnetization value in units of bohr
+             magnetons for atoms which will be magnetized.
+
+        Returns:
+            (str): the MAGMOM string
+        """
+
+        species = structure.types_of_specie
+        allSpecs = structure.species
+
+        mags = ''
+        for spec in species:
+            mags += str(allSpecs.count(spec))+'*'
+            if np.any(
+                [spec.is_transition_metal,
+                 spec.is_lanthanoid,
+                 spec.is_actinoid]):
+                mags += str(init_mag) + ' '
+            else:
+                mags += '0.5 '
+
+        return 'MAGMOM=' + mags + '\n'
 
     def relax(self, model, reg_id):
         """
