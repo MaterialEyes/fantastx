@@ -248,10 +248,10 @@ class structure_constraints(object):
                 key = 'sp' + str(sp1) + '_sp' + str(sp2)
                 # Define the default min/max_dist by the sum of
                 # covalent radii with a scaling factor
-                # self.min_dist_dict[key] = 0.8 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
-                #                                  + covalent_radii[atomic_numbers[self.element_syms[sp2]]])
-                # self.max_dist_dict[key] = 1.1 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
-                #                                  + covalent_radii[atomic_numbers[self.element_syms[sp2]]])
+                self.min_dist_dict[key] = 0.8 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
+                                                 + covalent_radii[atomic_numbers[self.element_syms[sp2]]])
+                self.max_dist_dict[key] = 1.2 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
+                                                 + covalent_radii[atomic_numbers[self.element_syms[sp2]]])
                 if 'min_dist' in str_record:
                     if key in str_record['min_dist'].keys():
                         self.min_dist_dict[key] = str_record['min_dist'][key]

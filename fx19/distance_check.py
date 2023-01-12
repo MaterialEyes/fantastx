@@ -433,7 +433,7 @@ def one_to_many_distances_periodic(one_point, many_points, min_dist, lattice):
 
 def get_bonded_neighbors(one_point, many_points, one_species,
                          many_species, inv_syms, max_dist_dict,
-                         neighbor_cutoff, lattice,
+                         lattice,
                          coords_are_cartesian=True,
                          available_bonds=None):
     """
@@ -457,10 +457,6 @@ def get_bonded_neighbors(one_point, many_points, one_species,
         max_dist_dict (dict): dictionary of the maximum bond distances with
          respect to different species
 
-        neighbor_cutoff (float): distance within which to consider two atoms
-         "neighbors" within the lattice, useful for preventing bonding atoms
-         at angles which would be too close to these neighbors.
-
         lattice (obj): Pymatgen `Lattice` object which contains the species.
          If provided, all distances are calculated using periodic boundary
          conditions.
@@ -478,13 +474,14 @@ def get_bonded_neighbors(one_point, many_points, one_species,
     images = []
     for index, each_point in enumerate(many_points):
         sym2 = inv_syms[many_species[index]]
-        key1 = sym1 + '_' + sym2
-        key2 = sym2 + '_' + sym1
+        key = sym1 + '_' + sym2
+        if sym1 > sym2:
+            key = sym2 + '_' + sym1
         ref_dist = 0.0
-        if key1 in max_dist_dict:
-            ref_dist = max_dist_dict[key1]
-        elif key2 in max_dist_dict:
-            ref_dist = max_dist_dict[key2]
+        if max_dist_dict[key] is not None:
+            ref_dist = max_dist_dict[key]
+        else:
+            continue
 
         if lattice is None:
             if coords_are_cartesian:
@@ -497,11 +494,8 @@ def get_bonded_neighbors(one_point, many_points, one_species,
                 if available_bonds is not None:
                     if available_bonds[index] == 0:
                         return None
-                bonds[index] = [[vector_connecting_points(
-                    one_point, each_point, None)]]
-            elif d <= neighbor_cutoff:
-                bonds[index].append([vector_connecting_points(
-                    one_point, each_point, None)])
+                bonds[index] = [vector_connecting_points(
+                    one_point, each_point, None)]
         else:
             dists, images = get_all_image_distances(
                 one_point, each_point, lattice, coords_are_cartesian)
@@ -523,28 +517,13 @@ def get_bonded_neighbors(one_point, many_points, one_species,
                     # print(
                     #     f"Passed sanity check: {np.isclose(np.linalg.norm(vec), d)}")
                     if index in bonds:
-                        bonds[index][0].append(vec)
+                        bonds[index].append(vec)
                     else:
-                        bonds[index] = [[vec], []]
+                        bonds[index] = [vec]
                     if available_bonds is not None:
                         if available_bonds[index] == new_bonds:
                             return None
                     new_bonds += 1
-                elif d <= neighbor_cutoff:
-                    # print(f"Point 1: {p1}")
-                    # print(f"Image: {i}")
-                    # print(f"Coords are cartesian: {coords_are_cartesian}")
-                    vec = vector_connecting_points(
-                        p1, p2 + i, lattice, False, False)
-                    # print(f"Vector distance: {np.linalg.norm(vec)}")
-                    # print(f"Point 1: {p1 + i}, point 2: {p2}")
-                    # print(f"Vector: {vec}")
-                    # print(
-                    #     f"Passed sanity check: {np.isclose(np.linalg.norm(vec), d)}")
-                    if index in bonds:
-                        bonds[index][1].append(vec)
-                    else:
-                        bonds[index] = [[], [vec]]
 
     return bonds
 
@@ -619,21 +598,17 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
         sym2 = inv_syms[many_species[index]]
         # print(f"Symbol of the other point: {sym2}")
         # print(f"Distance: {d}")
-        key1 = sym1 + '_' + sym2
-        key2 = sym2 + '_' + sym1
-        if key1 in min_dist_dict:
-            if d < min_dist_dict[key1]:
-                return False
-        if key2 in min_dist_dict:
-            if d < min_dist_dict[key2]:
+        key = sym1 + '_' + sym2
+        if sym1 > sym2:
+            key = sym2 + '_' + sym1
+
+        if key in min_dist_dict:
+            if d < min_dist_dict[key]:
                 return False
 
         if max_dist_dict is not None:
-            if key1 in max_dist_dict:
-                if d <= max_dist_dict[key1]:
-                    dists_ok = True
-            if key2 in max_dist_dict:
-                if d <= max_dist_dict[key2]:
+            if max_dist_dict[key] is not None:
+                if d <= max_dist_dict[key]:
                     dists_ok = True
         else:
             dists_ok = True
