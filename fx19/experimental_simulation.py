@@ -40,6 +40,19 @@ except ImportError:
     print('Install GSASIIscriptable for powder diffraction simulation.'
           ' Otherwise ignore..')
 
+try:
+    import ingrained.image_ops as iop
+    from ingrained.structure import PartialCharge
+    from ingrained.utilities import compareAngles,multistart,multistart_series
+    from pymatgen.core import Structure
+    import numpy as np
+    import os
+    import shutil
+    import cv2
+except:
+    print('Install Ingrained, numpy, opencv for STM simulation')
+
+
 from math import floor
 import numpy as np
 import os
@@ -2470,23 +2483,6 @@ class xrd_of_model(object):
         return model, score
 
 
-
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Oct 13 13:13:08 2022
-
-@author: joshuapaul
-"""
-from ingrained.optimize import CongruityBuilder
-import ingrained.image_ops as iop
-from ingrained.structure import PartialCharge
-from ingrained.utilities import compareAngles,multistart,multistart_series
-from pymatgen.core import Structure
-import numpy as np
-import os
-import shutil
-import cv2
 
 
 class stm_ingrained(object):
