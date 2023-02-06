@@ -109,7 +109,6 @@ class Evolve(object):
         if operator == "perturb_sites" or operator == "perturb_comp":
             parent_model = select.get_a_parent(pool)
             label = parent_model.label
-        tries=10
         while correct_comp is False and tries <= 10:
             tries += 1
             try:
@@ -1298,7 +1297,8 @@ class basinhopping(object):
         parent_species = parent.astr.species
         max_z_cart = parent_carts[:, 2].max()
         surface_inds = [i for i, site in enumerate(parent.astr.sites)
-                        if max_z_cart - site.coords[2] < surface_thickness]
+                        if max_z_cart - site.coords[2] < surface_thickness and\
+                        site.coords[2]>self.substrate_thickness+self.separation]
 
         # Get surface_fracs to perturb
         total_surface_atoms = len(surface_inds)
@@ -2553,9 +2553,9 @@ class surface_ops(object):
         if 'separation' in surface_ops_params:
             self.separation = surface_ops_params['separation']
 
-        self.constrain_z = True
-        #if 'constrain_z' in surface_ops_params:
-        #    self.constrain_z = surface_ops_params['constrain_z']
+        self.constrain_z = False
+        if 'constrain_z' in surface_ops_params:
+            self.constrain_z = surface_ops_params['constrain_z']
 
         self.sd_no_z = False
         if 'sd_no_z' in surface_ops_params:
@@ -2590,6 +2590,18 @@ class surface_ops(object):
         self.num_slices = 2
         if 'num_slices' in surface_ops_params:
             self.num_slices = surface_ops_params['num_slices']
+
+
+    def fix_below_cutoff(self):
+        """
+        Fix position of all atoms below the "sd_cut_off" value
+
+        """
+
+        lines = open()
+
+
+
 
     def init_zs_to_species_dict(self, slab_astr, species_id):
         """
@@ -2906,51 +2918,65 @@ class surface_ops(object):
 
         # Get the surface layer size of the slab
         surf_match=False
-        surface_layer = self.random_surface_layer(slab_astr)
+        # Preserve previous iteration of random surface generation
+        # in comments
+        ################
+        #surface_layer = self.random_surface_layer(slab_astr)
 
         # Combine substrate and the surface layer using separation
-        surface_minz = surface_layer.cart_coords[:, 2].min()
-        substrate_maxz = substrate.cart_coords[:, 2].max()
-        z_diff = substrate_maxz + self.separation - surface_minz
+        #surface_minz = surface_layer.cart_coords[:, 2].min()
+        #substrate_maxz = substrate.cart_coords[:, 2].max()
+        #z_diff = substrate_maxz + self.separation - surface_minz
         # Re-scale the z-coordinates to get separation correctly
-        new_surface_carts = surface_layer.cart_coords.copy()
-        new_surface_carts[:, 2] += z_diff
-        # Get list of sites, starting from closest to substrate
-        new_pos = [[i,new_surface_carts[i][2]] for i in range(surface_layer.num_sites)]
-        new_pos.sort(key=lambda x: x[1])
-        for i in [site for site,z in new_pos]:
-            if new_surface_carts[i][2]<self.surface_thickness:
-                substrate.append(surface_layer.species[i], new_surface_carts[i],
-                                 coords_are_cartesian=True)
+        #new_surface_carts = surface_layer.cart_coords.copy()
+        #new_surface_carts[:, 2] += z_diff
+        #for i in range(len(new_surface_carts)):
+        #    if new_surface_carts[i][2]<self.surface_thickness:
+        #        substrate.append(surface_layer.species[i], new_surface_carts[i],
+        #                         coords_are_cartesian=True)
         # Check if surface layer valid
+        #substrate, valid_surf = self.surface_comp_check(substrate)
+        ################
         orig_substrate=copy.deepcopy(substrate)
-        substrate, valid_surf = self.surface_comp_check(substrate)
         attempts=0
+        
+        len_sub = int(substrate.num_sites)
+        specs = list(set(substrate.species))
+        key_spc = random.choice(specs)
+        key_str = str(key_spc)
+        while substrate.num_sites==len_sub:
+            substrate = self.add_atoms(substrate,key_str)
+        atoms_per_species = self.get_atoms_per_species()
+        print(atoms_per_species)
+        valid_surf=False
         # Loop while surface layer is invalid
         while not valid_surf:
             # If too many attempts have been made, reset
-            if attempts==50:
+            if attempts==100:
                 substrate=copy.deepcopy(orig_substrate)
+                len_sub = int(substrate.num_sites)
+                specs = list(set(substrate.species))
+                key_spc = random.choice(specs)
+                key_str = str(key_spc)
+                while substrate.num_sites==len_sub:
+                    substrate = self.add_atoms(substrate,key_str)
                 attempts=0
             specs = list(set(substrate.species))
             key_spc = random.choice(specs)
             key_str = str(key_spc)
             key_sites = [site for site in substrate.sites if str(site.specie)==key_str and \
                             site.coords[2]>self.substrate_thickness] 
-            if random.random()<.5:
+            if len(key_sites)<atoms_per_species[key_str]:
+#            if random.random()<.5:
                 substrate = self.add_atoms(substrate,key_str)
-            elif len(key_sites)>1:
-                substrate = self.remove_atoms(substrate,key_str)
-            else:
-                substrate = self.add_atoms(substrate,key_str)
+#            elif len(key_sites)>1:
+#                substrate = self.remove_atoms(substrate,key_str)
+#            else:
+#                substrate = self.add_atoms(substrate,key_str)
             substrate.sort()
             substrate, valid_surf = self.surface_comp_check(substrate)
-        # Add the surface atoms to substrate
-           # if not np.any([np.linalg.norm(x-new_surface_carts[i])<
-            #if dc.satisfies_all_dists(new_surface_carts[i], substrate,
-           #                           self.element_syms, self.min_dist_dict,
-           #                           max_dist_dict=self.max_dist_dict,
-           #                           new_carts_species=str(surface_layer.species[i])):
+            attempts+=1
+        
         surf_model = structure_record.model(substrate, reg_id)
         surf_model.inheritance = 'random'
 
@@ -2967,16 +2993,17 @@ class surface_ops(object):
         """
         added=0
         attempts=0
-        while added==0 and attempts<100:
+        sum_thickness=self.surface_thickness+\
+                      self.substrate_thickness+\
+                      self.separation
+        while added==0 and attempts<1000:
+            
             new_fracs = [random.random(), random.random(),
-                         random.random()]
+                         random.uniform(
+                            (self.substrate_thickness+self.separation)/substrate.c,
+                            sum_thickness/substrate.c)]
             new_carts = slab_astr.lattice.get_cartesian_coords(new_fracs)
-            if self.constrain_z:
-                # set z randomly until below surface and above substrate
-                while new_carts[2]>self.surface_thickness or  \
-                      new_carts[2]<self.substrate_thickness+self.separation:
-                    new_fracs[2]=random.random()
-                    new_carts = slab_astr.lattice.get_cartesian_coords(new_fracs)
+            # set z randomly until below surface and above substrate
             # if the new atom is valid, add it to the crystal
             if dc.satisfies_all_dists(new_carts, slab_astr,
                                       self.element_syms,
@@ -3022,9 +3049,12 @@ class surface_ops(object):
         hop = self.hop
 
         correct_comp = False
+        # Added "count" variable so that failure to basinhop/splice does 
+        # not result in biased sampling
+        count = random.random()
         while correct_comp is False:
             try:
-                if random.random() <= self.hop_mate_frac:
+                if count <= self.hop_mate_frac:
                     # basinhopping
                     perturbed_slab, inheritance \
                         = hop.perturb_sites(
@@ -3032,9 +3062,7 @@ class surface_ops(object):
                             pool,
                             surface_thickness=self.surface_thickness
                         )
-                    perturbed_slab.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_perturbPre')
                     self.move_coords_inside(perturbed_slab)
-                    perturbed_slab.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_perturbPost')
                     new_astr = perturbed_slab
                     maker = 'perturb_sites'
                 else:  # mating
@@ -3046,14 +3074,9 @@ class surface_ops(object):
                 continue
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
+            # Sort new structure for added/removed atoms
             new_astr.sort()
-            new_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_preConst')
-            # Constrain z coords to be that in the initial structure
-            if self.constrain_z and new_astr.cart_coords[:,2].max()>3+self.substrate_thickness:
-                self.set_zs_from_init_astr(new_astr)
-                new_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_postSetZ')
-                new_astr, correct_comp = self.surface_comp_check(new_astr)
-                new_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_postCompCheck')
+            new_astr, correct_comp = self.surface_comp_check(new_astr)
         new_model = structure_record.model(new_astr, reg_id)
         new_model.inheritance = inheritance
         new_model.made_by = maker
@@ -3194,10 +3217,13 @@ class surface_ops(object):
         """
         # Add random skipped coords to this structure
         tries, num_added = 0, 0
+        
         if z_carts is not None:
             z_fracs = np.array(z_carts) / lattice.c
             if len(z_fracs) != num_coords_needed:
                 print("Error: Z-carts not present for all coords!")
+        else:
+            z_frac=None
 
         secondary_coords = []
         while num_added < num_coords_needed and tries < 1000:
@@ -3403,8 +3429,6 @@ class surface_ops(object):
 
         for key in self.element_syms.keys():
             self.init_zs_to_species_dict(init_astr, key)
-        new_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR')
-        init_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_init')
         new_carts = new_astr.cart_coords
         # all_species = new_astr.species
         bot_z_cart = new_carts[:, 2].min()
@@ -3446,7 +3470,6 @@ class surface_ops(object):
         for specie, coord in zip(surface_species, modified_surf_carts):
             new_astr.append(specie, coord, coords_are_cartesian=True)
         new_astr.sort()
-        new_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_postAdd')
 
     def get_slices_from_parent(self, parent):
         """
@@ -3523,11 +3546,9 @@ class surface_ops(object):
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
         child_ab = parent1.astr.lattice.matrix[:2]
-
         # Get one slice each from parent 1 and parent 2 separately
         slice1_carts, slice1_sps, _, __ = self.get_slices_from_parent(parent1)
         _, __, slice2_carts, slice2_sps = self.get_slices_from_parent(parent2)
-
         # Join both slices
         child_surf_carts = np.concatenate((slice1_carts, slice2_carts))
         child_surf_sps = list(slice1_sps) + list(slice2_sps)
@@ -3546,24 +3567,29 @@ class surface_ops(object):
         z_diff = substrate_maxz + self.separation - surface_minz
 
         # Re-scale the z-coordinates to get separation correctly
-        child_surf_carts[:, 2] += z_diff
+        #child_surf_carts[:, 2] += z_diff
 
         # Place the surface atoms to substrate
-        substrate.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_sub')
         for i in range(len(child_surf_carts)):
+            substrate.append(child_surf_sps[i], child_surf_carts[i],
+                             coords_are_cartesian=True)
             # check if each cart satisfies distance constraints with substrate
             # and rest of the surface layer atoms
-            if dc.satisfies_all_dists(child_surf_carts[i], substrate,
-                                      self.element_syms, self.min_dist_dict,
-                                      max_dist_dict=self.max_dist_dict,
-                                      new_carts_species=child_surf_sps[i]):
-                substrate.append(child_surf_sps[i], child_surf_carts[i],
-                                 coords_are_cartesian=True)
-        substrate.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_subPostAdd')
+        keys = list(self.min_dist_dict.keys())
+        if dc.astr_min_dist(substrate,min([self.min_dist_dict[k] for k in keys]))[0]:
+            for i,site in enumerate(substrate.sites):
+                if site.coords[2]>self.substrate_thickness:
+                    substrate.remove_sites([i])
+                    if dc.satisfies_all_dists(site.coords, substrate,
+                                              self.element_syms,
+                                              self.min_dist_dict,
+                                              max_dist_dict=self.max_dist_dict,
+                                              new_carts_species=str(site.specie)):
+                        substrate.append(site.specie, site.coords,
+                                         coords_are_cartesian=True)
         substrate.sort()
         # move all coords inside the lattice
         self.move_coords_inside(substrate)
-        substrate.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_subPostInside')
         
         return substrate, inheritance
 
@@ -3581,7 +3607,6 @@ class surface_ops(object):
         astr = copy.deepcopy(slab_astr)
         slab_sites = astr.sites
 
-        astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_slabPreRemove')
         # Get surface carts from the slab astr
         bot_z_cart = astr.cart_coords[:, 2].min()
         non_surface_inds = [i for i, site in enumerate(slab_sites)
@@ -3593,7 +3618,6 @@ class surface_ops(object):
         curr_comp = astr.composition.as_dict()
         target_comp = self.comp_dict
         # Check if the composition should be corrected
-        astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_slabPostRemove')
         if astr.composition.reduced_formula == \
                 Composition(target_comp).reduced_formula:
             return slab_astr
@@ -3610,6 +3634,9 @@ class surface_ops(object):
         new_comp = target_comp_arr * nearest_int
         # diff in atoms from current to new comp
         diff_atoms = new_comp - curr_comp_arr
+        sum_thickness=self.surface_thickness+\
+                      self.substrate_thickness+\
+                      self.separation
         rem_inds = []
         for i, key in enumerate(curr_comp.keys()):
             if diff_atoms[i] < 0:  # delete random atoms
@@ -3623,14 +3650,17 @@ class surface_ops(object):
             elif diff_atoms[i] > 0:  # add atoms randomly
                 added = 0
                 while added < diff_atoms[i]:
+                    # Add random coordinates, with z fixed to the surface region
                     new_fracs = [random.random(), random.random(),
-                                 random.random()]
+                                 random.uniform(
+                                    (self.substrate_thickness+self.separation)/substrate.c,
+                                    sum_thickness/substrate.c)]
                     if self.constrain_z:
-                        # set z randomly until below surface
-                        while new_carts[2]>self.surface_thickness or \
-                              new_carts[2]<self.substrate_thickness+self.separation:
-                            new_fracs[2]=random.random()
-                            new_carts = slab_astr.lattice.get_cartesian_coords(new_fracs)
+                        # set z from one of the existing atoms
+                        rand_i = random.randint(0, slab_astr.num_sites - 1)
+                        if slab_sites[rand_i].specie.name == key:
+                            new_fracs[2] = slab_sites[rand_i].frac_coords[2]
+                    new_carts = slab_astr.lattice.get_cartesian_coords(new_fracs)
                     if dc.satisfies_all_dists(new_carts, slab_astr,
                                               self.element_syms,
                                               self.min_dist_dict,
@@ -3665,12 +3695,9 @@ class surface_ops(object):
         astr.remove_sites(non_surface_inds)
         surf_comp = astr.composition.as_dict()
         inv_syms = {v: k for k, v in self.element_syms.items()}
-        slab_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_preUpdate')
-        #astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_surfRemoved')
         # Check if the composition should be corrected
         #if self.comp_dict is not None:
         #    slab_astr = self.update_atoms_composition(slab_astr)
-        #slab_astr.to('POSCAR','/lcrc/project/ING_STM/testrun_10steps8ing/POSCAR_postUpdate')
 
         # Check comp for the updated slab_astr
         comp_ok = True
