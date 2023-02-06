@@ -1113,7 +1113,9 @@ class basinhopping(object):
             self.add_rem_comp_frac = basinhopping_params['add_rem_comp_frac']
 
     def perturb_sites(self, select, pool,
-                      surface_thickness=None, model_id=None):
+                      surface_thickness=None,
+                      substrate_thickness=None,
+                      separation=None, model_id=None):
         """
         Displaces atoms in a parent (cluster or gb_iface or surface layer)
         using uniform distribution within max_perturbation
@@ -1131,6 +1133,11 @@ class basinhopping(object):
 
             surface_thickness (float): how many angstroms thick the active
              surface region is
+        
+            substrate_thickness (float): Thickness of substrate
+        
+            separation (float): Distance between substrate and surface
+
 
             model_id (int): If given, basinhopping is done on this specific
              model
@@ -1143,6 +1150,8 @@ class basinhopping(object):
         if self.shape == 'surface':
             return self.perturb_surface(select, pool,
                                         surface_thickness=surface_thickness,
+                                        substrate_thickness=substrate_thickness,
+                                        separation=separation,
                                         model_id=None)
 
         indices_fraction = self.indices_fraction
@@ -1261,7 +1270,9 @@ class basinhopping(object):
             return None, None
 
     def perturb_surface(self, select, pool,
-                        surface_thickness=1, model_id=None):
+                        surface_thickness=1,
+                        substrate_thickness=1,
+                        separation=1,model_id=None):
         """
         Displaces atoms in a surface layer using uniform distribution
 
@@ -1275,6 +1286,10 @@ class basinhopping(object):
 
         surface_thickness (float): The thickness of the surface layer from top
                                    of the surface
+
+        substrate_thickness (float): Thickness of substrate
+        
+        separation (float): Distance between substrate and surface
 
         model_id (int): If given, basinhopping is done on this specific model
         """
@@ -1297,9 +1312,8 @@ class basinhopping(object):
         parent_species = parent.astr.species
         max_z_cart = parent_carts[:, 2].max()
         surface_inds = [i for i, site in enumerate(parent.astr.sites)
-                        if max_z_cart - site.coords[2] < surface_thickness and\
-                        site.coords[2]>self.substrate_thickness+self.separation]
-
+                        if max_z_cart - site.coords[2] < surface_thickness and 
+                        site.coords[2]>substrate_thickness+separation]
         # Get surface_fracs to perturb
         total_surface_atoms = len(surface_inds)
         # use indices_fraction; default to 1
@@ -3000,8 +3014,8 @@ class surface_ops(object):
             
             new_fracs = [random.random(), random.random(),
                          random.uniform(
-                            (self.substrate_thickness+self.separation)/substrate.c,
-                            sum_thickness/substrate.c)]
+                            (self.substrate_thickness+self.separation)/slab_astr.lattice.c,
+                            sum_thickness/slab_astr.lattice.c)]
             new_carts = slab_astr.lattice.get_cartesian_coords(new_fracs)
             # set z randomly until below surface and above substrate
             # if the new atom is valid, add it to the crystal
@@ -3060,8 +3074,9 @@ class surface_ops(object):
                         = hop.perturb_sites(
                             select,
                             pool,
-                            surface_thickness=self.surface_thickness
-                        )
+                            surface_thickness=self.surface_thickness,
+                            substrate_thickness=self.substrate_thickness,
+                            separation=self.separation)
                     self.move_coords_inside(perturbed_slab)
                     new_astr = perturbed_slab
                     maker = 'perturb_sites'
@@ -3653,8 +3668,8 @@ class surface_ops(object):
                     # Add random coordinates, with z fixed to the surface region
                     new_fracs = [random.random(), random.random(),
                                  random.uniform(
-                                    (self.substrate_thickness+self.separation)/substrate.c,
-                                    sum_thickness/substrate.c)]
+                                    (self.substrate_thickness+self.separation)/substrate.lattice.c,
+                                    sum_thickness/substrate.lattice.c)]
                     if self.constrain_z:
                         # set z from one of the existing atoms
                         rand_i = random.randint(0, slab_astr.num_sites - 1)
