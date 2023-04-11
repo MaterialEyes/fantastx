@@ -44,6 +44,7 @@ try:
     import ingrained.image_ops as iop
     from ingrained.structure import PartialCharge
     from ingrained.utilities import compareAngles,multistart,multistart_series
+    from ingrained.utilities import multi_congruity_finder_series
     from pymatgen.core import Structure
     import numpy as np
     import os
@@ -2562,11 +2563,27 @@ class stm_ingrained(object):
             return(all_prog[0][0])
     
 
+    def check_parchg(self,model):
+        """
+        Checks if the PARCHG file has errors in it
+        """
+
+        try:
+            sim_obj = PartialCharge(model.stm_path+'/PARCHG')
+            return(True)
+        except:
+            return(False)
+
+
+
     def get_STM_series(self,model,threads):
         """
         Runs the Ingrained simulation with series calculations
         """
         sim_obj = PartialCharge(model.stm_path+'/PARCHG')
+        
+        # Shift atoms/charge density so it is not at the edge
+        # of the unit cell
         sim_obj._shift_sites()
         sim_obj._shift_sites() 
         sim_obj.pix_size = self.pixel_size
@@ -2580,6 +2597,32 @@ class stm_ingrained(object):
         new_start[8]=ang
         multistart_series(new_start,threads,sim_obj,self.image_data['Pixels'],
                        search_mode='stm',fixed_params=self.fixed_params,path=model.stm_path)
+
+
+    def get_STM_series_rotate(self,model,angle=15):
+        """
+        Runs the Ingrained simulation with series calculations
+        """
+        sim_obj = PartialCharge(model.stm_path+'/PARCHG')
+        
+        # Shift atoms/charge density so it is not at the edge
+        # of the unit cell
+        sim_obj._shift_sites()
+        sim_obj._shift_sites() 
+        sim_obj.pix_size = self.pixel_size
+        start_params=self.start_params
+        starts = []
+        for ang in range(0,360,angle):
+            new_start = list(self.start_params)
+
+            print(new_start)
+            new_start[8]=ang
+            for i in [ang,sim_obj,self.exp_img,
+                      self.fixed_params,'taxicab_ssim',
+                      'Powell','stm']:
+                new_start.append(i)
+            starts.append(new_start)
+        multi_congruity_finder_series(starts,path=model.stm_path)
 
 
     def get_STM_para(self,threads):
@@ -2643,7 +2686,6 @@ class stm_ingrained(object):
         self.stm_path = stm_path
         model.stm_path = stm_path
         os.mkdir(stm_path)
-#        os.chdir(stm_path)
         for fil in ['POTCAR','KPOINTS']:
             shutil.copyfile(relax_path+'/'+fil,stm_path+'/'+fil)
         shutil.copyfile(relax_path+'/CONTCAR',stm_path+'/POSCAR')
@@ -2658,7 +2700,7 @@ class stm_ingrained(object):
         Arguments:
             model (obj): FANTASTX model
         """
-        match_ssim = self.get_progress(bot_ave=True)
+        match_ssim = self.get_progress(bot_ave=False)
         #match_ssim = random.random()
         if model.Xsim1 == 'STM':
             model.obj1_val = float((match_ssim))  # Minimizing the obj vals

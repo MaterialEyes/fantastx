@@ -21,6 +21,8 @@ import shutil
 import numpy as np
 import subprocess as sp
 import re
+from fx19.distance_check import  check_interatom_dists
+
 
 DEBUG = False
 
@@ -703,14 +705,22 @@ class vasp_code(object):
             lines.reverse()
             for line in lines:
                 if 'General timing' in line:
+                #if 'reached required accuracy' in line:
                     converged = True
                     break
         if not converged:
             print('Energy calculation of model {} not'
                   ' converged'.format(model.label))
         # if converged, get energy
+        if not check_interatom_dists(Structure.from_file(model.relax_path+'/CONTCAR'), 
+                                    self.species_dict,
+                                    self.min_dist_dict,
+                                    self.max_dist_dict):
+            converged=False
+            print('Interatomic distances of model {} not'
+                  ' within bounds'.format(model.label))
+        model.converged = converged
         if converged:
-            model.converged = converged
 
             # get total energy from output files
             oszicar = model.relax_path + '/OSZICAR'
