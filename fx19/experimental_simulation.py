@@ -2547,11 +2547,17 @@ class stm_ingrained(object):
         for progress in [x for x in os.listdir(self.stm_path) if 
                                                              'progress' in x]:
             progress = np.genfromtxt(self.stm_path+'/'+progress, delimiter=',')
-            best_idx = int(np.argmin(progress[:, -1]))
+            while True:
+                best_idx = int(np.argmin(progress[:, -1]))
+                if progress[best_idx][-1]==float('nan'):
+                    progress.pop(best_idx)
+                else:
+                    break
             x = progress[best_idx]
             xfit = x[1:-1]
             xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
-            all_prog.append([x[-1], xfit])
+            if x[-1]!=float('nan'):
+                all_prog.append([x[-1], xfit])
         all_prog.sort()
         if bot_ave:
             scores=[]
@@ -2614,8 +2620,6 @@ class stm_ingrained(object):
         starts = []
         for ang in range(0,360,angle):
             new_start = list(self.start_params)
-
-            print(new_start)
             new_start[8]=ang
             for i in [ang,sim_obj,self.exp_img,
                       self.fixed_params,'taxicab_ssim',
@@ -2693,14 +2697,15 @@ class stm_ingrained(object):
         shutil.copyfile(self.init_stm_path+'/input_files/INCAR_ing',stm_path+'/INCAR')
         return(model)
  
-    def evaluate_obj(self,model):
+    def evaluate_obj(self,model,bot_ave=False):
         """
         Function to prepare perform STM experimental calculation
  
         Arguments:
             model (obj): FANTASTX model
         """
-        match_ssim = self.get_progress(bot_ave=False)
+        match_ssim = self.get_progress(bot_ave=bot_ave)
+        print('MATCH',match_ssim)
         #match_ssim = random.random()
         if model.Xsim1 == 'STM':
             model.obj1_val = float((match_ssim))  # Minimizing the obj vals
