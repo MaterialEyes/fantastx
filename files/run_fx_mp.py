@@ -106,6 +106,9 @@ def create_and_eval(seed, model_obj, evolve, select, pool, reg_id, energy_code,
     else:
         print(f"Model converged: {relaxed_model.converged}")
 
+    if energy_code.shape == "gb":
+        relaxed_model.gb_iface = model_obj.separate_gb(model.astr)
+
     # do the experimental evaluation
     exp_eval_model = do_Xsim(relaxed_model, Xsim)
 
@@ -130,9 +133,10 @@ seed_index = 0
 seed_multiplier = 102573
 try:
     seed_multiplier = int(datetime.datetime.now().strftime(
-        '%s%f')) % (2**32 - total_models_needed)
+        '%s%f')) // 2**32
     if seed_multiplier > 2**32:
         seed_multiplier = os.environ['SLURM_JOB_ID']
+    print(f"Random seed multiplier: {seed_multiplier}")
 except:
     print("Tried and failed to set random seed using the date and time.\n")
 

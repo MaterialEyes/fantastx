@@ -174,12 +174,21 @@ class lammps_code(object):
 
         # save total energy to model attributes
         total_energy = None
-        with open(f'{relax_path}/log_lammps.{model.label}', 'r') as log:
-            lines = log.readlines()
-            string = 'Step Temp E_pair E_mol TotEng Press'
-            for i, line in enumerate(lines):
-                if string in line:
-                    total_energy = float(lines[i+2].split()[4])
+        match = None
+        pattern = re.compile("Energy initial, next-to-last, final")
+        lines = open(f'{relax_path}/log_lammps.{model.label}',
+                     'r').read().splitlines()
+        for line in lines:
+            if match is not None:
+                total_energy = float(line.split()[2])
+            match = re.search(pattern, line)
+
+        # with open(f'{relax_path}/log_lammps.{model.label}', 'r') as log:
+        #     lines = log.readlines()
+        #     string = 'Step Temp E_pair E_mol TotEng Press'
+        #     for i, line in enumerate(lines):
+        #         if string in line:
+        #             total_energy = float(lines[i+2].split()[4])
 
         if not total_energy:
             print('Model {} energy not found in log_lammps.{} file'.format(

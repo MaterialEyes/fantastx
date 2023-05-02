@@ -154,7 +154,7 @@ def full_eval(model, energy_obj, Xsim):
     # print(f"Model converged: {model.converged}")
 
     # separate gb_iface for the energy evaluated futures
-    # separate_gb(energy_obj, gb_ops_obj, model)
+    separate_gb(energy_obj, gb_ops_obj, model)
 
     # Do Xsim if required
     if Xsim:
@@ -269,6 +269,7 @@ while models_evald < total_models_needed:
         # create the model then send it to the dask-workers for evaluation
         new_model = make_model(random_model_obj, evolve, select,
                                pool, reg_id, model_type=model_mech)
+        print("Made new model!")
         out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         evald_futures, models_evald, pool, select = update_pool(evald_futures,

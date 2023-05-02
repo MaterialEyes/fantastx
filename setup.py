@@ -13,10 +13,10 @@ if __name__ == "__main__":
                         eXperiments',
         packages=find_packages(),
         install_requires=['matplotlib', 'numpy', 'scipy',
-                          'dscribe', 'pymatgen', 'ase>=3.19.0', 'sklearn'],
+                          'pymatgen', 'ase>=3.19.0', 'sklearn'],
         package_data={},
-        author='V. S. Chaitanya Kolluru',
-        author_email='vkolluru@anl.gov',
+        author='V. S. Chaitanya Kolluru, Davis Unruh',
+        author_email='vkolluru@anl.gov, dunruh@anl.gov',
         url='https://gitlab.com/MaterialEyes/fantastx/tree/master/Fantastx-19',
         scripts=[os.path.join(module_dir, 'files/run_fx.py')]
     )

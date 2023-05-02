@@ -8,6 +8,11 @@ from fx19 import structure_operations
 from fx19.clustering import HierarchicalClusterer, CompositionalClusterer
 from fx19.fingerprinting import Comparator
 
+try:
+    from pymongo import MongoClient
+except ImportError:
+    print('Install pymongo for database support. Otherwise ignore.')
+
 import os
 
 
@@ -33,7 +38,6 @@ def make_objects(i_dict):
 
     # Make MongoDB database object
     if 'database' in i_dict:
-        from pymongo import MongoClient
         all_objects['database'] = connect_to_mongodb(**i_dict["database"])
     else:
         all_objects['database'] = None

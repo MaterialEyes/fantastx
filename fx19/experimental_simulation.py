@@ -278,6 +278,9 @@ class xanes_of_model(object):
             experiment_data = simulate.get_experiment_results(
                 filepath, headers=columns, data_line=0, sortcolumn=0,
                 delimiter=delimit)
+            # convert kev to ev
+            if experiment_data['Energy'][0] < 20:
+                experiment_data['Energy'] = experiment_data['Energy'] * 1000
         else:
             if hasattr(filepath, "__iter__") and type(filepath) is not str:
                 experiment_data_base = simulate.get_experiment_results(
@@ -409,6 +412,9 @@ class xanes_of_model(object):
                             spline_result, self.exp_spline)
                     else:
                         # optimize
+                        print(
+                            f"Spline result prior to optimization: {spline_result}")
+                        print(f"Experimental spline: {self.exp_spline}")
                         spline_result, result =\
                             self.optimizer.optimize_post_simulation_parameters(
                                 self.sp.spline_mesh,
@@ -418,6 +424,8 @@ class xanes_of_model(object):
                                 self.sp,
                                 self.opt_bounds
                             )
+                        print(
+                            f"Spline result post optimization: {spline_result}")
                         distance = result.fun
                 elif self.comparison_spectra_type == "difference":
                     if not self.optimize_simulation:
@@ -452,9 +460,14 @@ class xanes_of_model(object):
                 # if self.comparison_spectra_type == "direct":
                 fig, axes = plt.subplots(1, 1)
                 fig.set_size_inches(10, 10)
-                axes.plot(self.sp.spline_mesh,
-                          self.sim_base_spline, marker=".",
-                          linestyle="-", label="Simulation base")
+                if self.comparison_spectra_type == "direct":
+                    axes.plot(self.sp.spline_mesh,
+                              self.exp_spline, marker=".",
+                              linestyle="-", label="Experiment")
+                elif self.comparison_spectra_type == "difference":
+                    axes.plot(self.sp.spline_mesh,
+                              self.sim_base_spline, marker=".",
+                              linestyle="-", label="Simulation base")
                 axes.plot(self.sp.spline_mesh, spline_result, marker=".",
                           linestyle="--", label="Simulation result")
                 axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
