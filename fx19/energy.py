@@ -564,17 +564,30 @@ class vasp_code(object):
         # TODO: implement selective dynamics for cluster geometry
 
         shutil.copy(new_poscar, poscar)
-        # copy INCAR, KPOINTS to the relax path. Modify the INCAR if the model is a molecule
+
+        # copy INCAR, KPOINTS to the relax path. Modify the INCAR as needed
+        # with structure-specific options
         shutil.copy(files_path + '/INCAR', relax_path + '/INCAR')
         pattern = re.compile("ISPIN")
+        incar_lines = open(relax_path + '/INCAR').readlines()
+        for line in incar_lines:
+            match = re.search(pattern, line)
+            if match is not None:
+                spin_val = float(line.split()[2])
+                if spin_val == 2:
+                    incar_file = open(relax_path + '/INCAR', 'a')
+                    magmom_str = self.get_magmom_string(model.astr, 5.0)
+                    incar_file.write('\n' + magmom_str)
+                    incar_file.close()
 
+        # modify the number of electrons if desired
         if self.shape == "molecule":
             if model.astr.charge != 0:
                 z_val_dict = {}
                 # grab default number of electrons and modify it by the charge
                 pattern = re.compile("ZVAL")
                 pot_i = 0
-                for line in all_lines:
+                for line in incar_lines:
                     match = re.search(pattern, line)
                     if match is not None:
                         z_val = float(line.split()[5])
@@ -597,10 +610,6 @@ class vasp_code(object):
                     "\nNELECT = " + str(int(total_electrons)) + "\n")
                 incar_file.close()
 
-        incar_file = open(relax_path + '/INCAR', 'a')
-        magmom_str = self.get_magmom_string(model.astr, 5.0)
-        incar_file.write('\n' + magmom_str)
-
         if self.perform_LDAU:
             species = model.astr.types_of_specie
             LDAUL_str = "LDAUL = "
@@ -612,12 +621,11 @@ class vasp_code(object):
                 else:
                     LDAUL_str += "0 "
                     LDAUU_str += "0 "
-            LDAUL_str += "\n"
-            LDAUU_str += "\n"
+            LDAUL_str += "\n\n"
+            incar_file = open(relax_path + '/INCAR', 'a')
             incar_file.write("\n" + LDAUL_str)
             incar_file.write(LDAUU_str)
-
-        incar_file.close()
+            incar_file.close()
 
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
