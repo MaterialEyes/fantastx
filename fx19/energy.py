@@ -775,6 +775,10 @@ class vasp_code(object):
                           " not contained in input yaml file.")
             model.obj0_val = float(free_en)
 
+            # finally, clean the simulation directory by removing the CHG and CHGCAR files
+            os.remove(model.relax_path + "/CHG")
+            os.remove(model.relax_path + "/CHGCAR")
+
     def move_atoms_inside(self, astr):
         """
         For a given structure object, move all sites within the unit cell.

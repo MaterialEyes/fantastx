@@ -302,28 +302,13 @@ class xanes_of_model(object):
         """
         Prepare and run XANES simulation using xtk.
         """
-        simulation_path = model.relax_path + "/" + self.simulation_code
+        model.xanes_path = model.relax_path + "/../xanes"
+        if not os.path.exists(model.xanes_path):
+            os.mkdir(model.xanes_path)
+        simulation_path = model.xanes_path + "/" + self.simulation_code
         exec_cmd = self.exec_cmd.split()
         os.mkdir(simulation_path)
-        # iron_three = False
-        # oxygen = False
-        # for i in model.astr.sites:
-        #     if i.specie.symbol == "Fe":
-        #         if i.specie.oxi_state == 3:
-        #             iron_three = True
-        #     elif i.specie.symbol == "O":
-        #         oxygen = True
-        # if iron_three and oxygen:
-        #     self.simulator.param_dict['feff_cards']['ION'] =\
-        #         '0 0.15\nION 1 0.05\nION 2 0.05\nION 3 -0.03\nION 4 -0.03'
-        # elif iron_three and not oxygen:
-        #     self.simulator.param_dict['feff_cards']['ION'] =\
-        #         "0 0.15\nION 1 0.05\nION 2 0.05"
-        # elif oxygen and not iron_three:
-        #     self.simulator.param_dict['feff_cards']['ION'] =\
-        #         "3 -0.03\nION 4 -0.03"
-        # else:
-        #     self.simulator.param_dict['ION'] = None
+
         self.simulator.prepare_simulation(
             model.astr, simulation_path, True, self.code_folder, self.mpi_cmd)
 
@@ -454,7 +439,7 @@ class xanes_of_model(object):
 
                 print(f"Score for run {n}: "
                       f"{float((distance)*100)}")
-                np.save(model.relax_path + "/model_sim_spectra_" +
+                np.save(model.xanes_path + "/model_sim_spectra_" +
                         str(n) + ".npy", spline_result)
 
                 # if self.comparison_spectra_type == "direct":
@@ -480,7 +465,7 @@ class xanes_of_model(object):
                             loc="lower left", fontsize=20)
                 plt.setp(axes.get_xticklabels(), fontsize=20)
                 plt.setp(axes.get_yticklabels(), fontsize=16)
-                filename = model.relax_path + "/" +\
+                filename = model.xanes_path + "/" +\
                     "experiment_vs_sim_spectra_" +\
                     str(n) + ".png"
                 plt.savefig(filename, format="png", dpi=300)
@@ -505,7 +490,7 @@ class xanes_of_model(object):
                                 loc="lower left", fontsize=20)
                     plt.setp(axes.get_xticklabels(), fontsize=20)
                     plt.setp(axes.get_yticklabels(), fontsize=16)
-                    filename = model.relax_path + "/" +\
+                    filename = model.xanes_path + "/" +\
                         "experiment_vs_sim_spectra_diff_" +\
                         str(n) + ".png"
                     plt.savefig(filename, format="png", dpi=300)

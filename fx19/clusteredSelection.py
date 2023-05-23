@@ -1050,7 +1050,7 @@ class Population(object):
                     + "because not unique!")
                 return False
 
-        # If it is completely dominated,
+        # If it is completely dominated (or too similar to a pop member),
         # then do not add to the population at all
         else:
             print(
