@@ -39,9 +39,10 @@ try:
     import sys
     sys.path.insert(0, '/home/dunruh/software/GSASII')
     import GSASIIscriptable as G2sc
-except ImportError:
-    print('Install GSASIIscriptable for powder diffraction simulation.'
-          ' Otherwise ignore..')
+except:
+    print('Install GSASIIscriptable or change hard-coded system path '
+          'at experimental_simulation.py line 40 for powder diffraction '
+          'simulations. Otherwise ignore.')
 
 from math import floor
 import numpy as np
