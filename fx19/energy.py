@@ -767,7 +767,7 @@ class vasp_code(object):
                 print('Relaxed structure not available in CONTCAR')
 
             # evaluate objective function and save as model attribute
-            comp_dict = relaxed_astr.composition.as_dict()
+            comp_dict = relaxed_astr.composition.element_composition.as_dict()
             astr_elems = [i.name for i in
                           relaxed_astr.composition.elements]
 

@@ -397,9 +397,6 @@ class xanes_of_model(object):
                             spline_result, self.exp_spline)
                     else:
                         # optimize
-                        print(
-                            f"Spline result prior to optimization: {spline_result}")
-                        print(f"Experimental spline: {self.exp_spline}")
                         spline_result, result =\
                             self.optimizer.optimize_post_simulation_parameters(
                                 self.sp.spline_mesh,
@@ -409,8 +406,6 @@ class xanes_of_model(object):
                                 self.sp,
                                 self.opt_bounds
                             )
-                        print(
-                            f"Spline result post optimization: {spline_result}")
                         distance = result.fun
                 elif self.comparison_spectra_type == "difference":
                     if not self.optimize_simulation:

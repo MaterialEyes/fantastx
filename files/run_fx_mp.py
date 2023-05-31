@@ -133,9 +133,7 @@ seed_index = 0
 seed_multiplier = 102573
 try:
     seed_multiplier = int(datetime.datetime.now().strftime(
-        '%s%f')) // 2**32
-    if seed_multiplier > 2**32:
-        seed_multiplier = os.environ['SLURM_JOB_ID']
+        '%m%d%H%M%S'))
     print(f"Random seed multiplier: {seed_multiplier}")
 except:
     print("Tried and failed to set random seed using the date and time.\n")
