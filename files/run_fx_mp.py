@@ -133,7 +133,7 @@ seed_index = 0
 seed_multiplier = 102573
 try:
     seed_multiplier = int(datetime.datetime.now().strftime(
-        '%m%d%H%M%S'))
+        '%H%M%S'))
     print(f"Random seed multiplier: {seed_multiplier}")
 except:
     print("Tried and failed to set random seed using the date and time.\n")
