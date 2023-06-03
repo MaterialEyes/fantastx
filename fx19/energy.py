@@ -21,6 +21,8 @@ import shutil
 import numpy as np
 import subprocess as sp
 import re
+import requests
+import yaml
 
 DEBUG = False
 
@@ -474,6 +476,11 @@ class vasp_code(object):
                         pdict[x] = a_pot
         self.pot_dict = pdict
 
+        # Read in the MaterialsProject defaults
+        mprelaxset = requests.get(
+            "https://raw.githubusercontent.com/materialsproject/pymatgen/master/pymatgen/io/vasp/MPRelaxSet.yaml")
+        mprelaxyaml = yaml.safe_load(mprelaxset.content)
+        self.mp_relax_dict = mprelaxyaml['INCAR']
         # DU
         # Save species names and their chemical potentials for identification
         self.sym_mu_dict = {}
@@ -481,7 +488,7 @@ class vasp_code(object):
             self.sym_mu_dict[value] = energy_params['mu'][key]
 
         # parameters for LDAU calculations
-        self.perform_LDAU = True
+        self.perform_LDAU = False
 
         # add magnetization
         self.spin_polarized = True
@@ -529,24 +536,23 @@ class vasp_code(object):
 
         # sort the structure according to electronegativities
         astr.sort()
-        # get the sorted species in the structure
-        sorted_elems = astr.composition.elements
+        # get the sorted elements in the structure
+        sorted_elem_comp = astr.composition.element_composition
+        sorted_elems = sorted_elem_comp.elements
         sorted_syms = [i.name for i in sorted_elems]
         # get potcar by concatenating the potcars in the same order
-        all_lines = []
-        for sps in sorted_syms:
-            with open(self.pot_dict[sps]) as p:
+        potcar_lines = []
+        for elem in sorted_syms:
+            with open(self.pot_dict[elem]) as p:
                 lines = p.readlines()
-                all_lines = all_lines + lines
-
-        # pot_path = self.relax_path + '/POTCAR'
+                potcar_lines = potcar_lines + lines
 
         # write model structure to POSCAR and store it in /relax
         new_poscar = relax_path + '/POSCAR_unrelaxed'
         poscar = relax_path + '/POSCAR'
         potcar = relax_path + '/POTCAR'
         with open(potcar, 'w') as pot:
-            pot.writelines(all_lines)
+            pot.writelines(potcar_lines)
 
         if self.shape == 'cluster' or self.shape == 'bulk':
             model.astr.to(filename=new_poscar, fmt='poscar')
@@ -571,23 +577,32 @@ class vasp_code(object):
         pattern = re.compile("ISPIN")
         incar_lines = open(relax_path + '/INCAR').readlines()
         for line in incar_lines:
-            match = re.search(pattern, line)
-            if match is not None:
-                spin_val = float(line.split()[2])
+            m = re.match(r"(\w+)\s*=\s*(.*)", line.strip())
+            key = m.group(1).strip()
+            val = m.group(2).strip()
+            if key == "ISPIN":
+                spin_val = float(val)
                 if spin_val == 2:
                     incar_file = open(relax_path + '/INCAR', 'a')
                     magmom_str = self.get_magmom_string(model.astr, 5.0)
                     incar_file.write('\n' + magmom_str)
                     incar_file.close()
+            if key == "LDAU":
+                bool_val = re.match(r"^\.?([T|F|t|f])[A-Za-z]*\.?", val)
+                if bool_val.group(1).lower() == "t":
+                    incar_file = open(relax_path + "/INCAR", 'a')
+                    ldau_str = self.get_ldau_string(model.astr)
+                    incar_file.write('\n' + ldau_str)
+                    incar_file.close()
 
-        # modify the number of electrons if desired
+        # modify the number of electrons if the charge is not net-zero
         if self.shape == "molecule":
             if model.astr.charge != 0:
                 z_val_dict = {}
                 # grab default number of electrons and modify it by the charge
                 pattern = re.compile("ZVAL")
                 pot_i = 0
-                for line in incar_lines:
+                for line in potcar_lines:
                     match = re.search(pattern, line)
                     if match is not None:
                         z_val = float(line.split()[5])
@@ -597,10 +612,9 @@ class vasp_code(object):
                             break
 
                 total_electrons = 0
-                poscar = Poscar.from_file(poscar)
-                for sym in sorted_syms:
-                    num_atoms = poscar.structure.composition.as_dict()[sym]
-                    total_electrons += num_atoms * z_val_dict[sym]
+                for elem in sorted_syms:
+                    num_atoms = sorted_elem_comp[elem]
+                    total_electrons += num_atoms * z_val_dict[elem]
 
                 # number of electrons increases with negative charge
                 total_electrons -= model.astr.charge
@@ -609,23 +623,6 @@ class vasp_code(object):
                 incar_file.write(
                     "\nNELECT = " + str(int(total_electrons)) + "\n")
                 incar_file.close()
-
-        if self.perform_LDAU:
-            species = model.astr.types_of_specie
-            LDAUL_str = "LDAUL = "
-            LDAUU_str = "LDAUU = "
-            for spec in species:
-                if spec.is_transition_metal:
-                    LDAUL_str += "2 "
-                    LDAUU_str += "6.2 "
-                else:
-                    LDAUL_str += "0 "
-                    LDAUU_str += "0 "
-            LDAUL_str += "\n\n"
-            incar_file = open(relax_path + '/INCAR', 'a')
-            incar_file.write("\n" + LDAUL_str)
-            incar_file.write(LDAUU_str)
-            incar_file.close()
 
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
@@ -643,22 +640,55 @@ class vasp_code(object):
         Returns:
             (str): the MAGMOM string
         """
-
-        species = structure.types_of_specie
-        allSpecs = structure.species
+        # ignore species distinctions here
+        elem_comp = structure.composition.element_composition
+        elements = elem_comp.elements
 
         mags = ''
-        for spec in species:
-            mags += str(allSpecs.count(spec))+'*'
+        for elem in elements:
+            mags += str(elem_comp[elem])+'*'
             if np.any(
-                [spec.is_transition_metal,
-                 spec.is_lanthanoid,
-                 spec.is_actinoid]):
+                [elem.is_transition_metal,
+                 elem.is_lanthanoid,
+                 elem.is_actinoid]):
                 mags += str(init_mag) + ' '
             else:
                 mags += '0.5 '
 
         return 'MAGMOM=' + mags + '\n'
+
+    def get_ldau_string(self, structure):
+        """
+        Get the LDAU input for the INCAR. Currently set to use the Materials
+        Project high throughput values, outlined in pymatgen's MPRelaxSet.yaml
+        file (found in pymatgen.vasp.io).
+
+        Currently, this method provides the LDAUL, LDAUJ, and LDAUU terms.
+
+        Arguments:
+            structure (obj): pymatgen structure object
+
+        Returns:
+            (str): the LDAU string
+        """
+        elem_comp = structure.composition.element_composition
+        elements = [i.name for i in elem_comp]
+
+        LDAUL_str = 'LDAUL = '
+        LDAUJ_str = 'LDAUJ = '
+        LDAUU_str = 'LDAUU = '
+
+        for elem in elements:
+            ldaul_val = self.mp_relax_dict['LDAUL']['F'].get(elem, 0)
+            LDAUL_str += str(ldaul_val) + " "
+
+            ldauj_val = self.mp_relax_dict['LDAUJ']['F'].get(elem, 0)
+            LDAUJ_str += str(ldauj_val) + " "
+
+            ldauu_val = self.mp_relax_dict['LDAUU']['F'].get(elem, 0)
+            LDAUU_str += str(ldauu_val) + " "
+
+        return LDAUL_str + "\n" + LDAUJ_str + "\n" + LDAUU_str + "\n\n"
 
     def relax(self, model, reg_id):
         """
@@ -767,9 +797,10 @@ class vasp_code(object):
                 print('Relaxed structure not available in CONTCAR')
 
             # evaluate objective function and save as model attribute
-            comp_dict = relaxed_astr.composition.element_composition.as_dict()
-            astr_elems = [i.name for i in
-                          relaxed_astr.composition.elements]
+            # here we evaluate the free energy using the base element names,
+            # ignoring oxidation state differences
+            comp = relaxed_astr.composition.element_composition
+            astr_elems = [i.name for i in comp.elements]
 
             # DU
             # Evaluate free energy by calculating
@@ -777,15 +808,17 @@ class vasp_code(object):
             free_en = total_energy
             for elem in astr_elems:
                 if elem in self.sym_mu_dict.keys():
-                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                    free_en -= comp[elem]*self.sym_mu_dict[elem]
                 else:
                     print("Error. VASP species " + elem +
                           " not contained in input yaml file.")
             model.obj0_val = float(free_en)
 
             # finally, clean the simulation directory by removing the CHG and CHGCAR files
-            os.remove(model.relax_path + "/CHG")
-            os.remove(model.relax_path + "/CHGCAR")
+            if os.path.exists(model.relax_path + "/CHG"):
+                os.remove(model.relax_path + "/CHG")
+            if os.path.exists(model.relax_path + "/CHGCAR"):
+                os.remove(model.relax_path + "/CHGCAR")
 
     def move_atoms_inside(self, astr):
         """
