@@ -578,22 +578,23 @@ class vasp_code(object):
         incar_lines = open(relax_path + '/INCAR').readlines()
         for line in incar_lines:
             m = re.match(r"(\w+)\s*=\s*(.*)", line.strip())
-            key = m.group(1).strip()
-            val = m.group(2).strip()
-            if key == "ISPIN":
-                spin_val = float(val)
-                if spin_val == 2:
-                    incar_file = open(relax_path + '/INCAR', 'a')
-                    magmom_str = self.get_magmom_string(model.astr, 5.0)
-                    incar_file.write('\n' + magmom_str)
-                    incar_file.close()
-            if key == "LDAU":
-                bool_val = re.match(r"^\.?([T|F|t|f])[A-Za-z]*\.?", val)
-                if bool_val.group(1).lower() == "t":
-                    incar_file = open(relax_path + "/INCAR", 'a')
-                    ldau_str = self.get_ldau_string(model.astr)
-                    incar_file.write('\n' + ldau_str)
-                    incar_file.close()
+            if m:
+                key = m.group(1).strip()
+                val = m.group(2).strip()
+                if key == "ISPIN":
+                    spin_val = float(val)
+                    if spin_val == 2:
+                        incar_file = open(relax_path + '/INCAR', 'a')
+                        magmom_str = self.get_magmom_string(model.astr, 5.0)
+                        incar_file.write('\n' + magmom_str)
+                        incar_file.close()
+                if key == "LDAU":
+                    bool_val = re.match(r"^\.?([T|F|t|f])[A-Za-z]*\.?", val)
+                    if bool_val.group(1).lower() == "t":
+                        incar_file = open(relax_path + "/INCAR", 'a')
+                        ldau_str = self.get_ldau_string(model.astr)
+                        incar_file.write('\n' + ldau_str)
+                        incar_file.close()
 
         # modify the number of electrons if the charge is not net-zero
         if self.shape == "molecule":
