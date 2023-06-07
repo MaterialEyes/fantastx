@@ -301,7 +301,10 @@ while models_evald < total_models_needed:
                     f"{good_pool_labels}.\n")
 
 # process extra calculations running in last batch
-while get_working_mp_jobs(jobs) > 0:
+print("Finished required number of jobs. Finishing remaining calculations.")
+working_jobs = get_working_mp_jobs(jobs)
+while working_jobs > 0:
+    time.sleep(1)
     processed_jobs, models_evald, pool, select = update_pool_mp(model_list,
                                                                 processed_jobs,
                                                                 models_evald,
@@ -309,6 +312,8 @@ while get_working_mp_jobs(jobs) > 0:
                                                                 data_file,
                                                                 db,
                                                                 sim_ids)
+    working_jobs = get_working_mp_jobs(jobs)
+print("Finished remaining calculations.")
 
 # print statements which output visualization information
 job_log = open(job_file, "a+")
