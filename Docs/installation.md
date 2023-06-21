@@ -129,23 +129,24 @@ XRD simulation are performed using GSASII. We recommend using one of two simple 
 
 1. Using anaconda, the package can be installed via:
 
-```sh
-conda install gsas2pkg -c defaults -c conda-forge -c briantoby 
-```
+    ```sh
+    conda install gsas2pkg -c defaults -c conda-forge -c briantoby 
+    ```
 
-This will install the entire GSASII package ready for use. However, as of writing (6/2023), this method fails due to wxPython and subversion version issues in the native anaconda channel, and has not been re-worked to utilize conda-forge internally for this problem. If it fails, use the other method.
+    This will install the entire GSASII package ready for use. However, as of writing (6/2023), this method fails due to wxPython and subversion version issues in the native anaconda channel, and has not been re-worked to utilize conda-forge internally for this problem. If it fails, use the other method.
 
 2. If the above method doesn't work, we can download GSASII and install GSASIIscriptable (which FANTASTX needs) via the following commands:
-```sh
-conda install -c conda-forge subversion wxPython=4.2
-svn co https://subversion.xray.aps.anl.gov/pyGSAS/trunk /loc/GSASII
-python /loc/GSASII/GSASIIscriptable.py
-```
-In this method, replace `/loc` with the directory that you will be putting the GSASII folder in. It can also be noted that you can start the GSASII GUI by running
-```sh
-python /loc/GSASII/GSASII.py
-```
-which is extremely useful for fitting the initial XRD parameters.
+    ```sh
+    conda install -c conda-forge subversion
+    conda install -c conda-forge wxPython=4.2
+    svn co https://subversion.xray.aps.anl.gov/pyGSAS/trunk /loc/GSASII
+    python /loc/GSASII/GSASIIscriptable.py
+    ```
+    In this method, replace `/loc` with the directory that you will be putting the GSASII folder in. It can also be noted that you can start the GSASII GUI by running
+    ```sh
+    python /loc/GSASII/GSASII.py
+    ```
+    which is extremely useful for fitting the initial XRD parameters.
 
 See [this](https://subversion.xray.aps.anl.gov/trac/pyGSAS) page and [this](https://gsas-ii.readthedocs.io/en/latest/GSASIIscriptable.html#commandlineinterface) page for more information on installation.
 
@@ -159,4 +160,38 @@ pip install mkdocs-jupyter
 pip install mkdocstrings[python]
 pip install mkdocs-git-revision-date-plugin
 pip install jupyter_contrib_nbextensions
+```
+
+## HPC Installation
+
+FANTASTX installation has been tested on Argonne's Carbon and LCRC systems, as well as NERSC. Installation notes are as follows.
+
+### LCRC
+
+Installation has been tested for the python=3.10 procedure above. To load the necessary modules and Anaconda, run the following commands:
+
+```sh
+module load gcc mpi mkl anaconda3/2021.05
+eval "$(conda shell.bash hook)"
+```
+
+When installing GSASII, you might find that you need to also run the command:
+
+```sh
+export LC_CTYPE=en_US.UTF-8
+```
+
+### Carbon
+
+Installation has been tested for the python=3.10 procedure above. To load the necessary modules and Anaconda, run the following commands:
+
+```sh
+module load intel impi gcc
+source /opt/apps/anaconda3/4.0.0-2-EL6/etc/profile.d/conda.sh
+```
+
+When installing GSASII, you might find that you need to also run the command:
+
+```sh
+export LC_CTYPE=en_US.UTF-8
 ```
