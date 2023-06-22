@@ -2509,6 +2509,10 @@ class stm_ingrained(object):
         self.num_para = stm_ingrained_params['num_para']
         self.start_params = stm_ingrained_params['start_params']
         self.fixed_params = stm_ingrained_params['fixed_params']
+        if 'num_para' in stm_ingrained_params:
+            self.num_para=stm_ingrained_params['num_para']
+        if 'angle_interval' in stm_ingrained_params:
+            self.angle_interval=stm_ingrained_params['angle_interval']
         if 'pixel_size' in stm_ingrained_params:
             self.pixel_size = stm_ingrained_params['pixel_size']
         else:
@@ -2524,8 +2528,6 @@ class stm_ingrained(object):
         if image_data['Experiment Pixel Size'] is None:
             print('Pixel-to-Angstrom ratio not defined')
         self.image_data = image_data
-            
-    
     
     
     
@@ -2547,12 +2549,11 @@ class stm_ingrained(object):
         for progress in [x for x in os.listdir(self.stm_path) if 
                                                              'progress' in x]:
             progress = np.genfromtxt(self.stm_path+'/'+progress, delimiter=',')
-            while True:
+            best_idx = int(np.argmin(progress[:, -1]))
+            while str(progress[best_idx][-1])=='nan':
+                print('nan found, removing')
+                progress=np.delete(progress,best_idx,0)
                 best_idx = int(np.argmin(progress[:, -1]))
-                if progress[best_idx][-1]==float('nan'):
-                    progress.pop(best_idx)
-                else:
-                    break
             x = progress[best_idx]
             xfit = x[1:-1]
             xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
@@ -2582,7 +2583,7 @@ class stm_ingrained(object):
 
 
 
-    def get_STM_series(self,model,threads):
+    def get_STM_series(self,model):
         """
         Runs the Ingrained simulation with series calculations
         """
@@ -2598,27 +2599,47 @@ class stm_ingrained(object):
                              self.image_data)
         angs.sort()
         ang = angs[0][1]
-        
+        threads=self.num_para
         new_start = list(self.start_params)
         new_start[8]=ang
         multistart_series(new_start,threads,sim_obj,self.image_data['Pixels'],
-                       search_mode='stm',fixed_params=self.fixed_params,path=model.stm_path)
+                       search_mode='stm',fixed_params=self.fixed_params)
 
-
-    def get_STM_series_rotate(self,model,angle=15):
+    def get_STM_rotate(self,model):
         """
-        Runs the Ingrained simulation with series calculations
+        Runs the Ingrained simulation with rotations
+        with parallel calculations
         """
         sim_obj = PartialCharge(model.stm_path+'/PARCHG')
         
         # Shift atoms/charge density so it is not at the edge
         # of the unit cell
         sim_obj._shift_sites()
-        sim_obj._shift_sites() 
+        sim_obj._shift_sites()
+        num_starts=self.num_para
+        angle=self.angle_interval 
         sim_obj.pix_size = self.pixel_size
         start_params=self.start_params
+        multistart_stm_angle(start_params,num_starts,sim_obj,
+                             self.exp_img,interval=angle,cap=359)
+
+    def get_STM_series_rotate(self,model,angle):
+        """
+        Runs the Ingrained simulation with rotations with
+        series calculations
+        """
+        sim_obj = PartialCharge(model.stm_path+'/PARCHG')
+        # Shift atoms/charge density so it is not at the edge
+        # of the unit cell
+        sim_obj._shift_sites()
+        sim_obj._shift_sites() 
+        sim_obj.pix_size = self.pixel_size
+        print(1)
+        start_params=self.start_params
         starts = []
-        for ang in range(0,360,angle):
+        print(2)
+        angle=self.angle_interval
+        for ang in range(0,359,angle):
             new_start = list(self.start_params)
             new_start[8]=ang
             for i in [ang,sim_obj,self.exp_img,
@@ -2626,10 +2647,12 @@ class stm_ingrained(object):
                       'Powell','stm']:
                 new_start.append(i)
             starts.append(new_start)
-        multi_congruity_finder_series(starts,path=model.stm_path)
+        print(3)
+        os.chdir(model.stm_path)
+        multi_congruity_finder_series(starts)
+        print(4)
 
-
-    def get_STM_para(self,threads):
+    def get_STM_para(self):
         """
         Runs the Ingrained simulation with parallel calculations
         
@@ -2641,6 +2664,7 @@ class stm_ingrained(object):
         start_params=self.start_params
         angs = compareAngles(start_params[0],start_params[1],sim_obj,
                              self.image_data)
+        threads=self.num_para
         angs.sort()
         ang = angs[0][1]
         new_start = list(self.start_params)
