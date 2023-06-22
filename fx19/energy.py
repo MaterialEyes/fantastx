@@ -720,6 +720,7 @@ class vasp_code(object):
             print('Interatomic distances of model {} not'
                   ' within bounds'.format(model.label))
         model.converged = converged
+        print(converged)
         if converged:
 
             # get total energy from output files
