@@ -747,6 +747,7 @@ class Population(object):
         self.size = 0
         self.non_dominated_size = 0
         self.cluster_models_hierarchies = {}
+        self.preserve_clusters_upon_deletion = True
 
         # Weights for linear addition to population
         self.weights = weights
@@ -954,6 +955,45 @@ class Population(object):
             print(f"Chosen index: {chosen_index}")
             return self.model_level_structure[-1].pop(chosen_index)
 
+    def choose_worst_model_preserving_clusters(self, exclude_model=None):
+        '''
+        Chooses which model will be replaced by the new model. Uses the cluster
+        rank of each model. Only models from the worst rank of each cluster that
+        contain more than one model are considered.
+
+        Arguments:
+
+            exclude_model (obj): if included, it is checked to make sure
+             that this structure_record.model() is not chosen. Necessary
+             when the new population model is added to the highest tier of
+             the level structure.
+
+        Returns:
+
+            'structure_record.model()`: the worst model
+        '''
+        # here, the worst models are considered to be the worst models in each cluster
+        # if a cluster only has one model, it is exempt from being deleted
+        candidates = []
+        for hierarchy in self.cluster_models_hierarchies.values():
+            if len(hierarchy) > 1 or len(hierarchy[0]) > 1:
+                candidates.extend(hierarchy[-1])
+
+        exclude_index = None
+        if exclude_model is not None:
+            if exclude_model in candidates:
+                exclude_index = candidates.index(exclude_model)
+
+        if len(candidates) == 1:
+            return candidates[0]
+
+        index_options = np.arange(len(candidates))
+        chosen_index = np.random.choice(index_options)
+        while (exclude_index is not None) \
+                and (chosen_index == exclude_index):
+            chosen_index = np.random.choice(index_options)
+        return candidates[chosen_index]
+
     def add_to_population(self, model):
         '''
         Attempt to add a new model to the population.
@@ -1001,8 +1041,16 @@ class Population(object):
 
             if model_unique:
                 # Remove worst model
-                worst_model = self.choose_worst_model(exclude_model=model)
-                self.models.remove(worst_model)
+                if self.preserve_clusters_upon_deletion:
+                    worst_model = self.choose_worst_model_preserving_clusters(
+                        exclude_model=model)
+                    self.models.remove(worst_model)
+                    self._dominance.update_model_levels_with_deletion(
+                        self.model_level_structure, model, "population")
+                else:
+                    worst_model = self.choose_worst_model(exclude_model=model)
+                    self.models.remove(worst_model)
+
                 self.cluster_models, self.multi_model_clusters, update_levels \
                     = self.cluster_obj.remove_model(
                         worst_model, self.cluster_models_hierarchies)

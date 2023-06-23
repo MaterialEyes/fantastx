@@ -282,13 +282,22 @@ while models_evald < total_models_needed:
                     nd_pop_labels = [
                         model.label for
                         model in pool.population.non_dominated_models]
+                    pop_labels = [
+                        model.label for
+                        model in pool.population.models]
                     job_log.write(
                         "Current pool population non-dominated models: "
                         f"{nd_pop_labels}\n")
+                    job_log.write(
+                        "Current pool entire population of models: "
+                        f"{pop_labels}\n")
                     job_log.close()
                     print(
                         "Current pool population non-dominated models: "
                         f"{nd_pop_labels}\n")
+                    print(
+                        "Current pool entire population of models: "
+                        f"{pop_labels}\n")
             else:
                 good_pool = pool.good_pool
                 good_pool_labels = [model.label for model in good_pool]
@@ -305,13 +314,13 @@ print("Finished required number of jobs. Finishing remaining calculations.")
 working_jobs = get_working_mp_jobs(jobs)
 while working_jobs > 0:
     time.sleep(1)
-    processed_jobs, models_evald, pool, select = update_pool_mp(model_list,
-                                                                processed_jobs,
-                                                                models_evald,
-                                                                pool, select,
-                                                                data_file,
-                                                                db,
-                                                                sim_ids)
+    processed_models, models_evald, pool, select = update_pool_mp(model_list,
+                                                                  processed_models,
+                                                                  models_evald,
+                                                                  pool, select,
+                                                                  data_file,
+                                                                  db,
+                                                                  sim_ids)
     working_jobs = get_working_mp_jobs(jobs)
 print("Finished remaining calculations.")
 
@@ -351,13 +360,22 @@ if "selection_algorithm" in i_dict["select_params"]:
         nd_pop_labels = [
             model.label for
             model in pool.population.non_dominated_models]
+        pop_labels = [
+            model.label for
+            model in pool.population.models]
         job_log.write(
             "Current pool population non-dominated models: "
             f"{nd_pop_labels}\n")
+        job_log.write(
+            "Current pool entire population of models: "
+            f"{pop_labels}\n")
         job_log.close()
         print(
             "Current pool population non-dominated models: "
             f"{nd_pop_labels}\n")
+        print(
+            "Current pool entire population of models: "
+            f"{pop_labels}\n")
 else:
     good_pool = pool.good_pool
     good_pool_labels = [model.label for model in good_pool]
