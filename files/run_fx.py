@@ -83,6 +83,15 @@ pool_status_update = 2
 workers = i_dict['workers']
 max_workers = workers['max_workers']
 
+if 'env_extra' not in workers:
+    workers['env_extra'] = None
+if 'job_extra' not in workers:
+    workers['job_extra'] = None
+if 'header_skip' not in workers:
+    workers['job_extra'] = None
+if 'processes' not in workers:
+    workers['processes'] = 1
+
 # Start Dask client
 if workers['cluster'] == 'SLURM':
     cluster_job = SLURMCluster(cores=workers['num_cores'],
@@ -93,7 +102,7 @@ if workers['cluster'] == 'SLURM':
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra=workers['job_extra'],
-                               # env_extra=workers['env_extra'],
+                               env_extra=workers['env_extra'],
                                header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
@@ -104,6 +113,7 @@ elif workers['cluster'] == 'PBS':
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
                              job_extra=workers['job_extra'],
+                             env_extra=workers['env_extra'],
                              header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
@@ -154,7 +164,7 @@ def full_eval(model, energy_obj, Xsim):
     # print(f"Model converged: {model.converged}")
 
     # separate gb_iface for the energy evaluated futures
-    # separate_gb(energy_obj, gb_ops_obj, model)
+    separate_gb(energy_obj, gb_ops_obj, model)
 
     # Do Xsim if required
     if Xsim:
@@ -212,43 +222,6 @@ evald_futures, models_evald, pool, select = update_pool(evald_futures,
                                                         sim_ids)
 working_jobs = get_working_jobs(evald_futures)
 
-# For molecules, which have no random generation, wait for
-# at least a few workers to finish before proceeding
-if all_objects['constraints_obj'].shape == 'molecule':
-    evald_futures, models_evald, pool, select = update_pool(evald_futures,
-                                                            models_evald,
-                                                            pool, select,
-                                                            data_file,
-                                                            db,
-                                                            sim_ids)
-    while models_evald < min(len(input_models), num_initial_pop):
-        evald_futures, models_evald, pool, select = update_pool(evald_futures,
-                                                                models_evald,
-                                                                pool, select,
-                                                                data_file,
-                                                                db,
-                                                                sim_ids)
-# if models_evald < num_initial_pop:
-#     print("Submitting random job")
-#     model_mech = "random"
-# else:
-#     print("Submitting evolved job")
-#     model_mech = "evolved"
-
-# # create the model then send it to the dask-workers for evaluation
-# new_model = make_model(random_model_obj, evolve, select,
-#                        pool, reg_id, model_type=model_mech)
-# out = client.submit(full_eval, new_model, energy_code, Xsim_1)
-# evald_futures.append(out)
-
-# while models_evald < 1:
-#     evald_futures, models_evald, pool, select = update_pool(evald_futures,
-#                                                             models_evald,
-#                                                             pool, select,
-#                                                             data_file,
-#                                                             db,
-#                                                             sim_ids)
-
 print('Input models are finished. Making random models..')
 start_time = time.time()
 # Make random models & evolved models
@@ -269,6 +242,7 @@ while models_evald < total_models_needed:
         # create the model then send it to the dask-workers for evaluation
         new_model = make_model(random_model_obj, evolve, select,
                                pool, reg_id, model_type=model_mech)
+        print("Made new model!")
         out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
         evald_futures, models_evald, pool, select = update_pool(evald_futures,

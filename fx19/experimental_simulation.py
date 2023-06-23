@@ -4,13 +4,13 @@ from fx19 import distance_check as dc
 from scipy import optimize as scipy_optimize
 from pymatgen.core.structure import Structure
 from pymatgen.io.cif import CifWriter
+import matplotlib.pyplot as plt
 try:
     from pyobjcryst import loadCrystal
     from diffpy.srfit.pdf import PDFContribution
     from diffpy.srfit.pdf import DebyePDFGenerator, PDFGenerator
     from diffpy.srfit.fitbase import Profile
     from diffpy.srfit.fitbase import FitRecipe
-    import matplotlib.pyplot as plt
 except ImportError:
     print('Install Diffpy-CMI for PDF simulation. Otherwise ignore..')
 
@@ -29,16 +29,20 @@ except ImportError:
           ' Otherwise ignore..')
 
 try:
-    from lmfit import Model
+    from xtk import simulate, optimization, convolution, processing
+    from xtk import distance as xtk_distance
 except ImportError:
-    print("Install lmfit to perform optimization of the convolution parameters"
-          " for XANES simulations.")
+    print("Install [xtk](https://github.com/MaterialEyes/xtk) to perform "
+          " XANES simulations.")
 
 try:
+    import sys
+    sys.path.insert(0, '/home/dunruh/software/GSASII')
     import GSASIIscriptable as G2sc
-except ImportError:
-    print('Install GSASIIscriptable for powder diffraction simulation.'
-          ' Otherwise ignore..')
+except:
+    print('Install GSASIIscriptable or change hard-coded system path '
+          'at experimental_simulation.py line 40 for powder diffraction '
+          'simulations. Otherwise ignore.')
 
 from math import floor
 import numpy as np
@@ -51,6 +55,7 @@ from fx19.fingerprinting import DistanceCalculator
 import re
 from collections import Counter
 from pymatgen.core.lattice import Lattice
+import shutil
 
 DEBUG = False
 
@@ -61,13 +66,13 @@ class xanes_of_model(object):
     raw spectra or the difference spectra (essential for XTA analysis, and
     useful for raw XANES analysis as well).
 
-    Three different XANES simulation codes are currently supported:
+    These functions are all built around the package
+    [xtk](https://github.com/MaterialEyes/xtk), which currently supports the
+    XANES simulation codes:
 
     - FDMNES
 
     - FEFF
-
-    - VASP
 
     This class also performs post-simulation smoothing and convolution.
     Smoothing is performed with either a cubic or univariate spline, and
@@ -87,1166 +92,238 @@ class xanes_of_model(object):
         print("Initializing XANES module.")
         # main path as in energy.py
         self.name = 'XANES'
-        self.main_path = xanes_params['main_path']
-        self.simulation_code = xanes_params['simulation_code']
-        self.input_yaml_filepath = xanes_params['input_yaml_filepath']
-        self.comparison_spectra_type = xanes_params['comparison_spectra_type']
+        self.set_params(xanes_params)
 
-        if 'code_folder' in xanes_params:
+    def set_params(self, xanes_params):
+        """
+        Set all parameters, throwing exceptions for missing parameters.
+
+        Arguments:
+            xanes_params (dict): dictionary of all XANES parameters
+        """
+        try:
+            self.main_path = xanes_params['main_path']
+            self.simulation_code = xanes_params['simulation_code']
+            self.input_yaml_filepath = xanes_params['input_yaml_filepath']
+            self.comparison_spectra_type =\
+                xanes_params['comparison_spectra_type']
+            self.exp_filepath = xanes_params['exp_filepath']
+
             self.code_folder = xanes_params['code_folder']
+            # e.g. "./mpirun_fdmnes -np 4"
+            self.exec_cmd = xanes_params['exec_cmd']
+        except KeyError:
+            raise KeyError('Error, did not provide all essential XANES keys.')
+
+        if self.simulation_code == "FEFF":
+            self.simulator = simulate.Feff(self.input_yaml_filepath)
+        elif self.simulation_code == "FDMNES":
+            self.simulator = simulate.Fdmnes(self.input_yaml_filepath)
         else:
-            self.code_folder =\
-                "/mnt/c/Users/dunru/Research/XANES/parallel_fdmnes"
+            self.simulator = None
 
         if self.comparison_spectra_type == "difference":
-            # 3 files need to be read in: base and excited experimental
-            # reference spectra, and the computational base spectra.
-            if "exp_base_ref_filepath" in xanes_params:
-                self.exp_base_ref_filepath =\
-                    xanes_params["exp_base_ref_filepath"]
-            else:
-                self.exp_base_ref_filepath = "/experiment_base_ref.dat"
-            if "exp_exc_ref_filepath" in xanes_params:
-                self.exp_exc_ref_filepath =\
-                    xanes_params["exp_exc_ref_filepath"]
-            else:
-                self.exp_exc_ref_filepath = "/experiment_exc_ref.dat"
             if "comp_base_ref_filepath" in xanes_params:
                 self.comp_base_ref_filepath =\
                     xanes_params["comp_base_ref_filepath"]
             else:
-                self.comp_base_ref_filepath = "/computational_base_ref.dat"
-        else:
-            if "exp_base_ref_filepath" in xanes_params:
-                self.exp_base_ref_filepath =\
-                    xanes_params["exp_base_ref_filepath"]
-            else:
-                self.exp_base_ref_filepath = "/experiment_base_ref.dat"
+                raise KeyError('Error, did not provide comp_base_ref_filepath'
+                               ' key.')
 
         if 'exec_cmd' in xanes_params:
             self.exec_cmd = xanes_params['exec_cmd']
         else:
             self.exec_cmd = "./mpirun_fdmnes -np 4"
 
+        # only needed for FEFF
+        if 'mpi_cmd' in xanes_params:
+            self.mpi_cmd = xanes_params['mpi_cmd']
+        else:
+            if self.simulation_code == "FEFF":
+                raise KeyError('Error, did not provide mpi_cmd key.')
+            else:
+                self.mpi_cmd = None
+
+        # quantify the difference between the experimental spectra and the
+        # simulated spectra
         if 'spectra_distance_metric' in xanes_params:
-            self.distance_calculator = DistanceCalculator(
-                xanes_params['spectra_distance_metric'])
+            try:
+                self.dc = xtk_distance.DistanceCalculator(
+                    xanes_params['spectra_distance_metric'])
+            except AssertionError:
+                print("Error. Invalid spectra_distance_metric applied.")
+                self.dc = xtk_distance.DistanceCalculator('euclidean')
         else:
             # options are any of those in fingerprinting.DistanceCalculator
-            self.distance_calculator = DistanceCalculator('rmse')
+            self.dc = xtk_distance.DistanceCalculator('euclidean')
 
+        # set the spline to fit to the spectra
+        self.sp = processing.SpectraProcessing(
+            spline_mesh=np.arange(7110, 7165, 0.1))
         if 'spline_mesh_params' in xanes_params:
-            spline_min = xanes_params['spline_mesh_params'][0]
-            spline_max = xanes_params['spline_mesh_params'][1]
-            spline_step = xanes_params['spline_mesh_params'][2]
-            self.spline_mesh = np.arange(spline_min, spline_max, spline_step)
-            self.mesh_step = spline_step
-        else:
-            self.spline_mesh = np.arange(7110, 7165, 0.1)
-            self.mesh_step = 0.1
+            try:
+                spline_min = xanes_params['spline_mesh_params'][0]
+                spline_max = xanes_params['spline_mesh_params'][1]
+                spline_step = xanes_params['spline_mesh_params'][2]
+                self.sp.spline_mesh = np.arange(
+                    spline_min, spline_max, spline_step)
+            except KeyError:
+                print("Error! Missing spline_mesh_param key.")
 
+        # set the convolution parameters
         if 'convolution' in xanes_params:
-            self.convolution_type = xanes_params['convolution']['kernel']
-            self.convolution_params = xanes_params['convolution']['arguments']
-            self.extract_fermi_energy =\
-                xanes_params['convolution']['extract_fermi_energy']
-            # print(f"Convolution params: {self.convolution_params}")
+            try:
+                self.convolver = convolution.Convolution(
+                    kernel_type=xanes_params['convolution']['kernel'],
+                    x_dependence=xanes_params['convolution']['x_dependence'],
+                    kernel_fwhm_args=xanes_params['convolution']['arguments'])
+            except KeyError:
+                raise KeyError("Missing convolution key!")
+            try:
+                self.extract_fermi_energy =\
+                    xanes_params['convolution']['extract_fermi_energy']
+            except KeyError:
+                print("Error! Missing extract_fermi_energy key.")
+                self.extract_fermi_energy = False
         else:
-            self.convolution_type = 'lorentzian'
-            self.convolution_params = {'g_ch': 1.33,
-                                       'g_max': 15,
-                                       'e_cent': 23.5,
-                                       'e_larg': 23.5,
-                                       'fermi_energy': 0
-                                       }
-            self.extract_cutting_energy = True
+            self.extract_fermi_energy = False
+            if self.simulation_code == "FEFF":
+                self.convolver = convolution.Convolution(
+                    kernel_type="lorentzian",
+                    g_ch=0.3,
+                    kernel_step=0.2
+                )
+            elif self.simulation_code == "FDMNES":
+                self.extract_fermi_energy = True
+                params = {'g_ch': 1.33,
+                          'g_max': 15,
+                          'e_cent': 23.5,
+                          'e_larg': 23.5,
+                          'fermi_energy': 0
+                          }
+                self.convolver = convolution.Convolution(
+                    kernel_type="lorentzian",
+                    x_dependence="arctan",
+                    kernel_fwhm_args=params
+                )
 
-        self.optimize_convolution_params = True
-        self.opt_bounds = None
-        if self.optimize_convolution_params:
+        # set optimization parameters
+        self.optimize_simulation = True
+        if self.optimize_simulation or\
+                self.comparison_spectra_type == "difference":
             if 'optimization_params' in xanes_params:
-                self.opt_options = xanes_params['optimization_params']['opt_options']
-                self.opt_method = xanes_params['optimization_params']['opt_method']
-                self.opt_bounds = xanes_params['optimization_params']['opt_bounds']
-
+                op = xanes_params['optimization_params']
+                self.optimizer = optimization.Optimizer(
+                    metric=op['metric'],
+                    opt_method=op['opt_method'],
+                    opt_options=op['opt_options'],
+                    opt_window=op['opt_window']
+                )
+                self.opt_bounds = op['opt_bounds']
             else:
-                self.opt_options = {'maxiter': 1000,
-                                    'popsize': 16,
-                                    'init': 'sobol'}
-                self.opt_method = 'differential_evolution'
+                self.optimizer = optimization.Optimizer(
+                    metric='euclidean'
+                )
                 self.opt_bounds = {
-                    'g_ch': (0.75, 8),
+                    'shift': (-10, 10),
+                    'scale': (0.01, 10.0),
+                    'g_ch': (0.75, 5),
                     'g_max': (5, 20),
                     'e_cent': (5, 50),
-                    'e_larg': (5, 50)}
+                    'e_larg': (5, 50),
+                    'fermi_energy': (-10, 10)}
+
+            self.shift_independently = False
+            self.scale_independently = False
+            if self.comparison_spectra_type == "difference":
+                if 'shift_targ' in self.opt_bounds:
+                    self.shift_independently = True
+                if 'scale_targ' in self.opt_bounds:
+                    self.scale_independently = True
 
         self.constant_broadening = False
 
         self.cutting_energy_correction = 0.0  # was -6.0
-        self.refine_alignment_using_second_peak = False
-        self.refine_alignment_using_difference_spectra = False
-        self.comparison_window = [7110., 7160.]
-        self.compare_indices =\
-            (self.spline_mesh <= self.comparison_window[1]) &\
-            (self.spline_mesh >= self.comparison_window[0])
 
         # Gather experimental data
-        self.exp_base_arrays, self.exp_base_peaks =\
-            self.read_in_experimental_spectra(self.exp_base_ref_filepath)
-        exp_base_spline = self._fit_spline(
-            self.exp_base_arrays[0], self.exp_base_arrays[1], "cubic")
-        if self.comparison_spectra_type == "difference":
-            self.exp_exc_arrays, self.exp_exc_peaks =\
-                self.read_in_experimental_spectra(self.exp_exc_ref_filepath)
-            exp_exc_spline = self._fit_spline(
-                self.exp_exc_arrays[0], self.exp_exc_arrays[1], "cubic")
-            self.exp_dif_spline = exp_exc_spline - exp_base_spline
-            self.exp_dif_reshaped_spline = np.reshape(
-                self.exp_dif_spline, (-1, 1))
-        else:
-            self.exp_base_spline = exp_base_spline
-            self.exp_base_reshaped_spline = np.reshape(
-                self.exp_base_spline, (-1, 1))
-
-        # print("Gathered experimental data.")
+        self.exp_data = self.gather_experimental_data(self.exp_filepath)
+        self.exp_spline = self.sp.fit_spline(self.exp_data['Energy'],
+                                             self.exp_data['Mu'],
+                                             type="cubic")
 
         if self.comparison_spectra_type == "difference":
-            # Gather pre-computed computational base spectra
-            self.comp_base_arrays, _ = self.read_in_calculated_spectra(
-                self.comp_base_ref_filepath, self.exp_base_peaks)
-            self.comp_base_spline = self._fit_spline(
-                self.comp_base_arrays[0], self.comp_base_arrays[1], "cubic")
-            # print("Gathered pre-computed computational data.")
+            self.sim_base_data = simulate.get_experiment_results(
+                self.comp_base_ref_filepath, headers=["Energy", 'Mu'],
+                data_line=0, sortcolumn=0)
+            self.sim_base_spline = self.sp.fit_spline(
+                self.sim_base_data['Energy'],
+                self.sim_base_data['Mu'],
+                type="cubic")
 
-    def fwhm2sigma(self, fwhm):
-        '''
-        Converts the full width half maximum into a sigma for gaussian
-        convolution.
+    def _set_optimization_parameters(self, opt_params=None):
+        """
+        Set the optimization parameters
 
         Arguments:
-
-            fwhm (float): full width half maximum
-
-        Returns:
-
-            float: the gaussian sigma
-        '''
-        return fwhm / np.sqrt(8 * np.log(2))
-
-    def _locate_peaks(self, x_array, y_array):
-        '''
-        Finds the first and second peaks of the spectra post-edge. 
-
-        The first peak of the spectra is adjusted to be the point closest to
-        the maximum intensity point where the first derivative is zero. The
-        spectra is first fitted with a spline, so as to correspond with
-        the final mesh which will be used.
-
-        The first derivative is then calculated numerically as:
-
-        $f'(x) = f(x+h) - \dfrac{f(x-h)}{2*h}$
-
-        The second derivative is then calculated numerically as:
-
-        $f''(x) = \dfrac{f(x+h) - 2*f(x) + f(x-h)}{h^2}$
-
-        The zero-crossing of the first derivative is then estimated
-        by approximating the second-derivative as constant in this
-        narrow mesh interval.
-
-        The second peak of the spectra is found by simply looking for
-        inflection points in the first derivative, and choosing the one
-        with the maximal y value apart from the first peak.
-
-        Arguments:
-
-            x_array (iterable): the bin locations of the spectra
-
-            y_array (iterable): the bin heights of the spectra
-
-        Returns:
-
-            float: the estimated x-coordinate of the peak
-        '''
-        spline_y = self._fit_spline(x_array, y_array, "cubic")
-        y_max = np.amax(spline_y)
-        max_indice = np.argmax(spline_y)
-        x_max = self.spline_mesh[np.argmax(spline_y)]
-
-        y_max_two = y_max
-        x_max_two = x_max
-
-        if max_indice != 0 and max_indice != len(y_array) - 1:
-
-            # now find the second_derivative maximum
-            peak_derivative = (spline_y[max_indice + 1] -
-                               spline_y[max_indice - 1])/(2*self.mesh_step)
-            peak_second_derivative = (
-                spline_y[max_indice + 1] -
-                2*spline_y[max_indice] +
-                spline_y[max_indice - 1]) / (self.mesh_step**2)
-            zero_derivative_adjustment = (-peak_derivative) / \
-                peak_second_derivative
-            x_max = x_max + zero_derivative_adjustment
-            x_max_two = x_max
-
-            # Second peak: found by looking at first derivative inflection points
-            derivatives = []
-            for i in range(1, len(y_array) - 1):
-                d = (y_array[i+1] - y_array[i-1]) / (2 * self.mesh_step)
-                derivatives.append(d)
-
-            inflection_points = []
-            for i in range(1, len(derivatives)):
-                d1 = derivatives[i-1]
-                d2 = derivatives[i]
-                if d1*d2 < 0 or np.isclose(d1*d2, 0.0):
-                    inflection_points.append(i)
-
-            high_e_inflection_points = [
-                i for i in inflection_points if i > max_indice]
-            y_vals = y_array[high_e_inflection_points]
-
-            if len(y_vals) > 0:
-                y_max_two = np.amax(y_vals)
-                ip = np.argmax(y_vals)
-                max_indice_two = high_e_inflection_points[ip]
-                x_max_two = x_array[max_indice_two]
-
-        # else:
-        #     print(f"Error in finding peaks! Spline is: {spline_y}")
-
-        return [(x_max, y_max), (x_max_two, y_max_two)]
-
-    def _gaussian(self, x, cen=0, sigma=1, fwhm=False):
+            opt_params (dict): optimization parameter settings
         """
-        1 dimensional Gaussian function
+        pass
 
-        Arguments:
-            x (array): data points
-            cen (float): center of the gaussian
-            gamma (float): width of the gaussian
-            fwhm (bool): if the width is the full or half width half max
-
-        Returns:
-            (array): gaussian function at each x point
+    def gather_experimental_data(self, filepath, delimit=None,
+                                 columns=['Energy', 'Mu']):
         """
-        if fwhm:
-            sigma = sigma / 2 * np.sqrt(2 * np.log(2))
-
-        return 1.0 / np.sqrt(2 * np.pi) *\
-            np.exp(-((1.0 * x - cen) ** 2) / (2 * sigma ** 2))
-
-    def _lorentzian(self, x, cen=0, gamma=1, peak=None, method='new'):
+        Read in the experimental data that will be compared against, and
+        perform basic processing steps if necessary.
         """
-        1 dimensional Lorentzian function
-
-        Arguments:
-            x (array): data points
-            cen (float): center of the lorentzian
-            gamma (float): full width at half maximum of the lorentzian
-            peak: if None, peak = 1 / (math.pi*2), then the distribution
-             integrates to 1
-
-        Returns:
-            (array): lorentzian function at each x point
-        """
-        if method == 'new':
-            gamma = 2*gamma  # fwhm
-            if peak is None:
-                peak = 1.0 / (2 * np.pi)
-            return peak * gamma/((x - cen)**2 + (0.5*gamma)**2)
+        if self.comparison_spectra_type == "direct":
+            experiment_data = simulate.get_experiment_results(
+                filepath, headers=columns, data_line=0, sortcolumn=0,
+                delimiter=delimit)
+            # convert kev to ev
+            if experiment_data['Energy'][0] < 20:
+                experiment_data['Energy'] = experiment_data['Energy'] * 1000
         else:
-            # here gamma is the the half width at half max
-            if peak is None:
-                peak = 1.0 / (np.pi * gamma)
-            return peak * (1.0 / (1.0 + ((1.0 * x - cen) / gamma) ** 2))
-
-    def _get_ene_index(self, ene, cen, width):
-        """
-        Returns the min/max indexes at the given width of the array. If
-        these points do not exist, return the start and end of the array.
-
-        Arguments:
-            ene (array): target array
-            cen (float): center of the array
-            hwhm (float): half width half maximum of the array
-
-        Returns:
-            (int, int): min and max indices
-        """
-        try:
-            if (cen - width) <= min(ene):
-                ene_imin = 0
+            if hasattr(filepath, "__iter__") and type(filepath) is not str:
+                experiment_data_base = simulate.get_experiment_results(
+                    filepath[0], headers=columns, data_line=0, sortcolumn=0,
+                    delimiter=delimit)
+                experiment_data = simulate.get_experiment_results(
+                    filepath[1], headers=columns, data_line=0, sortcolumn=0,
+                    delimiter=delimit)
+                experiment_data['Mu'] = experiment_data['Mu']\
+                    - experiment_data_base['Mu']
             else:
-                ene_imin = max(np.where(ene < (cen - width))[0])
-            if (cen + width) >= max(ene):
-                ene_imax = len(ene) - 1
-            else:
-                ene_imax = min(np.where(ene > (cen + width))[0])
-            return ene_imin, ene_imax
-        except Exception:
-            print("index not found for {0} +/- {1}".format(cen, width))
-            return None, None
+                # hitting direct comparison
+                experiment_data = simulate.get_experiment_results(
+                    filepath, headers=columns, data_line=0, sortcolumn=0,
+                    delimiter=delimit)
+        return experiment_data
 
-    def _arctan_gamma_fdmnes(self, ene, g_ch, g_max, e_cent, e_larg,
-                             fermi_energy):
+    def run_simulation(self, model):
         """
-        Returns a broadening term that is arc-tangent like, with the same
-        parameters as FDMNES:
-        $\epsilon = \frac{E - E_{fermi}}{E_{0}}$
-        $\alpha = \epsilon - \frac{1}{\epsilon^2}$
-        $\beta = \arctan( \frac{\pi}{3} * \Gamma_{max}/E_{larg} * \alpha)$
-        $\Gamma(E)= \Gamma_{hole} + \Gamma_{max} * ( 1/2 + \frac{\beta}{\pi})$
-
-         For reference, refer to this
-         [paper](https://hal.archives-ouvertes.fr/hal-00687301/document). In
-         this method, the broadening depends on both the core-hole width as
-         well as the spectral width of the final state. This spectral width
-         is approximated by an arctangent.
-
-        Arguments:
-            g_ch (float): core level width
-            g_max (float): maximum width at high energy
-            e_cent (float): center of the arctangent function
-            e_larg (float): width of the arctangent function
-            fermi_energy (float): the fermi energy (below which all values
-             should be zero)
-
-        Returns:
-            (array): broadening term for each energy value
+        Prepare and run XANES simulation using xtk.
         """
-        eps = (ene - fermi_energy)/e_cent
-        arctan_vals = np.arctan(np.pi/3 * g_max/e_larg * (eps - 1/eps**2))
-        return g_ch + g_max*(0.5 + 1/np.pi * arctan_vals)
-
-    def _create_kernel(self, kernel='gaussian', fwhm_e=1.0, k_x=None,
-                       estep=None, cen=0.0, args=None):
-        '''
-        Create convolution kernel with fixed full width half max, and a range
-        in x that is either set directly or is set to be 3 times the full
-        width half max.
-
-        Arguments:
-            kernel (string): type of kernel to create
-            fwhm_e (float): full width half maximum of the chosen kernel
-            k_x (array): x values to use for kernel, if provided
-            estep (float): energy spacing between kernel points
-            cen (float): center point of the kernel
-            args (list): additional arguments to pass to the `lorentzian_old`
-             kernel.
-
-        Returns:
-            (array, int):
-            - kernel with all values above 1e-4.
-            - extent of kernel on each side of the center
-        '''
-        if k_x is None:
-            if estep is None:
-                print("No energy step width provided for convolution. "
-                      "Using 1.0.")
-                estep = 1.0
-            step_width = np.ceil(fwhm_e * 3.0 / estep)
-            x_width = step_width * estep
-            k_x = np.arange(-x_width, x_width, 1.0)
-
-        if kernel == 'gaussian':
-            hwhm = fwhm_e / 2.0
-            ky = self._gaussian(k_x, cen, sigma=hwhm)
-        elif kernel == 'lorentzian':
-            hwhm = fwhm_e / 2.0
-            ky = self._lorentzian(k_x, cen=cen, gamma=hwhm, method='new')
-        elif kernel == 'gaussian_old':
-            sigma = self._fwhm2sigma(fwhm_e)
-            ky = np.exp(-(k_x) ** 2 / (2 * sigma ** 2))
-        elif kernel == 'lorentzian_old':
-            (g_ch, g_m, E_cent, E_larg, E_f) = args
-            gammas = self._arctan_gamma_fdmnes(
-                k_x, g_ch, g_m, E_cent, E_larg, E_f)
-            ky = 1/np.pi*(0.5*gammas)/((k_x)**2 + (0.5*gammas)**2)
-
-        ky_above_thresh = ky > 0.0001
-        finite_kernel = ky[ky_above_thresh]
-        finite_kernel = finite_kernel / finite_kernel.sum()
-        kernel_n_below_0 = int((len(finite_kernel) - 1) / 2.)
-
-        return finite_kernel, kernel_n_below_0
-
-    def _direct_convolution(self, e, mu, kernel='gaussian', fwhm_e=1.0, args=None):
-        '''
-        Returns spectra convolved with choice of kernel function, with width
-        given by fwhm_e. This convolution does not depend on the energy values.
-
-        Arguments:
-            e (array): the energy values
-            mu (array): the absorption at each energy value
-            kernel (string): choice of convolving kernel
-            fwhm_e (float): the full width half max of the convolving kernel
-            args (list): any arguments that need to be passed to the kernel
-        Returns:
-            (array): convolved mu values
-        '''
-        n_points = len(mu)
-        estep = e[1] - e[0]
-        finite_kernel, kernel_n_below_0 = self._create_kernel(
-            kernel, fwhm_e, k_x=None, estep=estep, cen=0.0, args=args)
-        convolved_y = np.convolve(mu, finite_kernel)
-        smoothed_y = convolved_y[kernel_n_below_0:(
-            n_points + kernel_n_below_0)]
-        return smoothed_y
-
-    def _energy_dependent_conv(self, e, mu, kernel, fwhm_e=None,
-                               efermi=None):
-        """
-        Performs energy dependent convolution, where the width of the
-        convolving function depends on the energy of the central bin. This
-        convolution can be gaussian or lorentzian.
-
-        Arguments:
-            e (array): energy values
-            mu (array): the values which are being convolved with the kernel
-            kernel (string): type of kernel used for convolution
-            fwhm_e (float): the full width half maximum in eV for kernel
-             broadening
-            efermi (float): the fermi energy in eV. All mu values for energies
-             below the fermi energy are set to be zero.
-
-        Returns:
-            (array): the convolved function
-        """
-        f = np.copy(mu)
-        convolution = np.zeros_like(f)
-        if efermi is not None:
-            ief = np.argmin(np.abs(e - efermi))
-            f[0:ief] *= 0
-        if e.shape != fwhm_e.shape:
-            print("Error: 'fwhm_e' does not have the same shape of 'e'")
-            return 0
-        # linar fit upper part of the spectrum to avoid border effects
-        # polyfit => pf
-        lpf = int(len(e) / 2)
-        cpf = np.polyfit(e[-lpf:], f[-lpf:], 1)  # polynomial coefficients
-        fpf = np.poly1d(cpf)  # polynomial function
-
-        # extend upper and lower energy borders to 3*fhwm_e[-1]
-        estep = e[-1] - e[-2]
-        e_extended = np.append(e, np.arange(
-            e[-1] + estep, e[-1] + 3 * fwhm_e[-1], estep))
-        for n in range(len(f)):
-            # from now on change e with e_extended
-            # get 1.5 * fwhm energy indices
-            eimin, eimax = self._get_ene_index(
-                e_extended, e_extended[n], 1.5 * fwhm_e[n])
-
-            # get kernel range over 1.5 * fwhm
-            if len(range(eimin, eimax)) % 2 == 0:
-                # odd range centered at the convolution point
-                kx = e_extended[eimin:eimax + 1]
-            else:
-                kx = e_extended[eimin:eimax]
-
-            # get kernel over this range
-            ky, _ = self._create_kernel(kernel,
-                                        fwhm_e[n], k_x=kx, cen=e_extended[n])
-
-            # perform convolution
-            convolution_n = 0
-            length_kernel = len(kx)
-            func_range = range(-int(length_kernel / 2),
-                               int(length_kernel / 2) + 1)
-            kernel_range = range(length_kernel)
-            for func_index, kernel_index in zip(func_range, kernel_range):
-                if ((n + func_index) >= 0) and ((n + func_index) < len(f)):
-                    convolution_n += f[n + func_index] * ky[kernel_index]
-                elif (n + func_index) >= 0:
-                    convolution_n +=\
-                        fpf(e_extended[n + func_index]) * ky[kernel_index]
-            convolution[n] = convolution_n
-        return convolution
-
-    def _fit_spline(self, x_array, y_array, type):
-        '''
-        Fit a spline to the spectra, and uses it to interpolate points
-        onto a pre-defined mesh (`self.spline_mesh`).
-
-        Arguments:
-
-            x_array (array): spectra energy values
-
-            y_array (array): spectra absorption values
-
-            type (string): which type of spline should be fit to the
-             spectra. Options are `cubic` and `univariate`.
-
-        Returns:
-
-            (array): the spline points on self.spline_mesh
-        '''
-        if type not in ["cubic", "univariate"]:
-            print("Error. Tried to fit spline with a keyword that was"
-                  "not 'cubic' or 'univariate'. Using the default of 'cubic'.")
-            type = "cubic"
-
-        if type == "cubic":
-            cs = CubicSpline(x_array, y_array)
-            # us = UnivariateSpline(x_array, y_array, s=0.01)
-            new_data = cs(self.spline_mesh)
-        else:
-            us = UnivariateSpline(x_array, y_array, s=0.0001)
-            new_data = us(self.spline_mesh)
-        return new_data
-
-    def _spline_shift_scale(self, _x_array, _y_array, exp_peaks):
-        """
-        Roughly align the first peak of a spectra with experimental peaks,
-        fit a spline, more carefully align the peaks, then return the final
-        spline.
-
-        Arguments:
-            _x_array (array): x values of the spectra
-            _y_array (array): y values of the spectra
-            exp_peaks (list): experimental peak positions
-
-        Returns:
-            (array): spline of the shifted and scaled spectra
-        """
-        shift_factor = exp_peaks[0][0] - \
-            _x_array[np.argmax(_y_array[10:]) + 10]
-
-        spline_y = self._fit_spline(_x_array + shift_factor,
-                                    _y_array, "cubic")
-        peaks = self._locate_peaks(self.spline_mesh, spline_y)
-
-        scale_factor = exp_peaks[0][1] / peaks[0][1]
-        shift_factor = exp_peaks[0][0] - peaks[0][0]
-
-        scaled_y = spline_y * scale_factor
-        shifted_x = self.spline_mesh + shift_factor
-        spline_y = self._fit_spline(
-            shifted_x, scaled_y, "cubic")
-        return spline_y
-
-    def _fit_to_second_peak(self, x_array, y_array, exp_peaks):
-        """
-        DEPRECATED.
-        Improve the fit of a base convolution by making the height of
-        the second peak match the height of the second experimental
-        peak as closely as possible.
-
-        Arguments:
-            x_array (array): energy values
-            y_array (array): absorption values
-            exp_peaks (list): experimental peak energy and absorption values
-
-        Returns:
-            (array): spline of the fitted data
-        """
-        adjust_attempts = 0
-        smallest_diff = np.inf
-        adjustment = 0.0
-        best_spline = None
-
-        if self.convolution_type == "lorentzian":
-            conv_params = self.convolution_params.copy()
-            adjustment = -0.1
-        else:
-            conv_params = self.convolution_params
-            adjustment = 0.01
-
-        while smallest_diff > 0.01 and adjust_attempts < 250:
-            if self.constant_broadening:
-                conv_params['g_ch'] += adjustment
-                smoothed_y = self._direct_convolution(x_array,
-                                                      y_array,
-                                                      self.convolution_type,
-                                                      conv_params['g_ch'])
-            else:
-                conv_params['fermi_energy'] += adjustment
-                arctan_gammas = self._arctan_gamma_fdmnes(
-                    x_array,
-                    **conv_params)
-                smoothed_y = self._energy_dependent_conv(
-                    x_array,
-                    y_array,
-                    self.convolution_type,
-                    arctan_gammas,
-                    conv_params['fermi_energy'])
-
-            spline_y = self._spline_shift_scale(x_array, smoothed_y, exp_peaks)
-            peaks = self._locate_peaks(self.spline_mesh, spline_y)
-
-            adjust_attempts += 1
-            diff = abs(peaks[1][1] - exp_peaks[1][1])
-            if diff < smallest_diff:
-                smallest_diff = diff
-                best_spline = spline_y
-
-        return best_spline
-
-    def _direct_fit(self, args):
-        """
-        Optimize the convolution parameters of a spectra which is being
-        convolved with a constant (non-energy dependent) broadening term.
-
-        Arguments:
-            args (list): information necessary for convolution
-
-        Returns:
-            (obj, array):
-            - the lmfit result object
-            - the spline result (bounded by the comparison indices)
-        """
-        (x_array, y_array, exp_spline, exp_peaks, _) = args
-        data = exp_spline[self.compare_indices]
-
-        def fit_model(_x_array, _g_ch):
-            # first get xanes spline to ensure constant e spacing
-            spline_y = self._spline_shift_scale(_x_array, y_array)
-            smoothed_y = self._direct_convolution(
-                self.spline_mesh, spline_y, self.convolution_type, _g_ch)
-            spline_y = self._spline_shift_scale(
-                self.spline_mesh, smoothed_y, exp_peaks)
-
-            if self.comparison_spectra_type == 'difference':
-                return spline_y[self.compare_indices] -\
-                    self.comp_base_spline[self.compare_indices]
-            else:
-                return spline_y[self.compare_indices]
-
-        modelling = Model(fit_model)
-        modelling.set_param_hint(
-            '_g_ch',
-            value=self.convolution_params['g_ch'],
-            min=self.opt_bounds['g_ch'][0],
-            max=self.opt_bounds['g_ch'][1])
-
-        pars = modelling.make_params()
-        data = exp_spline[self.compare_indices]
-        result = modelling.fit(data,
-                               pars,
-                               _x_array=x_array,
-                               method=self.opt_method,
-                               fit_kws=self.opt_options)
-        return result
-
-    def _e_dependent_fit(self, args):
-        """
-        Optimize the convolution parameters of a spectra which is being
-        convolved with an energy-dependent broadening term.
-
-        Arguments:
-            args (list): information necessary for convolution
-
-        Returns:
-            (obj, array):
-            - the lmfit result object
-            - the spline result (bounded by the comparison indices)
-        """
-        (x_array, y_array, exp_spline, exp_peaks, fermi_energy) = args
-        data = exp_spline[self.compare_indices]
-
-        def fit_model(_x_array, _y_array, _g_max, _e_cent, _e_larg):
-            arctan_gammas = self._arctan_gamma_fdmnes(
-                _x_array,
-                self.convolution_params['g_ch'],
-                _g_max,
-                _e_cent,
-                _e_larg,
-                fermi_energy)
-            smoothed_y = self._energy_dependent_conv(
-                _x_array, _y_array, self.convolution_type,
-                arctan_gammas, fermi_energy)
-            spline_y = self._spline_shift_scale(
-                _x_array, smoothed_y, exp_peaks)
-
-            if self.comparison_spectra_type == 'difference':
-                # print("Returning difference!")
-                return spline_y[self.compare_indices] -\
-                    self.comp_base_spline[self.compare_indices]
-            else:
-                # print("Returning spline!")
-                return spline_y[self.compare_indices]
-
-        modelling = Model(fit_model, independent_vars=["_x_array", "_y_array"])
-        modelling.set_param_hint(
-            '_g_max',
-            value=self.convolution_params['g_max'],
-            min=self.opt_bounds['g_max'][0],
-            max=self.opt_bounds['g_max'][1])
-        modelling.set_param_hint(
-            '_e_cent',
-            value=self.convolution_params['e_cent'],
-            min=self.opt_bounds['e_cent'][0],
-            max=self.opt_bounds['e_cent'][1])
-        modelling.set_param_hint(
-            '_e_larg',
-            value=self.convolution_params['e_larg'],
-            min=self.opt_bounds['e_larg'][0],
-            max=self.opt_bounds['e_larg'][1])
-
-        pars = modelling.make_params()
-        data = exp_spline[self.compare_indices]
-        result = modelling.fit(data, pars, _x_array=x_array, _y_array=y_array,
-                               method=self.opt_method,
-                               fit_kws=self.opt_options)
-        return result
-
-    def read_in_experimental_spectra(self, file_path):
-        '''
-        Reads in the experimental spectra from the .dat file, convolves
-        it with a Gaussian with broadening of 0.5 eV, and returns the
-        x- and y-coords of the first peak maximum (taken to be the energy
-        value where the absorption profile has zero derivative).
-
-        Arguments:
-
-            file_path (string): the path to the .dat file
-
-        Returns:
-            (tuple, tuple):
-            - the convolved spectra
-            - the x- and y-coords of the first peak maximum.
-        '''
-        lines = open(file_path, "r").read().splitlines()
-        x_list = []
-        y_list = []
-        for line in lines:
-            newline = line.split()
-            if len(newline) != 0 and newline[0] != "#":
-                x = float(newline[0])*1000
-                y = float(newline[1])
-                x_list.append(x)
-                y_list.append(y)
-        x_array = np.array(x_list)
-        y_array = np.array(y_list)
-
-        # Sort the arrays
-        sort_indices = np.argsort(x_array)
-        x_array = x_array[sort_indices]
-        y_array = y_array[sort_indices]
-
-        smoothed_y = self._direct_convolution(
-            x_array, y_array, 'gaussian', 0.5)
-
-        spline_y = self._fit_spline(x_array, smoothed_y, "cubic")
-        peaks = self._locate_peaks(self.spline_mesh, spline_y)
-
-        return (x_array, smoothed_y), peaks
-
-    def read_in_calculated_spectra(self, file_path, experimental_peaks,
-                                   experimental_spline=None):
-        '''
-        Reads in the calculated spectra from the simulation file. This
-        spectra is then convolved using the user-specified parameters. 
-        The x- and y-coords of the first peak maximum, taken to be the
-        energy value where the first derivative is zero, are then
-        extracted. These values are then used to scale and shift the
-        spectra to align with the provided experimental max values.
-
-        Functionality also exists to adjust the convolution in order to
-        match the heights of the second peaks of the simulated and
-        experimental spectra.
-
-        Arguments:
-
-            file_path (string): the path to the simulated spectra data file.
-
-            experimental_peaks (tuple): the x- and y-coords of the first and
-             second peaks of the convolved experimental spectra.
-
-        Returns:
-            (tuple, tuple):
-            - the convolved spectra, shifted and scaled to match the
-             experimental spectra.
-            - the values by which the spectra was shifted and scaled.
-        '''
-        lines = open(file_path, "r").read().splitlines()
-        x_list = []
-        y_list = []
-        energy_val = 0
-        for line_index, line in enumerate(lines):
-            newline = line.split()
-            if line_index == 0:
-                energy_val = float(newline[0])
-            if line_index > 1:
-                x = float(newline[0]) + energy_val
-                y = float(newline[1])*100
-                x_list.append(x)
-                y_list.append(y)
-        x_array = np.array(x_list)
-        y_array = np.array(y_list)
-
-        fermi_energy = 0
-        # print("Extracting fermi energy")
-        if self.extract_fermi_energy:
-            # Grab the fermi level to cut with
-            match = None
-            cycle_index = 19
-            while match is None:
-                pattern = re.compile(f"Cycle  {cycle_index}")
-                bav_file = file_path[:-9] + "bav.txt"
-                lines = open(bav_file, "r").read().splitlines()
-                for line in lines:
-                    match = re.search(pattern, line)
-                    if match is not None:
-                        fermi_energy = float(line.split()[5]) + energy_val
-                        fermi_energy += self.cutting_energy_correction
-                        break
-                cycle_index -= 1
-                if cycle_index == 10:
-                    fermi_energy = energy_val
-                    fermi_energy += self.cutting_energy_correction
-                    break
-        else:
-            fermi_energy = energy_val
-            fermi_energy += self.cutting_energy_correction
-
-        # print(f"Fermi energy is: {fermi_energy}")
-
-        spline_y = self._spline_shift_scale(
-            x_array, y_array, experimental_peaks)
-        # print("Shifted and scaled spline")
-        if self.constant_broadening:
-            # print("Preparing to directly convolve")
-            smoothed_y = self._direct_convolution(self.spline_mesh, spline_y,
-                                                  self.convolution_type,
-                                                  self.convolution_params['g_ch'],
-                                                  None)
-        else:
-            # print("Preparing to do energy-dependent convolution")
-            self.convolution_params['fermi_energy'] = fermi_energy
-            # print(self.convolution_params)
-            arctan_gammas = self._arctan_gamma_fdmnes(
-                self.spline_mesh, **self.convolution_params)
-            # print(f"Arctan gammas: {arctan_gammas}")
-            # print(f"Spline y: {spline_y}")
-            smoothed_y = self._energy_dependent_conv(
-                self.spline_mesh, spline_y, self.convolution_type,
-                arctan_gammas, fermi_energy)
-            # print(f"Smoothed y: {smoothed_y}")
-        # print("Convolved spectra!")
-        spline_y = self._spline_shift_scale(
-            self.spline_mesh, smoothed_y, experimental_peaks)
-
-        # print("Shifted and scaled spline of convolved spectra")
-
-        if self.refine_alignment_using_second_peak:
-            # print("Preparing to refine alignment against second peak")
-            spline_y = self._fit_to_second_peak(x_array,
-                                                y_array,
-                                                experimental_peaks
-                                                )
-        elif self.optimize_convolution_params:
-            # print("Preparing to optimize parameters!")
-            args = (x_array, y_array, experimental_spline,
-                    experimental_peaks, fermi_energy)
-            # Now perform optimization
-            if self.constant_broadening:
-                # print("Entering direct fitting routine")
-                result = self._direct_fit(args)
-
-                new_g_ch = result.params['_g_ch'].value
-                spline_y = self._spline_shift_scale(
-                    x_array, y_array, experimental_peaks)
-                smoothed_y = self._direct_convolution(
-                    self.spline_mesh, spline_y, self.convolution_type,
-                    new_g_ch)
-                spline_y = self._spline_shift_scale(
-                    self.spline_mesh, smoothed_y, experimental_peaks)
-            else:
-                # print("Entering energy dependent fitting routine")
-                result = self._e_dependent_fit(args)
-
-                new_g_max = result.params['_g_max'].value
-                new_e_cent = result.params['_e_cent'].value
-                new_e_larg = result.params['_e_larg'].value
-
-                conv_params = {
-                    'g_ch': self.convolution_params['g_ch'],
-                    'g_max': new_g_max,
-                    'e_cent': new_e_cent,
-                    'e_larg': new_e_larg,
-                    'fermi_energy': self.convolution_params['fermi_energy']
-                }
-                arctan_gammas = self._arctan_gamma_fdmnes(
-                    x_array, **conv_params)
-                smoothed_y = self._energy_dependent_conv(
-                    x_array, y_array, self.convolution_type,
-                    arctan_gammas, fermi_energy)
-                spline_y = self._spline_shift_scale(
-                    x_array, smoothed_y, experimental_peaks)
-
-        return spline_y
-
-    def prepare_fdmnes(self, model, fdmnes_path):
-        '''
-        Function which prepares the FDMNES input file as well as the
-        mpi file if running on a computer which does not have mpi
-        installed.
-        Filenames are standardized for all FANTASTX runs. However, the
-        FDMNES inputs themselves are defined through a yaml file for
-        user friendliness.
-
-        Arguments:
-
-            model (obj): `model` which is the target of FDMNES
-
-            fdmnes_path (string): path to the folder containing the fdmnes
-             mpi executable.
-
-        Returns:
-            (int): the number of simulations which will be performed
-        '''
-        ################################################
-        # Define the filenames for all FDMNES operations
-        fdmnes_input_folder = model.relax_path + "/FDMNES_in/"
-        fdmnes_output_folder = model.relax_path + "/FDMNES_out/"
-        try:
-            os.mkdir(fdmnes_input_folder)
-            print("Created FDMNES input directory.")
-        except FileExistsError:
-            print("Error. Input directory already exists.")
-        try:
-            os.mkdir(fdmnes_output_folder)
-            print("Created FDMNES output directory.")
-        except FileExistsError:
-            print("Error. Output directory already exists.")
-
-        #############################################
-        # Open the FDMNES input yaml file #
-        with open(self.input_yaml_filepath) as ifile:
-            fdmnes_dict = yaml.load(ifile, Loader=yaml.FullLoader)
-
-        # First, check to see if multiple screening values will be considered
-        number_screenings = 1
-        if "Screening" in fdmnes_dict["fdmnes_cards"].keys():
-            if type(fdmnes_dict["fdmnes_cards"]["Screening"]) is list:
-                number_screenings = len(
-                    fdmnes_dict["fdmnes_cards"]["Screening"])
-
-        #############################################
-        # Prepare all filenames #
-        fdmnes_input_filenames = []
-        fdmnes_abbr_input_filenames = []
-        fdmnes_output_filenames = []
-        for s in range(number_screenings):
-            fdmnes_input_filenames.append(
-                fdmnes_input_folder + "run_fdmnes_" + str(s) + ".inp")
-            fdmnes_abbr_input_filenames.append(
-                fdmnes_input_folder + "run_fdmnes_" + str(s) + ".inp")
-            fdmnes_output_filenames.append(
-                fdmnes_output_folder + "run_fdmnes_result_" + str(s)
-            )
-        fdmfile_filename = model.relax_path + "/fdmfile.txt"
-        fdmnes_mpirun_filename = model.relax_path + "/mpirun_fdmnes"
-
-        #############################################
-        #  Write the fdmfile.txt file #
-        fdmfile = open(fdmfile_filename, "w+")
-        fdmfile.write(str(number_screenings) + "\n")
-        for s in range(number_screenings):
-            fdmfile.write(fdmnes_abbr_input_filenames[s] + "\n")
-        fdmfile.close()
-
-        ###################################################
-        # Remove counter ions from molecule if they exist #
-        fdmnes_astr = model.astr.copy()
-        if model.molecule_representation is not None:
-            if "counter_ions" in model.molecule_representation:
-                fdmnes_astr.remove_sites(
-                    model.molecule_representation["counter_ions"])
-
-        #############################################
-        # Write the fdmnes input file(s) #
-
-        for s in range(number_screenings):
-            fdmnes_headers = {
-                "Filout": fdmnes_output_filenames[s],
-                "Radius": fdmnes_dict["cluster_radius"],
-                "Edge": fdmnes_dict["edge"]
-            }
-
-            # Absorber and core_hole_coords are determined based on structure
-            core_hole_index = 1
-            absorption_site = ""
-            core_hole_coords = [0, 0, 0]
-            for n, site in enumerate(fdmnes_astr.sites):
-                specie = site.specie.symbol
-                if specie == fdmnes_dict["core_hole_site_element"]:
-                    if core_hole_index == fdmnes_dict["core_hole_site_id"]:
-                        core_hole_coords = np.copy(site.coords)
-                        absorption_site = str(n+1)
-                        fdmnes_headers['Absorber'] = absorption_site
-                    core_hole_index += 1
-
-            inputfile = open(fdmnes_input_filenames[s], "w+")
-            for key, value in fdmnes_headers.items():
-                inputfile.write(str(key) + "\n" + str(value) + "\n\n")
-
-            for key, value in fdmnes_dict["fdmnes_cards"].items():
-                print(f"key: {key}; value: {value}")
-                if value is not None:
-                    if value == "include":
-                        inputfile.write(key + "\n")
-                    else:
-                        if key == "Atom":
-                            inputfile.write(key + "\n")
-                            # create oxidation state separated substates
-                            oxi_confs = {}
-                            for sub_key, sub_value in value.items():
-                                # if key corresponds to central atom, check for
-                                # ionic charge
-                                underscore_index = sub_key.find("_")
-                                atomic_id = sub_key
-                                if underscore_index != -1:
-                                    atomic_id = sub_key[:underscore_index]
-                                    charge = int(
-                                        sub_key[underscore_index + 1:])
-
-                                    if atomic_id in oxi_confs:
-                                        oxi_confs[atomic_id][charge] = sub_value
-                                    else:
-                                        oxi_confs[atomic_id] = {
-                                            charge: sub_value}
-                                else:
-                                    oxi_confs[atomic_id] = sub_value
-
-                            for atomic_id, val in oxi_confs.items():
-                                if type(val) is dict:
-                                    # determine dominant oxidation state in the structure
-                                    oxi_states = []
-                                    for site in fdmnes_astr.sites:
-                                        number = site.specie.number
-                                        if number == int(atomic_id):
-                                            if hasattr(site.specie, 'oxi_state'):
-                                                oxi_states.append(
-                                                    int(site.specie.oxi_state))
-                                    if len(oxi_states) == 0:
-                                        key = list(val.keys())[0]
-                                        inputfile.write(
-                                            atomic_id + " " + val[key] + "\n")
-                                    else:
-                                        oxi_state = Counter(
-                                            oxi_states).most_common(1)[0][0]
-                                        inputfile.write(
-                                            atomic_id + " " + val[oxi_state] + "\n")
-                                else:
-                                    inputfile.write(
-                                        atomic_id + " " + val + "\n")
-                        elif key == "Atom_conf":
-                            inputfile.write(key + "\n")
-                            all_atom_counts = {}
-                            all_atom_indices = {}
-                            atom_index = 1
-                            found_keys = []
-                            for site in fdmnes_astr.sites:
-                                an = str(site.specie.number)
-                                oxidized = hasattr(site.specie, 'oxi_state')
-                                print(site.specie)
-                                if oxidized:
-                                    ox_an = an + "_" + \
-                                        str(int(site.specie.oxi_state))
-                                    if ox_an in value.keys():
-                                        an = ox_an
-                                    else:
-                                        if an not in value.keys():
-                                            print("Note! No atom_conf for "
-                                                  f"oxidation state {ox_an} and "
-                                                  "no default state found for"
-                                                  f" atomic number {an} either.")
-                                        else:
-                                            print("Note! No atom_conf for "
-                                                  f"oxidation state {ox_an}. Using "
-                                                  "default state found.")
-                                found_keys.append(an)
-                                if an in all_atom_counts:
-                                    all_atom_counts[an] += 1
-                                else:
-                                    all_atom_counts[an] = 1
-                                if an in all_atom_indices:
-                                    all_atom_indices[an].append(
-                                        str(atom_index))
-                                else:
-                                    all_atom_indices[an] = [str(atom_index)]
-                                atom_index += 1
-
-                            for sub_key, sub_value in value.items():
-                                # Need to get number of atoms and their indices
-                                if sub_key in found_keys:
-                                    atom_count = str(all_atom_counts[sub_key])
-                                    atom_indices = " ".join(
-                                        all_atom_indices[sub_key])
-                                    inputfile.write(
-                                        atom_count + " " +
-                                        atom_indices + " " +
-                                        sub_value + "\n")
-                        elif key == "Multipolar":
-                            if type(value) is str:
-                                inputfile.write(value + "\n")
-                            else:
-                                for sub_value in value:
-                                    inputfile.write(sub_value + "\n")
-                        elif key == "Screening":
-                            if type(value) is str:
-                                inputfile.write(key + "\n")
-                                inputfile.write(value + "\n")
-                            else:
-                                inputfile.write(key + "\n")
-                                inputfile.write(value[s] + "\n")
-                        else:
-                            inputfile.write(key + "\n")
-                            inputfile.write(value + "\n")
-                    inputfile.write("\n")
-
-            # create atoms card
-            inputfile.write(fdmnes_dict["structure_type"] + "\n")
-
-            # grab cartesian coordinates of lattice
-            abc = fdmnes_astr.lattice.abc
-            angles = fdmnes_astr.lattice.angles
-            l_vals = str(abc[0]) + " " + str(abc[1]) + " " + str(abc[2])
-            angle_vals = str(angles[0]) + " " + \
-                str(angles[1]) + " " + str(angles[2])
-            inputfile.write("    " + l_vals + " " + angle_vals + "\n")
-            for site in fdmnes_astr.sites:
-                specie = site.specie.symbol
-                an = atomic_numbers[specie]
-                coords = np.copy(site.coords)
-                mc = []
-                for i in range(3):
-                    coords[i] -= core_hole_coords[i]
-                    if coords[i] > abc[i]/2:
-                        mc.append((coords[i] - abc[i])/abc[i])
-                    else:
-                        mc.append(coords[i]/abc[i])
-                inputfile.write(
-                    str(an) + "  " + str(mc[0]) +
-                    " " + str(mc[1]) +
-                    " " + str(mc[2]) + "\n")
-            inputfile.write("\n")
-
-            inputfile.write("END\n")
-            inputfile.close()
-
-        ######################################
-        # Write the mpirun_fdmnes file. Only needed if on local computer.
-        mpifile = open(fdmnes_mpirun_filename, "w+")
-        mpifile.write("#!/bin/bash\n")
-        mpifile.write(f"fdmnesDir={fdmnes_path}\n")
-        mpifile.write("IFS=$'\\n'\n")
-        mpifile.write(". \"${fdmnesDir}/mpirt/bin/intel64/mpivars.sh\"\n")
-        mpifile.write(
-            "\"${fdmnesDir}/mpirt/bin/intel64/mpirun\" "
-            "$* \"${fdmnesDir}/fdmnes_mpi_linux64\"\n")
-        mpifile.write("IFS=$' \\t\\n'\n")
-        mpifile.close()
-
-        # Make the mpifile executable
-        make_exc_string = "chmod +rx " + fdmnes_mpirun_filename
-        make_exc_command = make_exc_string.split()
-        sp.call(make_exc_command)
-
-        return number_screenings
+        model.xanes_path = model.relax_path + "/../xanes"
+        if not os.path.exists(model.xanes_path):
+            os.mkdir(model.xanes_path)
+        simulation_path = model.xanes_path + "/" + self.simulation_code
+        exec_cmd = self.exec_cmd.split()
+        os.mkdir(simulation_path)
+
+        self.simulator.prepare_simulation(
+            model.astr, simulation_path, True, self.code_folder, self.mpi_cmd)
+
+        if not DEBUG:
+            results = self.simulator.run(exec_cmd, simulation_path)
+
+            # clean the simulation directory after use if FEFF
+            if self.simulation_code == "FEFF":
+                shutil.copy(simulation_path + "/FEFF/xmu.dat",
+                            simulation_path + "/xmu.dat")
+                shutil.copy(simulation_path + "/FEFF/feff.inp",
+                            simulation_path + "/feff.inp")
+                shutil.rmtree(simulation_path + "/FEFF")
+            return results
 
     def evaluate_obj(self, model):
         """
@@ -1278,134 +355,167 @@ class xanes_of_model(object):
             - the objective value
         """
 
-        # Prepare FDMNES input file and run simulation
-        num_files = self.prepare_fdmnes(model, self.code_folder)
-
         if not DEBUG:
-            exec_cmd = self.exec_cmd.split()
-            with open(model.relax_path + '/log_fdmnes.{}'.format(model.label),
-                      'w') as log_file:
-                fdmnes_job = sp.Popen(
-                    exec_cmd,
-                    stdout=sp.PIPE,
-                    stderr=sp.STDOUT,
-                    cwd=model.relax_path)
-                for each_line in fdmnes_job.stdout:
-                    line = each_line.decode('utf-8')
-                    log_file.write(line)
-            # wait for the calculation to finish
-            fdmnes_job.wait()
+            results = self.run_simulation(model)
 
-            # Reference XANES simulation(s) against experiment
-            results = []
-            for xanes_run in range(num_files):
-                xanes_result_path = model.relax_path +\
-                    "/FDMNES_out/run_fdmnes_result_" +\
-                    str(xanes_run) + "_tddft.txt"
-                reference_peaks = self.exp_base_peaks
-                reference_spline = self.exp_base_spline
-                if self.comparison_spectra_type == "difference":
-                    reference_peaks = self.exp_exc_peaks
-                    reference_spline = self.exp_dif_spline
-                # print("Preparing to read in and convolute calculated spectra.")
-                self.model_comp_spline =\
-                    self.read_in_calculated_spectra(xanes_result_path,
-                                                    reference_peaks,
-                                                    reference_spline)
+            lowest_distance = np.inf
+            for n, i in enumerate(results):
+                x_result = i['x_array']
+                y_result = i['y_array'] if 'tddft_y_array' not in i else\
+                    i['tddft_y_array']
+                spline_result = self.sp.fit_spline(
+                    x_result, y_result, type="cubic")
 
-                # print("Read in and convoluted calculated spectra.")
+                if self.extract_fermi_energy and\
+                        self.simulation_code == "FDMNES":
+                    # set fermi energy of convolver. Add edge energy as
+                    # "fermi_energy" is relative to the energy
+                    self.convolver.fermi_energy =\
+                        i['edge_energy'] + i['fermi_energy']
 
-                lowest_spectra_distance = np.inf
-                lowest_spline = None
-                if self.comparison_spectra_type == "difference":
-                    if self.refine_alignment_using_difference_spectra:
-                        for i in range(-50, 50):
-                            for j in range(-5, 5):
-                                y_array = self.model_comp_spline * \
-                                    (1 + 0.01*j)
-                                x_array = self.spline_mesh - i*0.01
-                                new_spline = self._fit_spline(
-                                    x_array, y_array, "cubic")
-                                compare_spline =\
-                                    self.comp_base_spline[self.compare_indices]
-                                fdmnes_dif_spectra =\
-                                    new_spline[self.compare_indices] - \
-                                    compare_spline
-                                fdmnes_dif_spectra_array = np.reshape(
-                                    fdmnes_dif_spectra, (-1, 1))
-                                spectra_distance = self.distance_calculator.create(
-                                    fdmnes_dif_spectra_array,
-                                    self.exp_dif_reshaped_spline[self.compare_indices])
+                    if self.opt_bounds['fermi_energy'][1] <\
+                            self.convolver.fermi_energy:
+                        self.opt_bounds['fermi_energy'][0] += i['edge_energy']
+                        self.opt_bounds['fermi_energy'][1] += i['edge_energy']
 
-                                if spectra_distance < lowest_spectra_distance:
-                                    lowest_spectra_distance = spectra_distance
-                                    lowest_spline = new_spline
+                # options:
+                # - align spectra (optimizing scale and shift)
+                # - convolve spectra (optimize or not)
+                distance = np.inf
+                if self.comparison_spectra_type == "direct":
+                    if not self.optimize_simulation:
+                        # convolve spectra
+                        convolved_y = self.convolver.convolve_function(
+                            self.sp.spline_mesh, spline_result)
+                        # align spectra
+                        exp_peaks = self.sp.locate_peaks(
+                            self.sp.spline_mesh, self.exp_spline)
+                        aligned_x, aligned_y = self.sp.match_first_peak(
+                            self.sp.spline_mesh, convolved_y, exp_peaks)
+                        spline_result = self.sp.fit_spline(
+                            aligned_x, aligned_y, type="cubic")
+                        distance = self.dc.calculate(
+                            spline_result, self.exp_spline)
                     else:
-                        compare_spline =\
-                            self.comp_base_spline[self.compare_indices]
-                        fdmnes_dif_spline =\
-                            self.model_comp_spline[self.compare_indices] - \
-                            compare_spline
-                        fdmnes_dif_reshaped_spline = np.reshape(
-                            fdmnes_dif_spline, (-1, 1))
-                        lowest_spectra_distance = self.distance_calculator.create(
-                            fdmnes_dif_reshaped_spline,
-                            self.exp_dif_reshaped_spline[self.compare_indices])
-                        lowest_spline = self.model_comp_spline
-                else:
-                    fdmnes_compare_spline =\
-                        self.model_comp_spline[self.compare_indices]
-                    fdmnes_compare_array = np.reshape(
-                        fdmnes_compare_spline, (-1, 1)
-                    )
-                    lowest_spectra_distance = self.distance_calculator.create(
-                        fdmnes_compare_array,
-                        self.exp_base_reshaped_spline[self.compare_indices]
-                    )
-                    lowest_spline = self.model_comp_spline
+                        # optimize
+                        spline_result, result =\
+                            self.optimizer.optimize_post_simulation_parameters(
+                                self.sp.spline_mesh,
+                                spline_result,
+                                self.exp_spline,
+                                self.convolver,
+                                self.sp,
+                                self.opt_bounds
+                            )
+                        distance = result.fun
+                elif self.comparison_spectra_type == "difference":
+                    if not self.optimize_simulation:
+                        # convolve spectra
+                        convolved_y = self.convolver.convolve_function(
+                            self.sp.spline_mesh, spline_result)
+                        spline_diff = convolved_y - self.sim_base_spline
+                        distance = self.dc.calculate(
+                            spline_diff, self.exp_spline)
 
-                print(f"RMS score for run {xanes_run}: "
-                      f"{float((lowest_spectra_distance)*100)}")
-                results.append(lowest_spectra_distance)
-                np.save(model.relax_path + "/model_sim_spectra_" +
-                        str(xanes_run) + ".npy", lowest_spline)
+                    else:
+                        spline_result, spline_diff, result =\
+                            self.optimizer.optimize_difference(
+                                spline_result,
+                                self.sim_base_spline,
+                                self.exp_spline,
+                                self.convolver,
+                                self.sp,
+                                self.opt_bounds,
+                                shift_independently=self.shift_independently,
+                                scale_independently=self.scale_independently)
+                        distance = result.fun
 
+                if distance < lowest_distance:
+                    lowest_distance = distance
+
+                print(f"Score for run {n}: "
+                      f"{float((distance)*100)}")
+                np.save(model.xanes_path + "/model_sim_spectra_" +
+                        str(n) + ".npy", spline_result)
+
+                # if self.comparison_spectra_type == "direct":
                 fig, axes = plt.subplots(1, 1)
                 fig.set_size_inches(10, 10)
-                axes.plot(self.spline_mesh, self.exp_base_spline, marker=".",
-                          linestyle="-", label="Experiment")
-                axes.plot(self.spline_mesh, lowest_spline, marker=".",
-                          linestyle="--", label="FDMNES")
+                if self.comparison_spectra_type == "direct":
+                    axes.plot(self.sp.spline_mesh,
+                              self.exp_spline, marker=".",
+                              linestyle="-", label="Experiment")
+                elif self.comparison_spectra_type == "difference":
+                    axes.plot(self.sp.spline_mesh,
+                              self.sim_base_spline, marker=".",
+                              linestyle="-", label="Simulation base")
+                axes.plot(self.sp.spline_mesh, spline_result, marker=".",
+                          linestyle="--", label="Simulation result")
                 axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
                 axes.set_xlabel(
                     "Energy (eV)", fontsize=24)
-                axes.set_xlim((self.spline_mesh[0], self.spline_mesh[-1]))
-                axes.set_ylim((0, 2.0))
+                axes.set_xlim(
+                    (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
+                axes.set_ylim((0, 2.5))
                 axes.legend(bbox_to_anchor=(0.48, 0.85),
                             loc="lower left", fontsize=20)
                 plt.setp(axes.get_xticklabels(), fontsize=20)
                 plt.setp(axes.get_yticklabels(), fontsize=16)
-                filename = model.relax_path + "/" + "experiment_vs_sim_spectra_" +\
-                    str(xanes_run) + ".png"
+                filename = model.xanes_path + "/" +\
+                    "experiment_vs_sim_spectra_" +\
+                    str(n) + ".png"
                 plt.savefig(filename, format="png", dpi=300)
 
-            lowest_spectra_distance = min(results)
-            # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
-            # Hence, obj1val -> ob2_val -> ... for assigning evaluated diff spectra
+                if self.comparison_spectra_type == "difference":
+                    fig, axes = plt.subplots(1, 1)
+                    fig.set_size_inches(10, 10)
+                    axes.plot(self.sp.spline_mesh, self.exp_spline, marker=".",
+                              linestyle="-", label="Experiment")
+                    axes.plot(self.sp.spline_mesh, spline_diff, marker=".",
+                              linestyle="--", label=self.simulation_code)
+                    axes.set_ylabel(
+                        r"$\Delta$ Absorbance (arbitrary units)", fontsize=24)
+                    axes.set_xlabel(
+                        "Energy (eV)", fontsize=24)
+                    axes.set_xlim(
+                        (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
+                    exp_y_max = np.amax(self.exp_spline)
+                    exp_y_min = np.amin(self.exp_spline)
+                    axes.set_ylim((1.1*exp_y_min, 1.1*exp_y_max))
+                    axes.legend(bbox_to_anchor=(0.48, 0.85),
+                                loc="lower left", fontsize=20)
+                    plt.setp(axes.get_xticklabels(), fontsize=20)
+                    plt.setp(axes.get_yticklabels(), fontsize=16)
+                    filename = model.xanes_path + "/" +\
+                        "experiment_vs_sim_spectra_diff_" +\
+                        str(n) + ".png"
+                    plt.savefig(filename, format="png", dpi=300)
+
             if model.Xsim1 == 'XANES':
                 # Minimizing the obj vals
-                model.obj1_val = float((lowest_spectra_distance)*100)
+                model.obj1_val = float((lowest_distance)*100)
             elif model.Xsim2 == 'XANES':
-                model.obj2_val = float((lowest_spectra_distance)*100)
+                model.obj2_val = float((lowest_distance)*100)
             elif model.Xsim3 == 'XANES':
-                model.obj3_val = float((lowest_spectra_distance)*100)
+                model.obj3_val = float((lowest_distance)*100)
             elif model.Xsim4 == 'XANES':
-                model.obj4_val = float((lowest_spectra_distance)*100)
-        else:
-            lowest_spectra_distance = 0.09
-            model.obj1_val = lowest_spectra_distance
+                model.obj4_val = float((lowest_distance)*100)
 
-        return model, lowest_spectra_distance
+            return model, lowest_distance
+        else:
+            self.run_simulation(model)
+            lowest_distance = np.random.uniform(0, 5)
+            if model.Xsim1 == 'XANES':
+                # Minimizing the obj vals
+                model.obj1_val = float((lowest_distance)*100)
+            elif model.Xsim2 == 'XANES':
+                model.obj2_val = float((lowest_distance)*100)
+            elif model.Xsim3 == 'XANES':
+                model.obj3_val = float((lowest_distance)*100)
+            elif model.Xsim4 == 'XANES':
+                model.obj4_val = float((lowest_distance)*100)
+
+            return model, lowest_distance
 
 
 class pdf_of_model(object):
@@ -1431,7 +541,8 @@ class pdf_of_model(object):
         self.Biso_val = 0.71
         # default structure scale factor
         self.scale = 1.0
-        # quadratic term related to sharpness of first peak (from pdfgui manual)
+        # quadratic term related to sharpness of first peak
+        # (from pdfgui manual)
         self.delta2 = 3.87
         # exp. instrument (peak-damping) parameter (default from pdfgui manual)
         self.qdamp = 0.043  # G(r) intensity decereases with r
@@ -2313,7 +1424,7 @@ class xrd_of_model(object):
         flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
         data_raw = data_raw[flag+1:]
         data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
-        return np.array(data_raw)[:,:2]
+        return np.array(data_raw)[:, :2]
 
     def xrd_normalize(self, data, scale='minmax'):
         if scale == 'minmax':
@@ -2339,16 +1450,17 @@ class xrd_of_model(object):
         """
         from scipy import interpolate, stats
 
-        f_sim = interpolate.interp1d(data_sim[:,0], data_sim[:,1])
-        f_exp = interpolate.interp1d(data_exp[:,0], data_exp[:,1])
+        f_sim = interpolate.interp1d(data_sim[:, 0], data_sim[:, 1])
+        f_exp = interpolate.interp1d(data_exp[:, 0], data_exp[:, 1])
         x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
-        
+
         # residual or earth mover's distance
         # between exp & sim or sim with transformation
         return abs(f_exp(x)-f_sim(x)).mean(),\
             abs(self.xrd_normalize(f_exp(x), scale) - self.xrd_normalize(f_sim(x), scale)).mean(),\
             stats.wasserstein_distance(f_sim(x), f_exp(x)),\
-            stats.wasserstein_distance(self.xrd_normalize(f_sim(x), scale), self.xrd_normalize(f_exp(x), scale))
+            stats.wasserstein_distance(self.xrd_normalize(
+                f_sim(x), scale), self.xrd_normalize(f_exp(x), scale))
 
     def xrd_similarity_metrics(self, data_exp, data_sim, scaled=True):
         """
@@ -2374,15 +1486,16 @@ class xrd_of_model(object):
         # transforming the raw simulated data to align
         def f_fit(x, a, b): return f_sim(x)*a + b
         popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
-        
+
         # residual or earth mover's distance
         # between exp & sim or sim with transformation
         if scaled:
-            
-            return (abs(f_exp(x)-f_sim(x))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
-                (abs(f_exp(x)-f_fit(x, *popt))).mean() / (data_exp[:,1].max() - data_exp[:,1].min()),\
-                stats.wasserstein_distance(f_sim(x), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min()),\
-                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x)) / (data_exp[:,1].max() - data_exp[:,1].min())
+
+            return (abs(f_exp(x)-f_sim(x))).mean() / (data_exp[:, 1].max() - data_exp[:, 1].min()),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean() / (data_exp[:, 1].max() - data_exp[:, 1].min()),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)) / (data_exp[:, 1].max() - data_exp[:, 1].min()),\
+                stats.wasserstein_distance(
+                    f_fit(x, *popt), f_exp(x)) / (data_exp[:, 1].max() - data_exp[:, 1].min())
         else:
             return (abs(f_exp(x)-f_sim(x))).mean(),\
                 (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
@@ -2451,9 +1564,9 @@ class xrd_of_model(object):
             score = float(res_sim)
         if self.score_method == 'res_fit':  # residual vs. fitted/normalized simulated data
             score = float(res_fit)
-        if self.score_method == 'emd_sim': # Earth mover's distance vs. raw sim. data
+        if self.score_method == 'emd_sim':  # Earth mover's distance vs. raw sim. data
             score = float(emd_sim)
-        if self.score_method == 'emd_fit': # Earth mover's distance vs. fitted sim. data
+        if self.score_method == 'emd_fit':  # Earth mover's distance vs. fitted sim. data
             score = float(emd_fit)
 
         # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
