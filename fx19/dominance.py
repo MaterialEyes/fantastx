@@ -413,7 +413,10 @@ class ParetoDominance(object):
             starting_level = old_model.rank
         elif flag == "cluster":
             starting_level = old_model.cluster_rank
-        for level_index in range(starting_level, len(level_structure)):
+
+        num_levels = len(level_structure) - starting_level
+        level_index = starting_level
+        for l in range(num_levels):
             level = level_structure[level_index]
             for m in T:
                 level.remove(m)
@@ -429,21 +432,25 @@ class ParetoDominance(object):
                                 model.cluster_rank -= 1
                                 model.selection_prob = np.exp(
                                     -model.cluster_rank)
-                    level_structure.delete(level_index)
+                    level_structure.pop(level_index)
                 else:
+                    new_models = []
                     for m in level_structure[level_index + 1]:
                         domination_flags = [
                             self.compare(m, lm) for lm in level]
                         if 1 not in domination_flags:
                             T.append(m)
+                            new_models.append(m)
                             if flag == "population":
                                 m.rank -= 1
                             elif flag == "cluster":
                                 m.cluster_rank -= 1
                                 m.selection_prob = np.exp(-m.cluster_rank)
+                    level_structure[level_index].extend(new_models)
+                    level_index += 1
             else:
                 if len(level) == 0:
-                    level_structure.delete(level_index)
+                    level_structure.pop(level_index)
 
             if len(T) == 0:
                 break
