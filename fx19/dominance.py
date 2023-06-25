@@ -418,9 +418,9 @@ class ParetoDominance(object):
         level_index = starting_level
         for l in range(num_levels):
             level = level_structure[level_index]
-            for m in T:
+            while len(T) > 0:
+                m = T.pop()
                 level.remove(m)
-                T.remove(m)
 
             if level_index != len(level_structure) - 1:
                 if len(level) == 0:
@@ -436,6 +436,7 @@ class ParetoDominance(object):
                 else:
                     new_models = []
                     for m in level_structure[level_index + 1]:
+                        print(f"m: {m}")
                         domination_flags = [
                             self.compare(m, lm) for lm in level]
                         if 1 not in domination_flags:
