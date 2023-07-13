@@ -15,6 +15,8 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+  features:
+    - navigation.indexes
 site_url: ""
 use_directory_urls: false
 
@@ -72,7 +74,10 @@ site_url: https://fantastx.github.io/
 nav:
   - Home: index.md
   - Installation: installation.md
-  - FANTASTX YAML Preparation: YAML_PREP.md
+  - FANTASTX YAML Preparation:
+      - yaml_prep/index.md
+      - Geometry-specific inputs: yaml_prep/geometries.md
+      - Forward (experiment) simulation inputs: yaml_prep/forward_simulations.md
   - Structural relaxation input files: energy.md
   - XANES YAML inputs: xanes.md
   - Running FANTASTX: run.md
