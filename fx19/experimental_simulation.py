@@ -439,32 +439,58 @@ class xanes_of_model(object):
                         str(n) + ".npy", spline_result)
 
                 # if self.comparison_spectra_type == "direct":
-                fig, axes = plt.subplots(1, 1)
-                fig.set_size_inches(10, 10)
+                plt.figure(figsize=(10, 6))
                 if self.comparison_spectra_type == "direct":
-                    axes.plot(self.sp.spline_mesh,
-                              self.exp_spline, marker=".",
-                              linestyle="-", label="Experiment")
+                    plt.plot(self.sp.spline_mesh,
+                             self.exp_spline, marker=".",
+                             linestyle="-", label="Experiment")
                 elif self.comparison_spectra_type == "difference":
-                    axes.plot(self.sp.spline_mesh,
-                              self.sim_base_spline, marker=".",
-                              linestyle="-", label="Simulation base")
-                axes.plot(self.sp.spline_mesh, spline_result, marker=".",
-                          linestyle="--", label="Simulation result")
-                axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
-                axes.set_xlabel(
-                    "Energy (eV)", fontsize=24)
-                axes.set_xlim(
-                    (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
-                axes.set_ylim((0, 2.5))
-                axes.legend(bbox_to_anchor=(0.48, 0.85),
-                            loc="lower left", fontsize=20)
-                plt.setp(axes.get_xticklabels(), fontsize=20)
-                plt.setp(axes.get_yticklabels(), fontsize=16)
+                    plt.plot(self.sp.spline_mesh,
+                             self.sim_base_spline, marker=".",
+                             linestyle="-", label="Simulation base")
+                plt.plot(self.sp.spline_mesh, spline_result, marker=".",
+                         linestyle="--", label="Simulation result")
+                plt.ylabel("Absorbance (arbitrary units)", fontsize=20)
+                plt.set_xlabel("Energy (eV)", fontsize=2)
+                plt.xlim((self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
+                plt.ylim((0, np.amax(self.exp_spline) * 1.5))
+                plt.legend(loc="upper right", fontsize=20)
+                plt.xticks(fontsize=15)
+                plt.yticks(fontsize=15)
+                plt.tight_layout()
                 filename = model.xanes_path + "/" +\
                     "experiment_vs_sim_spectra_" +\
                     str(n) + ".png"
                 plt.savefig(filename, format="png", dpi=300)
+                plt.close()
+
+                # fig, axes = plt.subplots(1, 1)
+                # fig.set_size_inches(10, 10)
+                # if self.comparison_spectra_type == "direct":
+                #     axes.plot(self.sp.spline_mesh,
+                #               self.exp_spline, marker=".",
+                #               linestyle="-", label="Experiment")
+                # elif self.comparison_spectra_type == "difference":
+                #     axes.plot(self.sp.spline_mesh,
+                #               self.sim_base_spline, marker=".",
+                #               linestyle="-", label="Simulation base")
+                # axes.plot(self.sp.spline_mesh, spline_result, marker=".",
+                #           linestyle="--", label="Simulation result")
+                # axes.set_ylabel("Absorbance (arbitrary units)", fontsize=24)
+                # axes.set_xlabel(
+                #     "Energy (eV)", fontsize=24)
+                # axes.set_xlim(
+                #     (self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
+                # axes.set_ylim((0, np.amax(self.exp_spline) * 1.5))
+                # axes.legend(bbox_to_anchor=(0.48, 0.85),
+                #             loc="lower left", fontsize=20)
+                # plt.setp(axes.get_xticklabels(), fontsize=20)
+                # plt.setp(axes.get_yticklabels(), fontsize=16)
+                # filename = model.xanes_path + "/" +\
+                #     "experiment_vs_sim_spectra_" +\
+                #     str(n) + ".png"
+                # plt.savefig(filename, format="png", dpi=300)
+                # plt.close()
 
                 if self.comparison_spectra_type == "difference":
                     fig, axes = plt.subplots(1, 1)
@@ -490,6 +516,7 @@ class xanes_of_model(object):
                         "experiment_vs_sim_spectra_diff_" +\
                         str(n) + ".png"
                     plt.savefig(filename, format="png", dpi=300)
+                    plt.close()
 
             if model.Xsim1 == 'XANES':
                 # Minimizing the obj vals

@@ -1785,7 +1785,7 @@ class make_random_molecule_model(object):
         # Initialize the molecule with only a single seed atom
         molecule, molecule_astr = self._initialize_molecule(
             starting_fragment)
-        print("Initialized molecule!")
+        print("Initialized molecule! Wahoo!")
 
         # Add fragments
         assembled = False
@@ -1809,6 +1809,7 @@ class make_random_molecule_model(object):
             if added_fragments == len(chosen_fragments):
                 assembled = True
                 self._attach_counter_ions(molecule, molecule_astr)
+            print(f"Number of added fragments: {added_fragments}")
 
         if assembled:
             # Now, sort molecule_astr and molecule representation
@@ -1843,6 +1844,7 @@ class make_random_molecule_model(object):
         else:
             print("Failed to assemble molecule within "
                   f"{self.assembly_attempts} attempts.")
+            return None, None
 
         return molecule, molecule_astr.get_sorted_structure()
 

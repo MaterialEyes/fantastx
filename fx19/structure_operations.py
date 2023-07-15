@@ -1592,7 +1592,7 @@ class mol_ops(object):
         self.assembly_attempts = 100
         self.attachment_attempts = 10
         self.fragment_rotation_attempts = 200
-        self.add_H = False
+        self.add_H = True
         self.bond_lengths = self._load_bond_length_data()
         # self.visualization_dir = \
         #     "/mnt/c/Users/dunru/Research/fantastx/FeBPy3/
@@ -1758,12 +1758,12 @@ class mol_ops(object):
             frag_attach_total = frag_attach_avail.copy()
 
         if 'oxidation_states' in fragment_info:
-            oxidation_states = fragment_info["oxidation_states"]
+            oxidation_states = fragment_info["oxidation_states"].copy()
             if self.add_H:
                 num_H = fragment_structure.composition.as_dict()["H"]
-                oxidation_states.extend([1]*num_H)
+                oxidation_states.extend([1]*int(num_H))
             self._oxidize_structure(
-                fragment_structure, fragment_info['oxidation_states'])
+                fragment_structure, oxidation_states)
 
         # Grab current molecule fragment vectors
         cur_mol_fragment_vectors = current_molecule["fragment_vectors"]
@@ -2476,6 +2476,7 @@ class mol_ops(object):
             if added_fragments == len(chosen_fragments):
                 assembled = True
                 self._attach_counter_ions(molecule, molecule_astr)
+            print(f"Number of added fragments: {added_fragments}")
 
         if assembled:
             s_indices = np.argsort(molecule_astr)
@@ -2489,6 +2490,7 @@ class mol_ops(object):
         else:
             print("Failed to assemble molecule within "
                   f"{self.assembly_attempts} attempts.\n")
+            return None, None
 
         return molecule, molecule_astr.get_sorted_structure()
 
