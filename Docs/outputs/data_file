@@ -1,0 +1,137 @@
+Label   Inheritance     Total Energy    Obj_0           Obj_1           Operator
+
+1	random        	-72.986951	0.633917	26.722139	random
+5	random        	-73.990137	-0.369269	23.431123	random
+8	random        	-72.647800	0.973068	28.482001	random
+3	random        	-70.227980	3.392888	33.920192	random
+10	random        	-76.472690	0.291178	32.367673	random
+14	random        	-73.444857	0.176011	24.891474	random
+7	random        	-69.804860	6.959008	31.290226	random
+15	random        	-72.656889	0.963979	27.424878	random
+9	random        	-76.643507	0.120361	32.125676	random
+4	random        	-76.845807	-0.081939	30.125736	random
+11	random        	-73.107392	0.513476	31.855977	random
+6	random        	-74.599384	-0.978516	22.836042	random
+12	random        	-73.686066	-0.065198	31.467856	random
+2	random        	-76.644061	0.119807	32.207383	random
+13	random        	-73.683841	-0.062973	31.583565	random
+25	random        	-66.803015	6.817853	35.288676	random
+18	random        	-76.845833	-0.081965	30.125736	random
+24	random        	-69.227938	4.392930	27.630943	random
+19	random        	-74.534870	-0.914002	22.615393	random
+21	random        	-74.262950	-0.642082	26.856649	random
+27	random        	-71.661150	1.959718	31.218756	random
+16	random        	-76.409074	0.354794	33.500438	random
+17	random        	-74.539153	-0.918285	22.615393	random
+23	random        	-74.600228	-0.979360	22.836042	random
+31	random        	-76.234465	0.529403	25.944729	random
+26	random        	-73.917809	-0.296941	24.405998	random
+22	random        	-73.847293	-0.226425	25.357927	random
+20	random        	-76.645012	0.118856	31.024614	random
+28	random        	-74.544482	-0.923614	22.615393	random
+29	random        	-77.309137	-0.545269	27.617516	random
+34	random        	-74.598450	-0.977582	22.836042	random
+40	random        	-76.105839	0.658029	30.054723	random
+33	random        	-74.607136	-0.986268	23.762171	random
+32	random        	-74.544365	-0.923497	22.615393	random
+30	random        	-76.639565	0.124303	32.207383	random
+39	random        	-76.535565	0.228303	34.584405	random
+38	random        	-74.608479	-0.987611	23.055859	random
+41	[17, 29]      	-78.457562	-1.693694	19.422239	fraction_slice_same_cluster
+37	random        	-69.594079	4.026789	26.901098	random
+42	[14, 31]      	-74.264893	-0.644025	26.856649	fraction_slice_same_cluster
+48	[33]          	-74.605117	-0.984249	23.762171	perturb_sites
+44	[21, 18]      	-74.609068	-0.988200	23.055859	fraction_slice_same_cluster
+36	random        	-77.255239	-0.491371	27.302972	random
+50	[38]          	-74.608594	-0.987726	23.055859	perturb_sites
+43	[14, 26]      	-73.978141	-0.357273	25.204212	fraction_slice_dif_cluster
+45	[10, 2]       	-74.559312	-0.938444	22.922971	fraction_slice_dif_cluster
+49	[31, 33]      	-78.459333	-1.695465	19.422239	fraction_slice_dif_cluster
+53	[28]          	-74.544288	-0.923420	23.180668	perturb_sites
+47	[19, 8]       	-78.457912	-1.694044	19.345653	fraction_slice_dif_cluster
+56	[44]          	-74.608433	-0.987565	23.055859	perturb_sites
+35	random        	-77.027072	-0.263204	28.107101	random
+51	[5]           	-74.544059	-0.923191	22.615393	perturb_sites
+57	[45]          	-74.559602	-0.938734	22.922971	perturb_sites
+61	[47]          	-78.459133	-1.695265	19.345653	perturb_sites
+46	[27, 1]       	-77.961089	-4.340221	31.902562	fraction_slice_dif_cluster
+60	[44]          	-74.608550	-0.987682	23.055859	perturb_sites
+54	[12, 23]      	-74.599834	-0.978966	22.836042	fraction_slice_dif_cluster
+62	[47]          	-78.459219	-1.695351	19.422239	perturb_sites
+65	[47]          	-78.458517	-1.694649	19.345653	perturb_sites
+58	[22, 18]      	-79.253845	0.653023	31.161423	fraction_slice_same_cluster
+70	[46, 53]      	-74.544174	-0.923306	23.180668	fraction_slice_dif_cluster
+59	[39, 20]      	-76.718712	0.045156	32.033159	fraction_slice_same_cluster
+71	[47, 48]      	-74.607703	-0.986835	23.232233	fraction_slice_dif_cluster
+67	[46]          	-74.608677	-0.987809	23.055859	perturb_sites
+63	[47, 9]       	-76.474891	0.288977	29.044095	fraction_slice_same_cluster
+55	[34, 5]       	-78.458464	-1.694596	19.850432	fraction_slice_same_cluster
+64	[47, 2]       	-74.598817	-0.977949	22.836042	fraction_slice_same_cluster
+66	[46]          	-77.270084	-0.506216	27.547675	perturb_sites
+75	[47, 54]      	-78.457229	-1.693361	20.359979	fraction_slice_dif_cluster
+74	[47]          	-78.459052	-1.695184	19.422239	perturb_sites
+69	[46]          	-79.517195	0.389673	31.792242	perturb_sites
+77	[47]          	-78.458310	-1.694442	19.422239	perturb_sites
+76	[47]          	-78.459297	-1.695429	19.345653	perturb_sites
+68	[46]          	-79.545417	0.361451	28.654619	perturb_sites
+78	[61, 28]      	-74.263196	-0.642328	26.856649	fraction_slice_dif_cluster
+84	[61, 62]      	-78.459082	-1.695214	19.345653	fraction_slice_same_cluster
+82	[61, 60]      	-78.458313	-1.694445	19.422239	fraction_slice_dif_cluster
+81	[46, 6]       	-74.598330	-0.977462	22.836042	fraction_slice_dif_cluster
+72	[46, 31]      	-74.558460	-0.937592	22.922971	fraction_slice_same_cluster
+79	[46]          	-76.864519	-0.100651	27.107052	perturb_sites
+85	[61]          	-78.458638	-1.694770	19.422239	perturb_sites
+88	[61]          	-78.459253	-1.695385	19.422239	perturb_sites
+90	[61]          	-78.454559	-1.690691	19.263850	perturb_sites
+83	[46]          	-74.544422	-0.923554	22.615393	perturb_sites
+92	[61, 71]      	-74.606401	-0.985533	23.037038	fraction_slice_dif_cluster
+80	[46]          	-79.435636	0.471232	31.634871	perturb_sites
+73	[47, 36]      	-71.227803	5.536065	32.679584	fraction_slice_same_cluster
+95	[65, 33]      	-78.456945	-1.693077	20.359979	fraction_slice_dif_cluster
+91	[61, 46]      	-74.608906	-0.988038	23.055859	fraction_slice_same_cluster
+87	[46]          	-79.607581	0.299287	30.058033	perturb_sites
+94	[61]          	-78.458315	-1.694447	19.422239	perturb_sites
+89	[61, 43]      	-74.608765	-0.987897	23.055859	fraction_slice_dif_cluster
+96	[65]          	-78.458003	-1.694135	19.345653	perturb_sites
+93	[61, 23]      	-73.863639	-0.242771	24.719742	fraction_slice_dif_cluster
+102	[65, 55]      	-78.458650	-1.694782	19.422239	fraction_slice_same_cluster
+100	[65, 54]      	-78.457632	-1.693764	20.359979	fraction_slice_dif_cluster
+101	[65, 72]      	-78.458357	-1.694489	19.345653	fraction_slice_dif_cluster
+99	[65, 62]      	-78.459206	-1.695338	19.422239	fraction_slice_same_cluster
+107	[76, 84]      	-78.459035	-1.695167	19.422239	fraction_slice_same_cluster
+105	[65]          	-78.457430	-1.693562	19.345653	perturb_sites
+108	[76, 55]      	-78.459245	-1.695377	19.422239	fraction_slice_same_cluster
+104	[65, 51]      	-78.456097	-1.692229	19.263850	fraction_slice_dif_cluster
+86	[46]          	-74.599273	-0.978405	22.836042	perturb_sites
+109	[76]          	-78.458719	-1.694851	19.422239	perturb_sites
+110	[76]          	-78.459248	-1.695380	19.345653	perturb_sites
+112	[76, 100]     	-78.459214	-1.695346	19.422239	fraction_slice_same_cluster
+111	[76]          	-78.459238	-1.695370	19.422239	perturb_sites
+106	[76, 22]      	-74.536579	-0.915711	23.311393	fraction_slice_dif_cluster
+114	[76]          	-78.455718	-1.691850	19.263850	perturb_sites
+113	[76]          	-78.459172	-1.695304	19.422239	perturb_sites
+115	[76, 38]      	-78.458059	-1.694191	19.850432	fraction_slice_dif_cluster
+116	[76]          	-78.458561	-1.694693	19.422239	perturb_sites
+121	[84, 83]      	-74.544578	-0.923710	23.180668	fraction_slice_dif_cluster
+119	[84]          	-78.459110	-1.695242	19.422239	perturb_sites
+118	[84, 64]      	-74.608349	-0.987481	23.055859	fraction_slice_dif_cluster
+97	[65, 82]      	-78.456952	-1.693084	19.850432	fraction_slice_same_cluster
+103	[65, 76]      	-78.457033	-1.693165	19.422239	fraction_slice_same_cluster
+122	[84]          	-78.459107	-1.695239	19.422239	perturb_sites
+126	[84, 28]      	-74.544782	-0.923914	23.180668	fraction_slice_dif_cluster
+123	[84]          	-78.456291	-1.692423	19.345653	perturb_sites
+124	[84]          	-78.458509	-1.694641	19.422239	perturb_sites
+128	[90, 99]      	-74.602711	-0.981843	23.037038	fraction_slice_same_cluster
+127	[84]          	-78.457309	-1.693441	19.850432	perturb_sites
+117	[84, 96]      	-76.846964	-0.083096	30.125736	fraction_slice_same_cluster
+129	[90]          	-78.459204	-1.695336	19.422239	perturb_sites
+133	[90, 115]     	-78.458358	-1.694490	19.422239	fraction_slice_same_cluster
+131	[90]          	-78.457200	-1.693332	19.422239	perturb_sites
+134	[90, 100]     	-78.459082	-1.695214	19.422239	fraction_slice_same_cluster
+132	[90]          	-78.458294	-1.694426	19.422239	perturb_sites
+130	[90, 74]      	-76.803255	-0.039387	28.414591	fraction_slice_same_cluster
+138	[96, 121]     	-78.457158	-1.693290	19.263850	fraction_slice_dif_cluster
+141	[96, 83]      	-74.544471	-0.923603	23.180668	fraction_slice_dif_cluster
+136	[90]          	-78.458858	-1.694990	19.422239	perturb_sites
+125	[84, 90]      	-77.937306	-1.173438	26.357807	fraction_slice_same_cluster
+137	[90]          	-78.457259	-1.693391	19.345653	perturb_sites

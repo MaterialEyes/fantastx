@@ -107,7 +107,7 @@ def relax(model, reg_id, energy_code):
                     energy_code.re_relax(model)
                 except:
                     print("Model cannot be relaxed.")
-                    continue
+                    return None
     return model
 
 

@@ -407,11 +407,11 @@ basinhopping_constraints:
 ```
 
 
-### DASK (workers)
+### Parallelization
 
 ***
 
-**Mandatory** section which sets the parallel behavior of FANTASTX. Currently three parallel architectures are supported: *SLURM*, *PBS*, and running DASK on a single computer.
+**Mandatory** section which sets the parallel behavior of FANTASTX. Currently two parallel architectures are supported: using native python multiprocessing, or Dask. Both multiprocessing and Dask can be used on high-performance computing systems (*SLURM* or *PBS*) or local computing systems.
 
 !!! note
     If you are running DASK on a single computer, you need to open two separate terminal windows. In the first terminal window, run the command:
@@ -424,12 +424,20 @@ basinhopping_constraints:
 
     where the value for nprocs is the number of workers which will run, and value for the memory-limit is how much RAM is assigned to each worker.
 
+    If using multiprocessing, you only need to run FANTASTX as usual.
+
 #### Mandatory inputs
+
+Multiprocessing and Dask:
+
+- **max_workers**: number of parallel calculations of models which will be performed.
+
+Dask:
 
 - **cluster**: tell FANTASTX which DASK architecture to use. Options are:
 ["SLURM", "PBS", "local"]
 
-#### Optional inputs
+#### Optional inputs (only relevant to Dask)
 
 See the YAML example below. 
 
