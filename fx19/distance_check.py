@@ -452,7 +452,7 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     Function to check that a new coordinate being added to an existing
     structure satisfies all the minimum and maximum distance constraints
     provided in the min_dist_dict and max_dist_dict. To be used with
-    initial_population or basinhopping methods.3
+    initial_population or basinhopping methods.
     Returns True if satisfies all constriants.
 
     Args:
@@ -596,7 +596,7 @@ def check_interatom_dists(astr, species_dict,
         diffs[i][i]=1
     # If any distance is less than 0, atoms too close
     if np.any([np.any([x<0 for x in y]) for y in diffs]):
-        return(False)
+        return False 
     
     # Max dist check
 
@@ -621,7 +621,7 @@ def check_interatom_dists(astr, species_dict,
         if np.any([x<0 for x in atom]):
             pass
         else:
-            return(False)
-    return(True)
+            return False
+    return True
 
 
