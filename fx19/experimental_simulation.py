@@ -2509,10 +2509,14 @@ class stm_ingrained(object):
         self.num_para = stm_ingrained_params['num_para']
         self.start_params = stm_ingrained_params['start_params']
         self.fixed_params = stm_ingrained_params['fixed_params']
+        if 'bottom_average' in stm_ingrained_params:
+            self.bot_ave = stm_ingrained_params['bottom_average']
+        else:
+            self.bot_ave = False
         if 'num_para' in stm_ingrained_params:
-            self.num_para=stm_ingrained_params['num_para']
+            self.num_para = stm_ingrained_params['num_para']
         if 'angle_interval' in stm_ingrained_params:
-            self.angle_interval=stm_ingrained_params['angle_interval']
+            self.angle_interval = stm_ingrained_params['angle_interval']
         if 'pixel_size' in stm_ingrained_params:
             self.pixel_size = stm_ingrained_params['pixel_size']
         else:
@@ -2692,14 +2696,14 @@ class stm_ingrained(object):
         shutil.copyfile(self.init_stm_path+'/input_files/INCAR_ing',stm_path+'/INCAR')
         return(model)
  
-    def evaluate_obj(self,model,bot_ave=False):
+    def evaluate_obj(self,model):
         """
         Function to prepare perform STM experimental calculation
  
         Arguments:
             model (obj): FANTASTX model
         """
-        match_ssim = self.get_progress(bot_ave=bot_ave)
+        match_ssim = self.get_progress(bot_ave=self.bot_ave)
         print('MATCH',match_ssim)
         #match_ssim = random.random()
         if model.Xsim1 == 'STM':
