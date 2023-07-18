@@ -2604,16 +2604,6 @@ class surface_ops(object):
             self.num_slices = surface_ops_params['num_slices']
 
 
-    def fix_below_cutoff(self):
-        """
-        Fix position of all atoms below the "sd_cut_off" value
-
-        """
-
-        lines = open()
-
-
-
 
     def init_zs_to_species_dict(self, slab_astr, species_id):
         """
