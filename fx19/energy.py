@@ -704,8 +704,7 @@ class vasp_code(object):
             lines = out.readlines()
             lines.reverse()
             for line in lines:
-                if 'General timing' in line:
-                #if 'reached required accuracy' in line:
+                if 'reached required accuracy' in line:
                     converged = True
                     break
         if not converged:
@@ -720,7 +719,6 @@ class vasp_code(object):
             print('Interatomic distances of model {} not'
                   ' within bounds'.format(model.label))
         model.converged = converged
-        print(converged)
         if converged:
 
             # get total energy from output files
