@@ -2920,25 +2920,7 @@ class surface_ops(object):
 
         # Get the surface layer size of the slab
         surf_match=False
-        # Preserve previous iteration of random surface generation
-        # in comments
-        ################
-        #surface_layer = self.random_surface_layer(slab_astr)
 
-        # Combine substrate and the surface layer using separation
-        #surface_minz = surface_layer.cart_coords[:, 2].min()
-        #substrate_maxz = substrate.cart_coords[:, 2].max()
-        #z_diff = substrate_maxz + self.separation - surface_minz
-        # Re-scale the z-coordinates to get separation correctly
-        #new_surface_carts = surface_layer.cart_coords.copy()
-        #new_surface_carts[:, 2] += z_diff
-        #for i in range(len(new_surface_carts)):
-        #    if new_surface_carts[i][2]<self.surface_thickness:
-        #        substrate.append(surface_layer.species[i], new_surface_carts[i],
-        #                         coords_are_cartesian=True)
-        # Check if surface layer valid
-        #substrate, valid_surf = self.surface_comp_check(substrate)
-        ################
         orig_substrate=copy.deepcopy(substrate)
         attempts=0
         
@@ -3059,7 +3041,6 @@ class surface_ops(object):
             if 1==1:
             #try:
                 if count <= self.hop_mate_frac:
-                    print('HOPPING')
                     # basinhopping
                     perturbed_slab, inheritance \
                         = hop.perturb_sites(
@@ -3072,7 +3053,6 @@ class surface_ops(object):
                     new_astr = perturbed_slab
                     maker = 'perturb_sites'
                 else:  # mating
-                    print('SLICING')
                     new_astr, inheritance = self.mate(select, pool)
                     maker = 'fraction_slice'
             #except:
@@ -3113,19 +3093,18 @@ class surface_ops(object):
         # Currently gives atoms_per_species close to required comp.
         # Ex: For Al2O3; instead of Al_3O_4.5 gives Al3O4 (nearest integer).
         # TODO: Enable exact composition option
-        if False:
-        #if comp_dict:
-            # get total number of species in surface layer using comp_dict
-            all_species = list(comp_dict.keys())
-            # fix no. of atoms for species 1
-            fixed_sps = all_species[0]
-            del all_species[0]
-            fixed_num = atoms_per_species[fixed_sps]
+     
+        # get total number of species in surface layer using comp_dict
+        all_species = list(comp_dict.keys())
+        # fix no. of atoms for species 1
+        fixed_sps = all_species[0]
+        del all_species[0]
+        fixed_num = atoms_per_species[fixed_sps]
 
-            for species in all_species:
-                atoms_per_species[species] = int(fixed_num *
-                                                 comp_dict[species]
-                                                 / comp_dict[fixed_sps])
+        for species in all_species:
+            atoms_per_species[species] = int(fixed_num *
+                                             comp_dict[species]
+                                             / comp_dict[fixed_sps])
 
         return atoms_per_species
 
@@ -3626,36 +3605,17 @@ class surface_ops(object):
                     new_atoms=substrate.num_sites
 
                     merge_counter+=1
-                # Place the surface atoms to substrate
-                #for i in range(len(child_surf_carts)):
-                #    substrate.append(child_surf_sps[i], child_surf_carts[i],
-                #                     coords_are_cartesian=True)
-                    # check if each cart satisfies distance constraints with substrate
-                    # and rest of the surface layer atoms
 
-                # Outdated loop to remove overlapping atoms
-                #keys = list(self.min_dist_dict.keys())
-                #if dc.astr_min_dist(substrate,min([self.min_dist_dict[k] for k in keys]))[0]:
-                #    for i,site in enumerate(substrate.sites):
-                #        if site.coords[2]>self.substrate_thickness:
-                #            substrate.remove_sites([i])
-                #            if dc.satisfies_all_dists(site.coords, substrate,
-                #                                      self.element_syms,
-                #                                      self.min_dist_dict,
-                #                                      max_dist_dict=self.max_dist_dict,
-                #                                      new_carts_species=str(site.specie)):
-                #                substrate.append(site.specie, site.coords,
-                #                                 coords_are_cartesian=True)
                 substrate.sort()
                 # move all coords inside the lattice
                 self.move_coords_inside(substrate)
                 # Ensure that most the child atoms survived the merge
                 if len(child_surf_carts)*merge_rate<substrate.num_sites-num_atoms_sub:
-                    struct, valid = self.surface_comp_check(substrate)
+                    substrate, valid = self.surface_comp_check(substrate)
                     if valid:
                         good_splice=True
         if pool_loop>=100:
-            return(None, None)
+            return None, None
         return substrate, inheritance
 
     def update_atoms_composition(self, slab_astr):
@@ -3761,8 +3721,8 @@ class surface_ops(object):
         surf_comp = astr.composition.as_dict()
         inv_syms = {v: k for k, v in self.element_syms.items()}
         # Check if the composition should be corrected
-        #if self.comp_dict is not None:
-        #    slab_astr = self.update_atoms_composition(slab_astr)
+        if self.comp_dict is not None:
+            slab_astr = self.update_atoms_composition(slab_astr)
 
         # Check comp for the updated slab_astr
         comp_ok = True
