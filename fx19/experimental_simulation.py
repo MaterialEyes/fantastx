@@ -2672,35 +2672,6 @@ class stm_ingrained(object):
         multistart(new_start,threads,sim_obj,self.exp_img,
                        search_mode='stm',fixed_params=self.fixed_params)
         
-    def include_magmom_string(self,incar_path, structure,init_mag=6.0):
-        '''
-        Adds a magmom string to an INCAR file, setting transition metals and
-        f-series elements to an initial magnetic moment of 'init_mag' bohr
-        magnetons and all others to 0.5 bohr magnetons
-        
-        Arguments:
-            incar_path (str): path to INCAR file to be edited
-            structure (pymatgen.Structure): pymatgen structure object
-            init_mag (float): Initial magnetic moment for d- and f- series
-                                    elements
-        
-        '''
-        
-        species = structure.types_of_specie
-        allSpecs=structure.species
-        
-        mags=''
-        for spec in species:
-            mags+=str(allSpecs.count(spec))+'*'
-            if np.any([spec.is_transition_metal,spec.is_lanthanoid,spec.is_actinoid]):
-                mags+='6.0 '
-            else:
-                mags+='0.5 '
-        
-        with open(incar_path+'/INCAR','a') as f:
-            f.write('\n')
-            f.write('MAGMOM='+mags)
-
        
     def prep_stm_calc(self,model):
         """
