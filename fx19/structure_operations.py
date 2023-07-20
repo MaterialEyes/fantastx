@@ -2449,48 +2449,69 @@ class mol_ops(object):
             fragment YAML file. This fragment can be either an atom, or a
             fragment itself.
         """
-        starting_fragment, chosen_fragments = self._initialize_fragments()
+        correct_comp = False
+        comp_attempts = 0
+        while not correct_comp and comp_attempts < 50:
+            starting_fragment, chosen_fragments = self._initialize_fragments()
 
-        # Initialize the molecule with only a single seed atom
-        molecule, molecule_astr = self._initialize_molecule(
-            starting_fragment)
-        print("Initialized molecule!\n")
+            # Initialize the molecule with only a single seed atom
+            molecule, molecule_astr = self._initialize_molecule(
+                starting_fragment)
+            print("Initialized molecule!\n")
+            # Add fragments
+            assembled = False
+            assembly_attempts = 0
+            while not assembled and assembly_attempts < self.assembly_attempts:
+                added_fragments = 0
+                for fragment in chosen_fragments:
+                    attached, molecule, molecule_astr = self.attach_fragment(
+                        fragment, molecule, molecule_astr)
+                    if not attached:
+                        assembly_attempts += 1
+                        molecule, molecule_astr = self._initialize_molecule(
+                            starting_fragment)
+                        print("Re initialized molecule.\n")
+                        break
+                    else:
+                        # print(f"Now molecule is: {molecule}")
+                        added_fragments += 1
+                if added_fragments == len(chosen_fragments):
+                    assembled = True
+                    self._attach_counter_ions(molecule, molecule_astr)
+                print(f"Number of added fragments: {added_fragments}")
 
-        # Add fragments
-        assembled = False
-        assembly_attempts = 0
-        while not assembled and assembly_attempts < self.assembly_attempts:
-            added_fragments = 0
-            for fragment in chosen_fragments:
-                attached, molecule, molecule_astr = self.attach_fragment(
-                    fragment, molecule, molecule_astr)
-                if not attached:
-                    assembly_attempts += 1
-                    molecule, molecule_astr = self._initialize_molecule(
-                        starting_fragment)
-                    print("Re initialized molecule.\n")
-                    break
+            if assembled:
+                s_indices = np.argsort(molecule_astr)
+                s_map = {s_indices[i]: i for i in range(len(s_indices))}
+                molecule = self._update_molecule_mapping(molecule, s_map)
+                site_array = np.array(molecule_astr.sites)
+                sorted_sites = site_array[s_indices]
+                molecule_astr = Structure.from_sites(
+                    sorted_sites,
+                    charge=molecule_astr._charge)
+            else:
+                print("Failed to assemble molecule within "
+                      f"{self.assembly_attempts} attempts.\n")
+                return None, None
+
+            comp = molecule_astr.composition.element_composition
+            all_ok = True
+            for sp in range(self.num_species):
+                sym = self.sym_species[sp]
+                min_sp = self.min_num_sp[sp]
+                max_sp = self.max_num_sp[sp]
+                if sym in comp:
+                    if not min_sp <= comp[sym] <= max_sp:
+                        all_ok = False
+                        break
                 else:
-                    # print(f"Now molecule is: {molecule}")
-                    added_fragments += 1
-            if added_fragments == len(chosen_fragments):
-                assembled = True
-                self._attach_counter_ions(molecule, molecule_astr)
-            print(f"Number of added fragments: {added_fragments}")
-
-        if assembled:
-            s_indices = np.argsort(molecule_astr)
-            s_map = {s_indices[i]: i for i in range(len(s_indices))}
-            molecule = self._update_molecule_mapping(molecule, s_map)
-            site_array = np.array(molecule_astr.sites)
-            sorted_sites = site_array[s_indices]
-            molecule_astr = Structure.from_sites(
-                sorted_sites,
-                charge=molecule_astr._charge)
-        else:
-            print("Failed to assemble molecule within "
-                  f"{self.assembly_attempts} attempts.\n")
-            return None, None
+                    if min_sp != 0:
+                        all_ok = False
+                        break
+            if all_ok:
+                correct_comp = True
+            else:
+                comp_attempts += 1
 
         return molecule, molecule_astr.get_sorted_structure()
 

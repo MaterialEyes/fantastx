@@ -451,7 +451,7 @@ class xanes_of_model(object):
                 plt.plot(self.sp.spline_mesh, spline_result, marker=".",
                          linestyle="--", label="Simulation result")
                 plt.ylabel("Absorbance (arbitrary units)", fontsize=20)
-                plt.set_xlabel("Energy (eV)", fontsize=2)
+                plt.xlabel("Energy (eV)", fontsize=2)
                 plt.xlim((self.sp.spline_mesh[0], self.sp.spline_mesh[-1]))
                 plt.ylim((0, np.amax(self.exp_spline) * 1.5))
                 plt.legend(loc="upper right", fontsize=20)
@@ -493,6 +493,8 @@ class xanes_of_model(object):
                 # plt.close()
 
                 if self.comparison_spectra_type == "difference":
+                    np.save(model.xanes_path + "/model_sim_spectra_diff_" +
+                            str(n) + ".npy", spline_diff)
                     fig, axes = plt.subplots(1, 1)
                     fig.set_size_inches(10, 10)
                     axes.plot(self.sp.spline_mesh, self.exp_spline, marker=".",
