@@ -673,6 +673,7 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         for i, atom_data in enumerate(atoms_nearby):
             if atom_data[2] == atom_index_in_astr:
                 duplicate_atom_ind = i
+                # del atoms_nearby[duplicate_atom_ind]
                 atoms_nearby.pop(duplicate_atom_ind)
                 break
 
@@ -696,7 +697,7 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         new_carts_species = existing_astr.species[atom_index_in_astr].name
     new_atom_sym = inv_syms[new_carts_species]
 
-    dists_ok = False
+    dists_ok = len(species_keys_nearby) < 1
     for i, spx in enumerate(species_keys_nearby):
         dist = dists_nearby[i]
         # cover both 'sp1_sp2' & 'sp2_sp1'in key1 & key2
@@ -704,11 +705,12 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
         key2 = spx + '_' + new_atom_sym
         if key1 in min_dist_dict:
             if dist < min_dist_dict[key1]:
+                # print("FAILED")
                 return False
         if key2 in min_dist_dict:
             if dist < min_dist_dict[key2]:
+                # print("FAILED")
                 return False
-
         # check max_dists as well if provided
         # make sure at least one atom is within relevant bond radius
         if max_dist_dict is not None:
