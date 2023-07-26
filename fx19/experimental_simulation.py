@@ -47,7 +47,7 @@ except:
 try:
     import ingrained.image_ops as iop
     from ingrained.structure import PartialCharge
-    from ingrained.utilities import compareAngles,multistart,multistart_series
+    from ingrained.utilities import compareAngles, multistart, multistart_series
     from ingrained.utilities import multi_congruity_finder_series
     from pymatgen.core import Structure
     import numpy as np
@@ -1282,7 +1282,7 @@ class gb_ingrained(object):
         # Initialize a Bicrystal object from relaxed structure
         relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
         bicrys_model = Bicrystal(
-            poscar_file=relax_path+'/POSCAR_unrelaxed')
+            poscar_file=relax_path+'/POSCAR_relaxed')
         if self.super_dims:
             bicrys_model.structure.make_supercell(self.super_dims)
 
@@ -1631,8 +1631,6 @@ class xrd_of_model(object):
         return model, score
 
 
-
-
 class stm_ingrained(object):
     """
     This class is used to simulate STM image of a surface structure
@@ -1679,12 +1677,8 @@ class stm_ingrained(object):
         if image_data['Experiment Pixel Size'] is None:
             print('Pixel-to-Angstrom ratio not defined')
         self.image_data = image_data
-    
-    
-    
-    
-    
-    def get_progress(self,bot_ave=True):
+
+    def get_progress(self, bot_ave=True):
         """
         This function extracts the optimized STM parameters automatically
         from a simulation directory. These parameters are extracted from all
@@ -1697,31 +1691,30 @@ class stm_ingrained(object):
             (tuple): the extracted optimized STM parameters
         """
         all_prog = []
-        for progress in [x for x in os.listdir(self.stm_path) if 
-                                                             'progress' in x]:
+        for progress in [x for x in os.listdir(self.stm_path) if
+                         'progress' in x]:
             progress = np.genfromtxt(self.stm_path+'/'+progress, delimiter=',')
             best_idx = int(np.argmin(progress[:, -1]))
-            while str(progress[best_idx][-1])=='nan':
+            while str(progress[best_idx][-1]) == 'nan':
                 print('nan found, removing')
-                progress=np.delete(progress,best_idx,0)
+                progress = np.delete(progress, best_idx, 0)
                 best_idx = int(np.argmin(progress[:, -1]))
             x = progress[best_idx]
             xfit = x[1:-1]
             xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
-            if x[-1]!=float('nan'):
+            if x[-1] != float('nan'):
                 all_prog.append([x[-1], xfit])
         all_prog.sort()
         if bot_ave:
-            scores=[]
-            for i in range(int(len([x for x in os.listdir(self.stm_path) if 
-                                        'progress' in x])/2)):
+            scores = []
+            for i in range(int(len([x for x in os.listdir(self.stm_path) if
+                                    'progress' in x])/2)):
                 scores.append(all_prog[i][0])
             return(np.average(scores))
         else:
             return(all_prog[0][0])
-    
 
-    def check_parchg(self,model):
+    def check_parchg(self, model):
         """
         Checks if the PARCHG file has errors in it
         """
@@ -1732,49 +1725,47 @@ class stm_ingrained(object):
         except:
             return(False)
 
-
-
-    def get_STM_series(self,model):
+    def get_STM_series(self, model):
         """
         Runs the Ingrained simulation with series calculations
         """
         sim_obj = PartialCharge(model.stm_path+'/PARCHG')
-        
+
         # Shift atoms/charge density so it is not at the edge
         # of the unit cell
         sim_obj._shift_sites()
-        sim_obj._shift_sites() 
+        sim_obj._shift_sites()
         sim_obj.pix_size = self.pixel_size
-        start_params=self.start_params
-        angs = compareAngles(start_params[0],start_params[1],sim_obj,
+        start_params = self.start_params
+        angs = compareAngles(start_params[0], start_params[1], sim_obj,
                              self.image_data)
         angs.sort()
         ang = angs[0][1]
-        threads=self.num_para
+        threads = self.num_para
         new_start = list(self.start_params)
-        new_start[8]=ang
-        multistart_series(new_start,threads,sim_obj,self.image_data['Pixels'],
-                       search_mode='stm',fixed_params=self.fixed_params)
+        new_start[8] = ang
+        multistart_series(new_start, threads, sim_obj, self.image_data['Pixels'],
+                          search_mode='stm', fixed_params=self.fixed_params)
 
-    def get_STM_rotate(self,model):
+    def get_STM_rotate(self, model):
         """
         Runs the Ingrained simulation with rotations
         with parallel calculations
         """
         sim_obj = PartialCharge(model.stm_path+'/PARCHG')
-        
+
         # Shift atoms/charge density so it is not at the edge
         # of the unit cell
         sim_obj._shift_sites()
         sim_obj._shift_sites()
-        num_starts=self.num_para
-        angle=self.angle_interval 
+        num_starts = self.num_para
+        angle = self.angle_interval
         sim_obj.pix_size = self.pixel_size
-        start_params=self.start_params
-        multistart_stm_angle(start_params,num_starts,sim_obj,
-                             self.exp_img,interval=angle,cap=359)
+        start_params = self.start_params
+        multistart_stm_angle(start_params, num_starts, sim_obj,
+                             self.exp_img, interval=angle, cap=359)
 
-    def get_STM_series_rotate(self,model,angle):
+    def get_STM_series_rotate(self, model, angle):
         """
         Runs the Ingrained simulation with rotations with
         series calculations
@@ -1783,19 +1774,19 @@ class stm_ingrained(object):
         # Shift atoms/charge density so it is not at the edge
         # of the unit cell
         sim_obj._shift_sites()
-        sim_obj._shift_sites() 
+        sim_obj._shift_sites()
         sim_obj.pix_size = self.pixel_size
         print(1)
-        start_params=self.start_params
+        start_params = self.start_params
         starts = []
         print(2)
-        angle=self.angle_interval
-        for ang in range(0,359,angle):
+        angle = self.angle_interval
+        for ang in range(0, 359, angle):
             new_start = list(self.start_params)
-            new_start[8]=ang
-            for i in [ang,sim_obj,self.exp_img,
-                      self.fixed_params,'taxicab_ssim',
-                      'Powell','stm']:
+            new_start[8] = ang
+            for i in [ang, sim_obj, self.exp_img,
+                      self.fixed_params, 'taxicab_ssim',
+                      'Powell', 'stm']:
                 new_start.append(i)
             starts.append(new_start)
         print(3)
@@ -1806,52 +1797,53 @@ class stm_ingrained(object):
     def get_STM_para(self):
         """
         Runs the Ingrained simulation with parallel calculations
-        
+
         Arguments:
             threads (int): Number of parallel threads to run
         """
-        sim_obj = PartialCharge(self.stm_path+'/PARCHG') 
+        sim_obj = PartialCharge(self.stm_path+'/PARCHG')
         sim_obj.pix_size = self.pixel_size
-        start_params=self.start_params
-        angs = compareAngles(start_params[0],start_params[1],sim_obj,
+        start_params = self.start_params
+        angs = compareAngles(start_params[0], start_params[1], sim_obj,
                              self.image_data)
-        threads=self.num_para
+        threads = self.num_para
         angs.sort()
         ang = angs[0][1]
         new_start = list(self.start_params)
-        new_start[8]=ang
-        multistart(new_start,threads,sim_obj,self.exp_img,
-                       search_mode='stm',fixed_params=self.fixed_params)
-        
-       
-    def prep_stm_calc(self,model):
+        new_start[8] = ang
+        multistart(new_start, threads, sim_obj, self.exp_img,
+                   search_mode='stm', fixed_params=self.fixed_params)
+
+    def prep_stm_calc(self, model):
         """
         Function to prepare the STM experimental calculation
- 
+
         Arguments:
             model (obj): FANTASTX model
         """
-        relax_path = self.init_stm_path + '/calcs/' + str(model.label) + '/relax'
-        stm_path   = self.init_stm_path + '/calcs/' + str(model.label) + '/stm'
+        relax_path = self.init_stm_path + \
+            '/calcs/' + str(model.label) + '/relax'
+        stm_path = self.init_stm_path + '/calcs/' + str(model.label) + '/stm'
         self.stm_path = stm_path
         model.stm_path = stm_path
         os.mkdir(stm_path)
-        for fil in ['POTCAR','KPOINTS']:
-            shutil.copyfile(relax_path+'/'+fil,stm_path+'/'+fil)
-        shutil.copyfile(relax_path+'/CONTCAR',stm_path+'/POSCAR')
-        shutil.move(relax_path+'/WAVECAR',stm_path+'/WAVECAR')
-        shutil.copyfile(self.init_stm_path+'/input_files/INCAR_ing',stm_path+'/INCAR')
+        for fil in ['POTCAR', 'KPOINTS']:
+            shutil.copyfile(relax_path+'/'+fil, stm_path+'/'+fil)
+        shutil.copyfile(relax_path+'/CONTCAR', stm_path+'/POSCAR')
+        shutil.move(relax_path+'/WAVECAR', stm_path+'/WAVECAR')
+        shutil.copyfile(self.init_stm_path +
+                        '/input_files/INCAR_ing', stm_path+'/INCAR')
         return(model)
- 
-    def evaluate_obj(self,model):
+
+    def evaluate_obj(self, model):
         """
         Function to prepare perform STM experimental calculation
- 
+
         Arguments:
             model (obj): FANTASTX model
         """
         match_ssim = self.get_progress(bot_ave=self.bot_ave)
-        print('MATCH',match_ssim)
+        print('MATCH', match_ssim)
         #match_ssim = random.random()
         if model.Xsim1 == 'STM':
             model.obj1_val = float((match_ssim))  # Minimizing the obj vals
@@ -1861,5 +1853,5 @@ class stm_ingrained(object):
             model.obj3_val = float((match_ssim))
         elif model.Xsim4 == 'STM':
             model.obj4_val = float((match_ssim))
-            
+
         return(model, match_ssim*100)
