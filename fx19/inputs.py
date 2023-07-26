@@ -557,6 +557,12 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
         gb_ingrained_params['ing_opt_params'] = None
     if 'dm3_path' not in gb_ingrained_params:
         gb_ingrained_params['dm3_path'] = None
+    if 'supercell_dimensions' not in gb_ingrained_params:
+        gb_ingrained_params['supercell_dimensions'] = None
+    if 'exp_patch_dims' not in gb_ingrained_params:
+        gb_ingrained_params['exp_patch_dims'] = None
+    if 'sim_patch_dims' not in gb_ingrained_params:
+        gb_ingrained_params['sim_patch_dims'] = None
 
     return gb_ingrained_params
 

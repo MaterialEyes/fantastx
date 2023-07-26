@@ -71,7 +71,7 @@ from collections import Counter
 from pymatgen.core.lattice import Lattice
 import shutil
 
-DEBUG = False
+DEBUG = True
 
 
 class xanes_of_model(object):
@@ -1154,7 +1154,8 @@ class gb_ingrained(object):
             # Prepare experimental image
             # (make sure this procedure matches the procedure in 'run.py')
             image_data = iop.image_open(self.dm3_path)
-            exp_img = iop.apply_rotation(image_data['Pixels'], 1)
+            exp_img = iop.apply_rotation(
+                image_data['Pixels'], 1)  # [271-10:783+10, 0:520]
             exp_img = iop.scale_pixels(exp_img, mode='rescale')
             exp_img = restoration.wiener(exp_img, np.ones((7, 7))/3.5, 1300)
             exp_img = equalize_adapthist(exp_img, clip_limit=0.005)
@@ -1195,42 +1196,69 @@ class gb_ingrained(object):
             # exp_patch_for_vasp = exp_img[459:584,
             #                              249:374]  # exp_prev[152:279, 12:]
 
-            if exp_prev.ndim == 3:
-                exp_prev = np.mean(exp_prev, axis=2)
-                self.im_ref = exp_prev[:, :-1]
+            if exp_patch.ndim == 3:
+                exp_patch = np.mean(exp_patch, axis=2)
+                self.im_ref = exp_patch[:, :-1]
             else:
-                self.im_ref = exp_prev
+                self.im_ref = exp_patch
 
-        self.do_scell = True   # Set to False if using a 1x3 supercell
+        self.exp_patch_dims = gb_ingrained_params['exp_patch_dims']
+        if self.exp_patch_dims:
+            if 'y' in self.exp_patch_dims:
+                y_dims = self.exp_patch_dims['y']
+                if not hasattr(y_dims, "__iter__"):
+                    print("Error, exp patch y dimensions must be provided"
+                          " in iterable format!")
+                else:
+                    self.im_ref = self.im_ref[y_dims[0]:y_dims[1], :]
+            if 'x' in self.exp_patch_dims:
+                x_dims = self.exp_patch_dims['x']
+                if not hasattr(x_dims, "__iter__"):
+                    print("Error, exp patch x dimensions must be provided"
+                          " in iterable format!")
+                else:
+                    self.im_ref = self.im_ref[:, x_dims[0]:x_dims[1]]
+
+        self.super_dims = gb_ingrained_params['supercell_dimensions']
         # Make sim TEM from init_gb
-        if self.do_scell:
-            # ss = Structure.from_file(self.init_gb_path)
-            # ss.make_supercell((1, 3, 1))
-            # temp_file = self.main_path + '/inputs/POSCAR_temp_scell'
-            # self.temp_file = temp_file
-            # ss.to(filename=temp_file)
-            bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
-            bicrys_model.structure.make_supercell((1, 3, 1))
-        else:
-            bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
+        bicrys_model = Bicrystal(poscar_file=self.init_gb_path)
+        if self.super_dims:
+            bicrys_model.structure.make_supercell(self.super_dims)
+
         sim_img, __ = bicrys_model._get_image_cell(
             defocus=self.opt_params[2],
             interface_width=self.opt_params[1],
             pix_size=self.opt_params[0],
             view=False)
-        sim_img = sim_img[32:132]
+
+        self.sim_patch_dims = gb_ingrained_params['sim_patch_dims']
+        if self.sim_patch_dims:
+            if 'y' in self.sim_patch_dims:
+                y_dims = self.sim_patch_dims['y']
+                if not hasattr(y_dims, "__iter__"):
+                    print("Error, sim patch y dimensions must be provided"
+                          " in iterable format!")
+                else:
+                    sim_img = sim_img[y_dims[0]:y_dims[1], :]
+            if 'x' in self.sim_patch_dims:
+                x_dims = self.sim_patch_dims['x']
+                if not hasattr(x_dims, "__iter__"):
+                    print("Error, sim patch x dimensions must be provided"
+                          " in iterable format!")
+                else:
+                    sim_img = sim_img[:, x_dims[0]:x_dims[1]]
 
         try:
             match_ssim = iop.score_ssim(sim_img, self.im_ref)
         except ValueError:
             sim_img, im_ref = self.crop_dims(sim_img, self.im_ref)
             match_ssim = iop.score_ssim(sim_img, im_ref)
-            print('Adjusted image dimensions for initial model')
-        # match_ssim = iop.score_ssim(sim_img, self.im_ref)
+            print('Adjusted image dimensions for initial model.'
+                  f' New dimensions: {sim_img.shape}')
         print("Score SSIM (POSCAR_init vs exp image): {}".format(match_ssim))
 
     def evaluate_obj(self, model):
-        """
+        '''
         This function simulated the TEM image of a grain boundary model. Then,
         compares it with the experimental TEM image (target). The objective
         function is (1 - SSIM score) which is assigned as a model attribute
@@ -1249,26 +1277,32 @@ class gb_ingrained(object):
             (structure_record.model(), float):
             - The model object being evaluated
             - the SSIM score which is the objective
-        """
-        relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
-        if self.do_scell is True:
-            bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
-            bicrys_model.structure.make_supercell((1, 3, 1))
-        else:
-            bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
-        # Simulate an image
+        '''
+
         # Initialize a Bicrystal object from relaxed structure
-        # bicrys_model = Bicrystal(poscar_file=relax_path+'/POSCAR_relaxed')
+        relax_path = self.main_path + '/calcs/' + str(model.label) + '/relax'
+        bicrys_model = Bicrystal(
+            poscar_file=relax_path+'/POSCAR_unrelaxed')
+        if self.super_dims:
+            bicrys_model.structure.make_supercell(self.super_dims)
+
         # Simulate an image
         im_model, __ = bicrys_model._get_image_cell(
             defocus=self.opt_params[2],
             interface_width=self.opt_params[1],
             pix_size=self.opt_params[0],
             view=False)
-        im_model = im_model[32:132]
+        if self.sim_patch_dims:
+            if 'y' in self.sim_patch_dims:
+                y_dims = self.sim_patch_dims['y']
+                if hasattr(y_dims, "__iter__"):
+                    im_model = im_model[y_dims[0]:y_dims[1], :]
+            if 'x' in self.sim_patch_dims:
+                x_dims = self.sim_patch_dims['x']
+                if hasattr(x_dims, "__iter__"):
+                    im_model = im_model[:, x_dims[0]:x_dims[1]]
         np.save(relax_path + '/model_sim.npy', im_model)
 
-        # im_model = im_model[132:300] # TODO: remove hard-coded values
         try:
             score = iop.score_ssim(im_model, self.im_ref)
         except ValueError:

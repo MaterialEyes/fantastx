@@ -162,84 +162,92 @@ class lammps_code(object):
         print(f"Prepping the job folder of model {model.label}.")
         # prepare the folder to start energy calc
         self.prep_job_folder(model, reg_id)
-        # start the lammps calculation
-        relax_path = model.relax_path
-        print(f"Model {model.label} relax path is: {relax_path}")
-        # relax_path = model.relax_path
-        # os.chdir(relax_path)
-        lammps_exec = self.energy_exec_cmd.split()
-        with open(
-            relax_path + '/log_lammps.{}'.format(model.label), 'w'
-        )as log_file:
-            lammps_job = sp.Popen(
-                lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
-            for each_line in lammps_job.stdout:
-                line = each_line.decode('utf-8')
-                log_file.write(line)
-        # wait for the calculation to finish
-        lammps_job.wait()
 
-        # save total energy to model attributes
-        total_energy = None
-        match = None
-        pattern = re.compile("Energy initial, next-to-last, final")
-        lines = open(f'{relax_path}/log_lammps.{model.label}',
-                     'r').read().splitlines()
-        for line in lines:
-            if match is not None:
-                total_energy = float(line.split()[2])
-            match = re.search(pattern, line)
-
-        # with open(f'{relax_path}/log_lammps.{model.label}', 'r') as log:
-        #     lines = log.readlines()
-        #     string = 'Step Temp E_pair E_mol TotEng Press'
-        #     for i, line in enumerate(lines):
-        #         if string in line:
-        #             total_energy = float(lines[i+2].split()[4])
-
-        if not total_energy:
-            print('Model {} energy not found in log_lammps.{} file'.format(
-                model.label, model.label))
-            print('LAMMPS relaxation on model {} NOT successful'.format(
-                model.label))
-            # quit()
-        else:
-            model.tot_en = total_energy
-            # For lammps, assume always converged after relaxation
+        if DEBUG:
+            en_mod = np.random.uniform(7, 13)
+            model.tot_en = -40 + en_mod
+            model.obj0_val = en_mod
             model.converged = True
-            # get objective value from energy and save to attributes
-            # NOTE: objective function for cluster is assumed to be epa
-            # NOTE: objective function for gb - ?????
+        else:
+            # start the lammps calculation
+            relax_path = model.relax_path
+            print(f"Model {model.label} relax path is: {relax_path}")
+            # relax_path = model.relax_path
+            # os.chdir(relax_path)
+            lammps_exec = self.energy_exec_cmd.split()
+            with open(
+                relax_path + '/log_lammps.{}'.format(model.label), 'w'
+            )as log_file:
+                lammps_job = sp.Popen(
+                    lammps_exec, stdout=sp.PIPE, stderr=sp.STDOUT, cwd=relax_path)
+                for each_line in lammps_job.stdout:
+                    line = each_line.decode('utf-8')
+                    log_file.write(line)
+            # wait for the calculation to finish
+            lammps_job.wait()
 
-            # Make sure to 'dump' relaxed structure to 'rlx.str' file in in.min
-            # get symbols of elements as a list
-            astr = model.astr
-            symbols = []
-            for i in astr.species:
-                if i.symbol not in symbols:
-                    symbols.append(i.symbol)
-            relaxed_astr = self.get_relaxed_cell(
-                f'{relax_path}/rlx.str', f'{relax_path}/in.data', symbols)
-            # save relaxed structure in model.astr and to poscar
-            POSCAR_relaxed = relax_path + '/POSCAR_relaxed'
-            relaxed_astr.sort()
-            self.move_atoms_inside(relaxed_astr)
-            relaxed_astr.to(filename=POSCAR_relaxed, fmt='poscar')
-            model.astr = relaxed_astr
-            # NOTE: Do not overwrite model.astr as it could be used in Xsim(s)
-            # Save the grain boundary as a model attribute
-            comp_dict = relaxed_astr.composition.as_dict()
-            astr_elems = [i.name for i in relaxed_astr.composition.elements]
+            # save total energy to model attributes
+            total_energy = None
+            match = None
+            pattern = re.compile("Energy initial, next-to-last, final")
+            lines = open(f'{relax_path}/log_lammps.{model.label}',
+                         'r').read().splitlines()
+            for line in lines:
+                if match is not None:
+                    total_energy = float(line.split()[2])
+                match = re.search(pattern, line)
 
-            # DU
-            free_en = total_energy
-            for elem in astr_elems:
-                if elem in self.sym_mu_dict.keys():
-                    free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
-                else:
-                    print("Error. LAMMPS species " + elem +
-                          " not contained in input yaml file.")
-            model.obj0_val = float(free_en)
+            # with open(f'{relax_path}/log_lammps.{model.label}', 'r') as log:
+            #     lines = log.readlines()
+            #     string = 'Step Temp E_pair E_mol TotEng Press'
+            #     for i, line in enumerate(lines):
+            #         if string in line:
+            #             total_energy = float(lines[i+2].split()[4])
+
+            if not total_energy:
+                print('Model {} energy not found in log_lammps.{} file'.format(
+                    model.label, model.label))
+                print('LAMMPS relaxation on model {} NOT successful'.format(
+                    model.label))
+                # quit()
+            else:
+                model.tot_en = total_energy
+                # For lammps, assume always converged after relaxation
+                model.converged = True
+                # get objective value from energy and save to attributes
+                # NOTE: objective function for cluster is assumed to be epa
+                # NOTE: objective function for gb - ?????
+
+                # Make sure to 'dump' relaxed structure to 'rlx.str' file in in.min
+                # get symbols of elements as a list
+                astr = model.astr
+                symbols = []
+                for i in astr.species:
+                    if i.symbol not in symbols:
+                        symbols.append(i.symbol)
+                relaxed_astr = self.get_relaxed_cell(
+                    f'{relax_path}/rlx.str', f'{relax_path}/in.data', symbols)
+                # save relaxed structure in model.astr and to poscar
+                POSCAR_relaxed = relax_path + '/POSCAR_relaxed'
+                relaxed_astr.sort()
+                self.move_atoms_inside(relaxed_astr)
+                relaxed_astr.to(filename=POSCAR_relaxed, fmt='poscar')
+                model.astr = relaxed_astr
+                # NOTE: Do not overwrite model.astr as it could be used in Xsim(s)
+                # Save the grain boundary as a model attribute
+                comp_dict = relaxed_astr.composition.as_dict()
+                astr_elems = [
+                    i.name for i in relaxed_astr.composition.elements]
+
+                # DU
+                free_en = total_energy
+                for elem in astr_elems:
+                    if elem in self.sym_mu_dict.keys():
+                        free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                    else:
+                        print("Error. LAMMPS species " + elem +
+                              " not contained in input yaml file.")
+                model.obj0_val = float(free_en)
 
         # Following are done in relax:
         # save relaxed_structure - done in do_relaxation
