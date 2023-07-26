@@ -618,6 +618,7 @@ def satisfies_all_dists_quick(one_point, many_points, one_species,
     return dists_ok
 
 
+
 def satisfies_all_dists(new_carts, existing_astr, element_syms,
                         min_dist_dict, max_dist_dict=None,
                         atom_index_in_astr=None,
@@ -627,7 +628,6 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
     structure satisfies all the minimum and maximum distance constraints
     provided in the min_dist_dict and max_dist_dict. To be used with
     initial_population or basinhopping methods.
-
     Returns True if satisfies all constriants.
 
     Args:
@@ -678,7 +678,6 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
 
     dists_nearby = [i[1] for i in atoms_nearby]
     inds_nearby = [i[2] for i in atoms_nearby]
-
     # Get the species of atoms nearby
     species_nearby = [all_species[i].name for i in inds_nearby]
 
@@ -722,3 +721,82 @@ def satisfies_all_dists(new_carts, existing_astr, element_syms,
             dists_ok = True
 
     return dists_ok
+
+def check_interatom_dists(astr, species_dict, 
+                          min_dist_dict,max_dist_dict):
+
+    """
+    Function for checking if all atoms meet the minimum and 
+    maximum distance constraints set in the input.yaml file
+    
+    Args:
+
+    astr (obj): Pymatgen structure object of the parent to which new
+    coord is added
+
+    element_syms (dict): dictionary of species which specifies the species
+    index
+
+    min_dist_dict (dict): dictionary of minimum distances with respect to
+    different species
+
+    max_dist_dict (dict): dictionary of maximum bond distances with respect to
+    different species
+
+    """
+
+    dist_mat = astr.distance_matrix
+    spec_trans={}
+    specs = list(set([str(x) for x in astr.species]))
+    for k in list(species_dict.keys()):
+        spec_trans[species_dict[k]['name']]='sp'+k[7:]
+    
+    # Min dist check
+    
+    minDists=[]
+    for i in range(astr.num_sites):
+        minDists.append([])
+        for j in range(astr.num_sites):
+            try:
+                minDists[i].append(min_dist_dict[
+                               spec_trans[str(astr.species[i])]+'_'+
+                               spec_trans[str(astr.species[j])]])
+            except:
+                minDists[i].append(min_dist_dict[
+                               spec_trans[str(astr.species[j])]+'_'+
+                               spec_trans[str(astr.species[i])]])
+    diffs = np.array(dist_mat)-np.array(minDists)
+    # Set diagonal to 1, else 0-X is always <0
+    for i in range(len(diffs)):
+        diffs[i][i]=1
+    # If any distance is less than 0, atoms too close
+    if np.any([np.any([x<0 for x in y]) for y in diffs]):
+        return False 
+    
+    # Max dist check
+
+    maxDists=[]
+    for i in range(astr.num_sites):
+        maxDists.append([])
+        for j in range(astr.num_sites):
+            try:
+                maxDists[i].append(max_dist_dict[
+                               spec_trans[str(astr.species[i])]+'_'+
+                               spec_trans[str(astr.species[j])]])
+            except:
+                maxDists[i].append(max_dist_dict[
+                               spec_trans[str(astr.species[j])]+'_'+
+                               spec_trans[str(astr.species[i])]])
+    diffs = np.array(dist_mat)-np.array(maxDists)
+    # Set diagonal to 1, else 0-X is always <0
+    for i in range(len(diffs)):
+        diffs[i][i]=1
+    # If any distance is less than 0, there is a nearest neighbor atom
+    for atom in diffs:
+        if np.any([x<0 for x in atom]):
+            pass
+        else:
+            return False
+    return True
+
+

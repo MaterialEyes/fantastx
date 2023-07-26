@@ -21,8 +21,13 @@ import shutil
 import numpy as np
 import subprocess as sp
 import re
+
+from fx19.distance_check import  check_interatom_dists
+
+
 import requests
 import yaml
+
 
 DEBUG = False
 
@@ -712,6 +717,39 @@ class vasp_code(object):
             model.converged = True
         else:
             self.run_vasp(model)
+    
+
+    def relax_stm(self, model):
+        """
+        Starts the VASP relaxation in the calcs/<model label> path, focusing
+        on the STM calculation. Assigns
+        the evaluated total energy and obj0_val to model attributes.
+        Does not return anything
+        Arguments:
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
+        """
+        # start the vasp calculation
+        self.run_vasp_stm(model)
+
+
+    def run_vasp_stm(self, model):
+        """
+        Runs vasp in the job directory (relax_path), checks if converged
+        and resubmits if necessary. Saves energy and objective function
+        value to model object.
+        Arguments:
+            model (obj): `structure_record.model()` object for which energy
+             evaluation will be done
+        """
+        vasp_exec = self.energy_exec_cmd.split()
+        log_file = open(model.stm_path + '/job.log', 'w')
+        err_file = open(model.stm_path + '/job.err', 'w')
+        sp.call(vasp_exec, stdout=log_file,
+                stderr=err_file, cwd=model.stm_path)
+        # sp.call will wait for the calculation to finish
+        log_file.close()
+        err_file.close()
 
     def re_relax(self, model):
         """
@@ -755,6 +793,7 @@ class vasp_code(object):
         outcar = model.relax_path + '/OUTCAR'
         with open(outcar) as out:
             lines = out.readlines()
+            lines.reverse()
             for line in lines:
                 if 'reached required accuracy' in line:
                     converged = True
@@ -762,10 +801,16 @@ class vasp_code(object):
         if not converged:
             print('Energy calculation of model {} not'
                   ' converged'.format(model.label))
-
         # if converged, get energy
+        if not check_interatom_dists(Structure.from_file(model.relax_path+'/CONTCAR'), 
+                                    self.species_dict,
+                                    self.min_dist_dict,
+                                    self.max_dist_dict):
+            converged=False
+            print('Interatomic distances of model {} not'
+                  ' within bounds'.format(model.label))
+        model.converged = converged
         if converged:
-            model.converged = converged
 
             # get total energy from output files
             oszicar = model.relax_path + '/OSZICAR'
