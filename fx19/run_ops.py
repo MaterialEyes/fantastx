@@ -163,6 +163,43 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
     return new_model
 
 
+def make_input_molecules(fe_two_model, reg_id):
+    """"
+    In the case that the input structure was for a molecule, we need to
+    add additional information. 
+
+    NOTE: for now, this is hard-coded in for a structure search for
+    fe-trisbipyridine, where for each input structure two oxidations of
+    Fe, FeII and FeIII were meant to be included.
+    """
+    from fx19 import structure_record
+
+    oxidation_dict = {'C': -1.0, 'N': 1.0, 'H': 1.0, 'K': 1.0}
+    fe_two_model.molecule_representation = {'fixed_atoms': [0]}
+
+    fe_three_model = structure_record.model(fe_two_model.astr, reg_id)
+    fe_three_model.molecule_representation = {'fixed_atoms': [0]}
+    fe_three_model.inheritance = 'from_file'
+
+    oxi_states = []
+    for sp in fe_two_model.astr.species:
+        if sp.name == "Fe":
+            oxi_states.append(2.0)
+        else:
+            oxi_states.append(oxidation_dict[sp.name])
+    fe_two_model.astr.add_oxidation_state_by_site(oxi_states)
+
+    oxi_states = []
+    for sp in fe_three_model.astr.species:
+        if sp.name == "Fe":
+            oxi_states.append(3.0)
+        else:
+            oxi_states.append(oxidation_dict[sp.name])
+    fe_three_model.astr.add_oxidation_state_by_site(oxi_states)
+
+    return [fe_two_model, fe_three_model]
+
+
 def separate_gb(energy_code, gb_ops_obj, model):
     """
     For gb search, separate the gb_iface from the relaxed gb

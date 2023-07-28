@@ -1987,7 +1987,7 @@ class mol_ops(object):
                 max_dist_dict=None,
                 new_carts_species=site.specie.name)
             if not atom_satisfies_dists:
-                print("Did not satisfy dists. Need to re-rotate")
+                # print("Did not satisfy dists. Need to re-rotate")
                 break
             else:
                 b.append(site.species,
@@ -2381,9 +2381,9 @@ class mol_ops(object):
             - molecule structure
         """
         if fragment is not None:
-            print(fragment)
-            print(molecule["fragment_vectors"])
-            print(fragment["fragment_vector"])
+            # print(fragment)
+            # print(molecule["fragment_vectors"])
+            # print(fragment["fragment_vector"])
             found_fragment = False
             for key in molecule["fragment_vectors"].keys():
                 ind = 0
@@ -2451,13 +2451,14 @@ class mol_ops(object):
         """
         correct_comp = False
         comp_attempts = 0
-        while not correct_comp and comp_attempts < 50:
+        print("Initializing molecular generation process.")
+        while not correct_comp:
             starting_fragment, chosen_fragments = self._initialize_fragments()
 
             # Initialize the molecule with only a single seed atom
             molecule, molecule_astr = self._initialize_molecule(
                 starting_fragment)
-            print("Initialized molecule!\n")
+            # print("Initialized molecule!\n")
             # Add fragments
             assembled = False
             assembly_attempts = 0
@@ -2470,7 +2471,7 @@ class mol_ops(object):
                         assembly_attempts += 1
                         molecule, molecule_astr = self._initialize_molecule(
                             starting_fragment)
-                        print("Re initialized molecule.\n")
+                        # print("Re initialized molecule.\n")
                         break
                     else:
                         # print(f"Now molecule is: {molecule}")
@@ -2478,7 +2479,6 @@ class mol_ops(object):
                 if added_fragments == len(chosen_fragments):
                     assembled = True
                     self._attach_counter_ions(molecule, molecule_astr)
-                print(f"Number of added fragments: {added_fragments}")
 
             if assembled:
                 s_indices = np.argsort(molecule_astr)
@@ -2510,8 +2510,12 @@ class mol_ops(object):
                         break
             if all_ok:
                 correct_comp = True
+                print(f"Molecule composition PASSED. Composition is: {comp}")
             else:
                 comp_attempts += 1
+
+        print(f"Successfully created molecule. Required {comp_attempts + 1}"
+              " initializations to get the required composition.")
 
         return molecule, molecule_astr.get_sorted_structure()
 

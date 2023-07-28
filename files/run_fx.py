@@ -199,7 +199,13 @@ if input_model_obj is not None:
         if new_model is not None:
             # read_structure() returns 0 when all files are done
             if not isinstance(new_model, int):
-                input_models.append(new_model)
+                if all_objects['constraints_obj'].shape == 'molecule':
+                    # do extra steps
+                    new_models = make_input_molecules(new_model, reg_id)
+                    for i in new_models:
+                        input_models.append(i)
+                else:
+                    input_models.append(new_model)
 
     # evaluate the input models
     for input_model in input_models:
