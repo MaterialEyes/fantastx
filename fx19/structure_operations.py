@@ -1593,6 +1593,7 @@ class mol_ops(object):
         self.attachment_attempts = 10
         self.fragment_rotation_attempts = 200
         self.add_H = True
+        self.charge_H = False
         self.bond_lengths = self._load_bond_length_data()
         # self.visualization_dir = \
         #     "/mnt/c/Users/dunru/Research/fantastx/FeBPy3/
@@ -1761,7 +1762,10 @@ class mol_ops(object):
             oxidation_states = fragment_info["oxidation_states"].copy()
             if self.add_H:
                 num_H = fragment_structure.composition.as_dict()["H"]
-                oxidation_states.extend([1]*int(num_H))
+                if self.charge_H:
+                    oxidation_states.extend([1]*int(num_H))
+                else:
+                    oxidation_states.extend([0]*int(num_H))
             self._oxidize_structure(
                 fragment_structure, oxidation_states)
 

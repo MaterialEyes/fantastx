@@ -408,6 +408,8 @@ class xanes_of_model(object):
                                 self.opt_bounds
                             )
                         distance = result.fun
+                        np.save(model.xanes_path + "/model_opt_params_" +
+                                str(n) + ".npy", result.x)
                 elif self.comparison_spectra_type == "difference":
                     if not self.optimize_simulation:
                         # convolve spectra
@@ -429,6 +431,8 @@ class xanes_of_model(object):
                                 shift_independently=self.shift_independently,
                                 scale_independently=self.scale_independently)
                         distance = result.fun
+                        np.save(model.xanes_path + "/model_diff_opt_params_" +
+                                str(n) + ".npy", result.x)
 
                 if distance < lowest_distance:
                     lowest_distance = distance

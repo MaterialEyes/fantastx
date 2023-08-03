@@ -174,10 +174,10 @@ def make_input_molecules(fe_two_model, reg_id):
     """
     from fx19 import structure_record
 
-    oxidation_dict = {'C': -1.0, 'N': 1.0, 'H': 1.0, 'K': 1.0}
+    oxidation_dict = {'C': 0.0, 'N': 0.0, 'H': 0.0, 'K': 1.0}
     fe_two_model.molecule_representation = {'fixed_atoms': [0]}
 
-    fe_three_model = structure_record.model(fe_two_model.astr, reg_id)
+    fe_three_model = structure_record.model(fe_two_model.astr.copy(), reg_id)
     fe_three_model.molecule_representation = {'fixed_atoms': [0]}
     fe_three_model.inheritance = 'from_file'
 

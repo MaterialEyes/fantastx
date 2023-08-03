@@ -647,7 +647,7 @@ class vasp_code(object):
 
         mags = ''
         for elem in elements:
-            mags += str(elem_comp[elem])+'*'
+            mags += str(int(elem_comp[elem]))+'*'
             if np.any(
                 [elem.is_transition_metal,
                  elem.is_lanthanoid,
