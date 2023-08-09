@@ -85,10 +85,10 @@ max_workers = workers['max_workers']
 
 if 'env_extra' not in workers:
     workers['env_extra'] = None
-if 'job_extra' not in workers:
-    workers['job_extra'] = None
+if 'job_extra_directives' not in workers:
+    workers['job_extra_directives'] = None
 if 'header_skip' not in workers:
-    workers['job_extra'] = None
+    workers['job_extra_directives'] = None
 if 'processes' not in workers:
     workers['processes'] = 1
 
@@ -101,7 +101,7 @@ if workers['cluster'] == 'SLURM':
                                queue=workers['submit_queue'],
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
-                               job_extra=workers['job_extra'],
+                               job_extra_directives=workers['job_extra_directives'],
                                env_extra=workers['env_extra'],
                                header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
@@ -112,7 +112,7 @@ elif workers['cluster'] == 'PBS':
                              project=workers['project_name'],
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
-                             job_extra=workers['job_extra'],
+                             job_extra_directives=workers['job_extra_directives'],
                              env_extra=workers['env_extra'],
                              header_skip=workers['header_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
