@@ -87,6 +87,8 @@ if 'env_extra' not in workers:
     workers['env_extra'] = None
 if 'job_extra_directives' not in workers:
     workers['job_extra_directives'] = None
+if 'job_extra' in workers:
+    workers['job_extra_directives'] = workers['job_extra']
 if 'header_skip' not in workers:
     workers['job_extra_directives'] = None
 if 'processes' not in workers:
