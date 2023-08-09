@@ -89,8 +89,10 @@ if 'job_extra_directives' not in workers:
     workers['job_extra_directives'] = None
 if 'job_extra' in workers:
     workers['job_extra_directives'] = workers['job_extra']
-if 'header_skip' not in workers:
-    workers['job_extra_directives'] = None
+if 'job_directives_skip' not in workers:
+    workers['job_directives_skip'] = None
+if 'header_skip' in workers:
+    workers['job_directives_skip'] = workers['header_skip']
 if 'processes' not in workers:
     workers['processes'] = 1
 
@@ -105,7 +107,7 @@ if workers['cluster'] == 'SLURM':
                                walltime=workers['walltime'],
                                job_extra_directives=workers['job_extra_directives'],
                                env_extra=workers['env_extra'],
-                               header_skip=workers['header_skip'])
+                               job_directives_skip=workers['job_directives_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
 elif workers['cluster'] == 'PBS':
@@ -116,7 +118,7 @@ elif workers['cluster'] == 'PBS':
                              walltime=workers['walltime'],
                              job_extra_directives=workers['job_extra_directives'],
                              env_extra=workers['env_extra'],
-                             header_skip=workers['header_skip'])
+                             job_directives_skip=workers['job_directives_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
 elif workers['cluster'] == 'local':
