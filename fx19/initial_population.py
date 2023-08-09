@@ -137,6 +137,19 @@ class make_random_model(object):
                 print("'allow_random_model_self_bonding' was set to False,"
                       " but only one species is present. Setting to True.")
                 self.allow_self_bonding = True
+
+        self.perturb_abc = 0.05  # normal distribution with 5% stdev 
+        self.perturb_angles = 0.05
+        self.splitting_arrangements = None
+        if 'random_model_params' in str_constraints:
+            random_model_params = str_constraints['random_model_params']
+            if 'perturb_abc' in random_model_params:
+                self.perturb_abc = random_model_params['perturb_abc']  
+            if 'perturb_angles' in random_model_params:
+                self.perturb_angles = random_model_params['perturb_angles']
+            if 'splitting_arrangements' in random_model_params:
+                self.splitting_arrangements = random_model_params['splitting_arrangements']
+
         # save species1 data
         # DU:
         # If species are all properly labeled in order,
@@ -217,7 +230,7 @@ class make_random_model(object):
 
     def get_bulk_structure(self, shuffle=False, perturb_shape=0.05,
                            perturb_angle=0.05,
-                           splitting_arangements={(2, 2, 1): 0.5, (1, 1, 1): 0.5}):
+                           splitting_arrangements={(2, 2, 1): 0.5, (1, 1, 1): 0.5}):
         """
         Creates a new model for the initial population with a random structure
         of bulk geometry. The key steps that are implemented at this level are:
@@ -242,7 +255,7 @@ class make_random_model(object):
              distribution to draw lattice constants from
             perturb_angle (float): standard deviation of the normal
              distribution to draw lattice angles from
-            splitting_arangements (dict): dictionary where the keys are the
+            splitting_arrangements (dict): dictionary where the keys are the
              possible ways to split the lattice into subdivisions for tiling,
              and the values are the probabilities of selecting each splitting
              arangement. See `tile_lattice()`.
@@ -263,7 +276,7 @@ class make_random_model(object):
 
             n_attempts = 0
             while n_attempts < self.assembly_attempts:
-                if splitting_arangements is None:
+                if splitting_arrangements is None:
                     cart_coords = self.get_n_coords_linear_bulk(
                         species, latt)
                     if cart_coords is None:
@@ -276,7 +289,7 @@ class make_random_model(object):
                     break
                 else:
                     bulk = self.tile_lattice(
-                        species, latt, splitting_arangements)
+                        species, latt, splitting_arrangements)
                     if bulk is None:
                         n_attempts += 1
                         continue
@@ -299,7 +312,10 @@ class make_random_model(object):
             `model`: the random `model` object
         """
         if self.shape == "bulk":
-            astr = self.get_bulk_structure()  # False, None, None)
+            astr = self.get_bulk_structure(
+                                perturb_shape=self.perturb_abc,
+                                perturb_angle=self.perturb_angles,
+                                splitting_arrangements=self.splitting_arrangements)  # False, None, None)
         else:
             astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
@@ -757,7 +773,8 @@ class make_random_model(object):
                                                 species_added, inv_syms,
                                                 self.max_dist_dict,
                                                 latt, True, available_bonds)
-            num_new_bonds = sum([len(i) for i in new_bonds.values()])
+            num_new_bonds = sum([len(i) for i in new_bonds.values()]) \
+                                if new_bonds is not None else 0
             if new_bonds is None or num_new_bonds > self.max_bonds[new_sps]:
                 failed_dist_attempts += 1
                 if failed_dist_attempts > self.dist_checks:
@@ -808,7 +825,7 @@ class make_random_model(object):
         frac_coords = [f % 1 for f in frac_coords]
         return np.array(lattice.get_cartesian_coords(frac_coords))
 
-    def tile_lattice(self, species, lattice, splitting_arangements):
+    def tile_lattice(self, species, lattice, splitting_arrangements):
         """
         Create a larger unit cell by tiling it with smaller constituent unit
         cells. This method is similar to that adopted by Valle & Oganov, and
@@ -817,7 +834,7 @@ class make_random_model(object):
         Arguments:
             species (list): species which will exist in the larger unit cell
             lattice (`lattice`): pymatgen lattice for the larger unit cell
-            splitting_arangements (dict): choices for how to split the unit
+            splitting_arrangements (dict): choices for how to split the unit
              cell into smaller unit cells, along with the probability of
              choosing each splitting arangement. Example:
              {(2, 3, 1): 0.6, (1, 1, 1): 0.4} would give two splitting
@@ -828,12 +845,12 @@ class make_random_model(object):
         Returns:
             (array): coords of each of the species in the larger unit cell
         """
-        assert np.isclose(sum(splitting_arangements.values()), 1)
+        assert np.isclose(sum(splitting_arrangements.values()), 1)
 
         # Choose splitting arangement
         r = np.random.uniform()
         cumprob = 0
-        for split, prob in splitting_arangements.items():
+        for split, prob in splitting_arrangements.items():
             cumprob += prob
             if cumprob > r:
                 break
