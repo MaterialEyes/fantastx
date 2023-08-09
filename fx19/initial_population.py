@@ -277,7 +277,7 @@ class make_random_model(object):
             n_attempts = 0
             while n_attempts < self.assembly_attempts:
                 if splitting_arrangements is None:
-                    cart_coords = self.get_n_coords_linear_bulk(
+                    cart_coords = self.get_coords_bulk(
                         species, latt)
                     if cart_coords is None:
                         n_attempts += 1
