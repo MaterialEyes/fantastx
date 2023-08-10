@@ -83,16 +83,23 @@ pool_status_update = 2
 workers = i_dict['workers']
 max_workers = workers['max_workers']
 
-if 'env_extra' not in workers:
-    workers['env_extra'] = None
+if 'job_script_prologue' not in workers:
+    if 'env_extra' not in workers:
+        workers['job_script_prologue'] = None
+    else:
+        workers['job_script_prologue'] = workers['env_extra']
 if 'job_extra_directives' not in workers:
-    workers['job_extra_directives'] = None
-if 'job_extra' in workers:
-    workers['job_extra_directives'] = workers['job_extra']
+    if 'job_extra' not in workers:
+        workers['job_extra_directives'] = None
+    else: 
+        workers['job_extra_directives'] = workers['job_extra']
 if 'job_directives_skip' not in workers:
-    workers['job_directives_skip'] = None
-if 'header_skip' in workers:
-    workers['job_directives_skip'] = workers['header_skip']
+    if 'header_skip' not in workers:
+        workers['job_directives_skip'] = None
+    else:
+        workers['job_directives_skip'] = workers['header_skip']
+if 'project_name' in workers: # mandatory to give 'project_name' or 'account'
+    workers['account'] = workers['project_name']
 if 'processes' not in workers:
     workers['processes'] = 1
 
@@ -101,23 +108,23 @@ if workers['cluster'] == 'SLURM':
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
                                processes=workers['processes'],
-                               project=workers['project_name'],
+                               account=workers['account'],
                                queue=workers['submit_queue'],
                                interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra_directives=workers['job_extra_directives'],
-                               env_extra=workers['env_extra'],
+                               job_script_prologue=workers['job_script_prologue'],
                                job_directives_skip=workers['job_directives_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
-                             project=workers['project_name'],
+                             account=workers['project_name'],
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
                              job_extra_directives=workers['job_extra_directives'],
-                             env_extra=workers['env_extra'],
+                             job_script_prologue=workers['env_extra'],
                              job_directives_skip=workers['job_directives_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
