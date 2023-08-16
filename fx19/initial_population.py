@@ -874,14 +874,6 @@ class make_random_model(object):
 
         return np.array(coords)
 
-    def get_coords_bulk_new(self, species, latt):
-        """
-        New routine to add atom coords to a bulk lattice for the species 
-        provided. 
-        
-        """
-        pass
-
     def wrap_cart_coords(self, coords, lattice):
         """
         Wrap cartesian coordinates into the central unit cell of a lattice.
