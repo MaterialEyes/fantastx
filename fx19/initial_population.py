@@ -137,6 +137,39 @@ class make_random_model(object):
                 print("'allow_random_model_self_bonding' was set to False,"
                       " but only one species is present. Setting to True.")
                 self.allow_self_bonding = True
+
+        self.perturb_abc = 0.05  # normal distribution with 5% stdev 
+        self.perturb_angles = 0.05
+        self.splitting_arrangements = None
+        # density as n_atoms per Ang^3
+        self.min_density, self.max_density = self.get_def_densities()
+        self.check_bond_info = False
+        if 'random_model_params' in str_constraints:
+            random_model_params = str_constraints['random_model_params']
+            if 'perturb_abc' in random_model_params:
+                self.perturb_abc = random_model_params['perturb_abc']  
+            if 'perturb_angles' in random_model_params:
+                self.perturb_angles = random_model_params['perturb_angles']
+            if 'splitting_arrangements' in random_model_params:
+                self.splitting_arrangements = random_model_params['splitting_arrangements']
+            if 'min_density' in random_model_params:
+                if random_model_params['min_density'] < self.min_density:
+                    print ("Warning: Provided min_density is too low. "
+                           "Proceed with caution!!")
+                self.min_density = random_model_params['min_density']
+            if 'max_density' in random_model_params:
+                if random_model_params['max_density'] > self.max_density:
+                    print ("Warning: Provided max_density is too high. "
+                           "Proceed with caution!!")
+                self.max_density = random_model_params['max_density']
+
+            if 'check_bond_info_for_random' in random_model_params:
+                if random_model_params['check_bond_info_for_random']:
+                    print ("Max. bonds per species will be checked "
+                           "during random model creation.")
+                    self.check_bond_info = random_model_params[
+                                            'check_bond_info_for_random']
+
         # save species1 data
         # DU:
         # If species are all properly labeled in order,
@@ -158,6 +191,28 @@ class make_random_model(object):
         self.dist_checks = 500
         self.draw_vector_attempts = 20
         self.cluster_containment_checks = 10
+
+    def get_def_densities(self):
+        """
+        Calculates and assigns default densities as N_atoms / volume (å3) 
+        Def. min. limit: SC lattice with 75th percent of bond dist range
+        Def. max. limit: FCC lattice with 25th percent of bond dist range
+        """
+        min_dist = min(self.min_dist_dict.values())
+        max_dist = max(self.max_dist_dict.values())
+        d_75 = 0.75 * (max_dist - min_dist) + min_dist
+        d_25 = 0.25 * (max_dist - min_dist) + min_dist
+        # minimum density: Assume SC packing with 75th percent dist
+        vol_SC = d_75 ** 3
+        occ_SC = 1
+        min_density = occ_SC / vol_SC
+
+        # maximum density: Assume FCC packing with 25th percent dist
+        vol_FCC = ((2*d_25) / 1.414) ** 3
+        occ_FCC = 4
+        max_density = occ_FCC / vol_FCC
+
+        return min_density, max_density
 
     def get_cluster_in_box(self):
         """
@@ -217,7 +272,7 @@ class make_random_model(object):
 
     def get_bulk_structure(self, shuffle=False, perturb_shape=0.05,
                            perturb_angle=0.05,
-                           splitting_arangements={(2, 2, 1): 0.5, (1, 1, 1): 0.5}):
+                           splitting_arrangements={(2, 2, 1): 0.5, (1, 1, 1): 0.5}):
         """
         Creates a new model for the initial population with a random structure
         of bulk geometry. The key steps that are implemented at this level are:
@@ -242,7 +297,7 @@ class make_random_model(object):
              distribution to draw lattice constants from
             perturb_angle (float): standard deviation of the normal
              distribution to draw lattice angles from
-            splitting_arangements (dict): dictionary where the keys are the
+            splitting_arrangements (dict): dictionary where the keys are the
              possible ways to split the lattice into subdivisions for tiling,
              and the values are the probabilities of selecting each splitting
              arangement. See `tile_lattice()`.
@@ -252,19 +307,33 @@ class make_random_model(object):
              bulk.
         """
 
+        bulk = None
+        n_bulk_attempts = 0
         built_structure = False
-        while not built_structure:
-
+        while not built_structure and n_bulk_attempts < self.assembly_attempts*2:
+            
             # get species and make an empty lattice box
             species, _ = self.get_species_list()
 
             # get lattice box
             latt = self.get_lattice(shuffle, perturb_shape, perturb_angle)
+            try:
+                latt.inv_matrix
+                latt = latt.get_niggli_reduced_lattice()
+            except: 
+                continue
+
+            # check if the lattice and the num_atoms satisfies density requirement
+            density = len(species) / latt.volume
+            if not self.min_density < density < self.max_density:
+                continue
+
+            n_bulk_attempts += 1
 
             n_attempts = 0
             while n_attempts < self.assembly_attempts:
-                if splitting_arangements is None:
-                    cart_coords = self.get_n_coords_linear_bulk(
+                if splitting_arrangements is None:
+                    cart_coords = self.get_coords_bulk(
                         species, latt)
                     if cart_coords is None:
                         n_attempts += 1
@@ -276,12 +345,16 @@ class make_random_model(object):
                     break
                 else:
                     bulk = self.tile_lattice(
-                        species, latt, splitting_arangements)
+                        species, latt, splitting_arrangements)
                     if bulk is None:
                         n_attempts += 1
                         continue
                     built_structure = True
                     break
+
+        if bulk is None:
+            print ("Cannot create random bulk structure with the "
+                   "user-provided parameters")
 
         return bulk
 
@@ -299,7 +372,10 @@ class make_random_model(object):
             `model`: the random `model` object
         """
         if self.shape == "bulk":
-            astr = self.get_bulk_structure()  # False, None, None)
+            astr = self.get_bulk_structure(
+                                perturb_shape=self.perturb_abc,
+                                perturb_angle=self.perturb_angles,
+                                splitting_arrangements=self.splitting_arrangements)  # False, None, None)
         else:
             astr = self.get_cluster_in_box()
         rand_model = structure_record.model(astr, reg_id)
@@ -357,15 +433,15 @@ class make_random_model(object):
         Returns:
             (obj): pymatgen `Lattice` object
         """
-        box_abc = self.box_abc
-        box_angles = self.box_angles
+        box_abc = self.box_abc.copy()
+        box_angles = self.box_angles.copy()
         if shuffle:
             tmp = [0, 1, 2]
             np.random.shuffle(tmp)
-            box_abc = [self.box_abc[tmp[0]], self.box_abc[tmp[1]],
-                       self.box_abc[tmp[2]]]
-            box_angles = [self.box_angles[tmp[0]], self.box_angles[tmp[1]],
-                          self.box_angles[tmp[2]]]
+            box_abc = [box_abc[tmp[0]], box_abc[tmp[1]],
+                       box_abc[tmp[2]]]
+            box_angles = [box_angles[tmp[0]], box_angles[tmp[1]],
+                          box_angles[tmp[2]]]
 
         if perturb_shape is not None:
             for i in range(3):
@@ -685,8 +761,9 @@ class make_random_model(object):
             bond_ok = True
             if self.max_dist_dict[dist_key] is None:
                 bond_ok = False
-
-            target_bonds_avail = available_bonds[ref_atom]
+            target_bonds_avail = None
+            if self.check_bond_info:
+                target_bonds_avail = available_bonds[ref_atom]
 
             # If all checks fail, then first attempt to add the atom to a
             # different atom. If iterated through all atoms, then swap
@@ -726,10 +803,13 @@ class make_random_model(object):
 
             # Attempt to place the atom as far away on the unit sphere from
             # nearby atoms as possible
+            other_points_on_sphere = []
+            if not attached_bonds == [[]]:
+                other_points_on_sphere = attached_bonds[ref_atom]
             new_point, failed_addition = self.get_max_sep_point_on_sphere(
                 radius,
                 self.min_bonding_angular_distance,
-                attached_bonds[ref_atom],
+                other_points_on_sphere,
                 self.draw_vector_attempts)
 
             if failed_addition:
@@ -752,31 +832,33 @@ class make_random_model(object):
                     failed_dist_attempts = 0
                 continue
 
-            # update all bond information
-            new_bonds = dc.get_bonded_neighbors(new_point, coords, new_sps,
-                                                species_added, inv_syms,
-                                                self.max_dist_dict,
-                                                latt, True, available_bonds)
-            num_new_bonds = sum([len(i) for i in new_bonds.values()])
-            if new_bonds is None or num_new_bonds > self.max_bonds[new_sps]:
-                failed_dist_attempts += 1
-                if failed_dist_attempts > self.dist_checks:
-                    failed_addition = True
-                    failed_dist_attempts = 0
-                continue
+            if self.check_bond_info:
+                # update all bond information
+                new_bonds = dc.get_bonded_neighbors(new_point, coords, new_sps,
+                                                    species_added, inv_syms,
+                                                    self.max_dist_dict,
+                                                    latt, True, available_bonds)
+                if new_bonds is not None:
+                    num_new_bonds = sum([len(i) for i in new_bonds.values()])
+                if new_bonds is None or num_new_bonds > self.max_bonds[new_sps]:
+                    failed_dist_attempts += 1
+                    if failed_dist_attempts > self.dist_checks:
+                        failed_addition = True
+                        failed_dist_attempts = 0
+                    continue
 
-            for index, vecs in new_bonds.items():
-                for vec in vecs:
-                    bond_vector = vec/np.linalg.norm(vec)
-                    attached_bonds[index].append(-bond_vector)
-                    available_bonds[index] -= 1
-                    if len(attached_bonds) <= coords_added:
-                        attached_bonds.append([bond_vector])
-                        available_bonds.append(
-                            self.max_bonds[new_sps] - 1)
-                    else:
-                        attached_bonds[-1].append(bond_vector)
-                        available_bonds[-1] -= 1
+                for index, vecs in new_bonds.items():
+                    for vec in vecs:
+                        bond_vector = vec/np.linalg.norm(vec)
+                        attached_bonds[index].append(-bond_vector)
+                        available_bonds[index] -= 1
+                        if len(attached_bonds) <= coords_added:
+                            attached_bonds.append([bond_vector])
+                            available_bonds.append(
+                                self.max_bonds[new_sps] - 1)
+                        else:
+                            attached_bonds[-1].append(bond_vector)
+                            available_bonds[-1] -= 1
 
             coords.append(new_point)
             coords_added += 1
@@ -808,7 +890,7 @@ class make_random_model(object):
         frac_coords = [f % 1 for f in frac_coords]
         return np.array(lattice.get_cartesian_coords(frac_coords))
 
-    def tile_lattice(self, species, lattice, splitting_arangements):
+    def tile_lattice(self, species, lattice, splitting_arrangements):
         """
         Create a larger unit cell by tiling it with smaller constituent unit
         cells. This method is similar to that adopted by Valle & Oganov, and
@@ -817,7 +899,7 @@ class make_random_model(object):
         Arguments:
             species (list): species which will exist in the larger unit cell
             lattice (`lattice`): pymatgen lattice for the larger unit cell
-            splitting_arangements (dict): choices for how to split the unit
+            splitting_arrangements (dict): choices for how to split the unit
              cell into smaller unit cells, along with the probability of
              choosing each splitting arangement. Example:
              {(2, 3, 1): 0.6, (1, 1, 1): 0.4} would give two splitting
@@ -828,12 +910,12 @@ class make_random_model(object):
         Returns:
             (array): coords of each of the species in the larger unit cell
         """
-        assert np.isclose(sum(splitting_arangements.values()), 1)
+        assert np.isclose(sum(splitting_arrangements.values()), 1)
 
         # Choose splitting arangement
         r = np.random.uniform()
         cumprob = 0
-        for split, prob in splitting_arangements.items():
+        for split, prob in splitting_arrangements.items():
             cumprob += prob
             if cumprob > r:
                 break

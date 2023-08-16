@@ -244,10 +244,11 @@ class lammps_code(object):
                 for elem in astr_elems:
                     if elem in self.sym_mu_dict.keys():
                         free_en -= comp_dict[elem]*self.sym_mu_dict[elem]
+                        fepa = free_en / relaxed_astr.num_sites
                     else:
                         print("Error. LAMMPS species " + elem +
                               " not contained in input yaml file.")
-                model.obj0_val = float(free_en)
+                model.obj0_val = float(fepa)
 
         # Following are done in relax:
         # save relaxed_structure - done in do_relaxation

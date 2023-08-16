@@ -250,7 +250,7 @@ class structure_constraints(object):
                 # covalent radii with a scaling factor
                 self.min_dist_dict[key] = 0.8 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
                                                  + covalent_radii[atomic_numbers[self.element_syms[sp2]]])
-                self.max_dist_dict[key] = 1.2 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
+                self.max_dist_dict[key] = 1.4 * (covalent_radii[atomic_numbers[self.element_syms[sp1]]]
                                                  + covalent_radii[atomic_numbers[self.element_syms[sp2]]])
                 if 'min_dist' in str_record:
                     if key in str_record['min_dist'].keys():
@@ -291,6 +291,9 @@ class structure_constraints(object):
             if 'allow_random_model_self_bonding' in str_record['bulk']:
                 self.allow_random_model_self_bonding = str_record[
                     'bulk']['allow_random_model_self_bonding']
+                
+            if 'random_model_params' in str_record['bulk']:
+                self.random_model_params = str_record['bulk']['random_model_params']
 
             if len(max_bonds) != 0:
                 self.max_bonds = max_bonds
