@@ -105,6 +105,7 @@ class make_random_model(object):
         self.max_dist_dict = str_constraints['max_dist_dict']
         self.species_dict = str_constraints['species_dict']
         self.element_syms = str_constraints['element_syms']
+        self.comp_endpoints = str_constraints['comp_endpoints']
         self.inv_syms = {v: 'sp' + str(k)
                          for k, v in self.element_syms.items()}
         self.shape = str_constraints['shape']
@@ -232,8 +233,11 @@ class make_random_model(object):
         max_dia = self.max_dia
         max_bond_dist = max(self.max_dist_dict.values())
 
-        # get species and make an empty lattice box
-        species, cum_sum = self.get_species_list()
+        while True:
+            # get species and make an empty lattice box
+            species, cum_sum = self.get_species_list()
+            if structure_record.check_composition(species)
+                break
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
 
         atoms_too_close = True
@@ -314,6 +318,8 @@ class make_random_model(object):
             
             # get species and make an empty lattice box
             species, _ = self.get_species_list()
+            if not structure_record.check_composition(species):
+                continue
 
             # get lattice box
             latt = self.get_lattice(shuffle, perturb_shape, perturb_angle)
