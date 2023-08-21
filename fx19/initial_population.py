@@ -236,7 +236,7 @@ class make_random_model(object):
         while True:
             # get species and make an empty lattice box
             species, cum_sum = self.get_species_list()
-            if structure_record.check_composition(species)
+            if structure_record.check_composition(species):
                 break
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
 

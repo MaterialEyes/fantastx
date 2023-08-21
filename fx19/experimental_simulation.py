@@ -1140,9 +1140,10 @@ class gb_ingrained(object):
         if self.dm3_path is None:
             print('Error! No path (dm3_path) provided to experimental image')
             print('Trying to refer to hard-coded reference ')
-            print('"inputs/whole_exp.npy" instead.')
-            if os.path.exists(self.main_path + '/inputs/whole_exp.npy'):
-                exp_prev = np.load(self.main_path + '/inputs/whole_exp.npy')
+            print('"inputs/exp_img.npy" instead.')
+            if os.path.exists(self.main_path + '/inputs/exp_img.npy'):
+                exp_prev = np.load(self.main_path + \
+                                   '/inputs/exp_img.npy').astype('float64')
                 if exp_prev.ndim == 3:
                     exp_prev = np.mean(exp_prev, axis=2)
                     self.im_ref = exp_prev[:, :-1]
@@ -1172,7 +1173,6 @@ class gb_ingrained(object):
                 xfit = x[1:-1]
                 xfit = [a for a in xfit[:-2]] + [int(a) for a in xfit[-2::]]
 
-            # TODO: Find why we set self.opt_params[1] = 0
             if self.opt_params is None:
                 if self.progress_file is None:
                     print("Error! No ingrained optimization parameters"
@@ -1180,7 +1180,7 @@ class gb_ingrained(object):
                     xfit = None
                 else:
                     self.opt_params = xfit.copy()
-                    self.opt_params[1] = 0
+                    self.opt_params[1] = 0 # interface width (thickness)
             else:
                 xfit = self.opt_params.copy()
             xfit[1] = 0
@@ -1248,6 +1248,12 @@ class gb_ingrained(object):
                 else:
                     sim_img = sim_img[:, x_dims[0]:x_dims[1]]
 
+        self.resize_sim_img = gb_ingrained_params['resize_sim_img']
+        if self.resize_sim_img:
+            if not hasattr(self.resize_sim_img, '__iter__'):
+                print ("Error, resize_sim_img should be iterable of length 2")
+            sim_img = cv2.resize(sim_img, self.resize_sim_img).astype('float64')
+
         try:
             match_ssim = iop.score_ssim(sim_img, self.im_ref)
         except ValueError:
@@ -1301,6 +1307,10 @@ class gb_ingrained(object):
                 x_dims = self.sim_patch_dims['x']
                 if hasattr(x_dims, "__iter__"):
                     im_model = im_model[:, x_dims[0]:x_dims[1]]
+
+        if self.resize_sim_img:
+            im_model = cv2.resize(im_model, 
+                                  self.resize_sim_img).astype('float64')
         np.save(relax_path + '/model_sim.npy', im_model)
 
         try:

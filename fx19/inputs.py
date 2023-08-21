@@ -563,6 +563,8 @@ def get_ingrained_params(i_dict, exp_sim_params_id):
         gb_ingrained_params['exp_patch_dims'] = None
     if 'sim_patch_dims' not in gb_ingrained_params:
         gb_ingrained_params['sim_patch_dims'] = None
+    if 'resize_sim_img' not in gb_ingrained_params:
+        gb_ingrained_params['resize_sim_img'] = None
 
     return gb_ingrained_params
 
