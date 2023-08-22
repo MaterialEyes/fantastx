@@ -7,7 +7,8 @@ Also contains general functions (if any required)
 
 from __future__ import division, unicode_literals, print_function
 from pymatgen.core.structure import Structure, Lattice
-from pymatgen.core.composition import Composition
+from pymatgen.analysis.phase_diagram import Composition, \
+                                CompoundPhaseDiagram, PDEntry
 from fx19.data import covalent_radii, atomic_numbers
 
 import os
@@ -272,6 +273,18 @@ class structure_constraints(object):
             self.shape = 'bulk'
         # TODO: add other shapes here
 
+        if self.shape != 'molecule':
+            if 'comp_endpoints' not in str_record:
+                print ('Composition range (comp_endpoints parameter)is not '
+                       'specified. Composition is not checked for models. '
+                       'Only num_atoms are checked for each species. '
+                       'Typically, the user should specify composition '
+                       'range as endpoints (inclusive). '
+                       'Eg: ["Cd1Te4", "Cd7Te3"]')
+                self.comp_endpoints = None
+            self.comp_endpoints = [Composition[comp] for comp in \
+                                                str_record['comp_endpoints']]
+
         # ########################bulk parameters begin########################
         if self.shape == 'bulk':
             if 'box_abc' in str_record['bulk']:
@@ -483,5 +496,27 @@ class structure_constraints(object):
 
         return self.__dict__
 
+    def check_composition(self, species_list):
+        """
+        After getting species and lattice, check if the species list is within 
+        the user-specified composition range parameter is satisfied.
+        """
+        if self.comp_endpoints is None: 
+            return True     # skip comp_check
+        
+        sps = list(set(species_list))
+        comp_dict = {}
+        for sp in sps:
+            comp_dict[sp] = species_list.count(sp)
+        comp = Composition(comp_dict)
+
+        pdentries = [PDEntry(ci, -99) for ci in self.comp_endpoints]
+        pdentries += PDEntry(comp, -99)
+
+        pd = CompoundPhaseDiagram(pdentries, self.comp_endpoints)
+        if len(pd.transform_entries(pdentries, self.comp_endpoints)[0]) == len(pdentries):
+            return True
+        else: 
+            return False 
 
 ##
