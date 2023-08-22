@@ -275,8 +275,13 @@ class structure_constraints(object):
 
         if self.shape != 'molecule':
             if 'comp_endpoints' not in str_record:
-                print ('Composition range should be specified as endpoints (inclusive).'
-                           'Eg: ["Cd1Te4", "Cd7Te3"]')
+                print ('Composition range (comp_endpoints parameter)is not '
+                       'specified. Composition is not checked for models. '
+                       'Only num_atoms are checked for each species. '
+                       'Typically, the user should specify composition '
+                       'range as endpoints (inclusive). '
+                       'Eg: ["Cd1Te4", "Cd7Te3"]')
+                self.comp_endpoints = None
             self.comp_endpoints = [Composition[comp] for comp in \
                                                 str_record['comp_endpoints']]
 
@@ -496,6 +501,9 @@ class structure_constraints(object):
         After getting species and lattice, check if the species list is within 
         the user-specified composition range parameter is satisfied.
         """
+        if self.comp_endpoints is None: 
+            return True     # skip comp_check
+        
         sps = list(set(species_list))
         comp_dict = {}
         for sp in sps:

@@ -165,6 +165,9 @@ class Evolve(object):
                 continue
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
+            new_astr_sps = [new_sps.name for new_sps in new_astr.species]
+            if not structure_record.check_composition(new_astr_sps):
+                continue
 
             new_astr.sort()
             new_comp = new_astr.composition
