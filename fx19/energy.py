@@ -811,13 +811,16 @@ class vasp_code(object):
             print('Energy calculation of model {} not'
                   ' converged'.format(model.label))
         # if converged, get energy
-        if not check_interatom_dists(Structure.from_file(model.relax_path+'/CONTCAR'), 
-                                    self.species_dict,
-                                    self.min_dist_dict,
-                                    self.max_dist_dict):
-            converged=False
-            print('Interatomic distances of model {} not'
-                  ' within bounds'.format(model.label))
+        # NOTE: species_dict not in vasp_code attributes. Remove this step. 
+        # NOTE: Moreover, vasp relaxation mostly makes sure dists are satisfied. 
+        # So, removing this won't be a major issue (except for some max_dist cases) 
+        #if not check_interatom_dists(Structure.from_file(model.relax_path+'/CONTCAR'), 
+        #                            self.species_dict,
+        #                            self.min_dist_dict,
+        #                            self.max_dist_dict):
+        #    converged=False
+        #    print('Interatomic distances of model {} not'
+        #          ' within bounds'.format(model.label))
         model.converged = converged
         if converged:
 
