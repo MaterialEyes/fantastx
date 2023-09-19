@@ -225,8 +225,10 @@ class lammps_code(object):
                 for i in astr.species:
                     if i.symbol not in symbols:
                         symbols.append(i.symbol)
-                relaxed_astr = self.get_relaxed_cell(
+                relaxed_astr, _ = lammps_code.get_relaxed_cell(
                     f'{relax_path}/rlx.str', f'{relax_path}/in.data', symbols)
+                relaxed_astr = relaxed_astr[0]
+                
                 # save relaxed structure in model.astr and to poscar
                 POSCAR_relaxed = relax_path + '/POSCAR_relaxed'
                 relaxed_astr.sort()
@@ -258,7 +260,8 @@ class lammps_code(object):
         # checks if relaxation is successful; gives error message and do not go
         # ahead with the structure (goes back and creates new strucutre)
 
-    def get_relaxed_cell(self, rlx_astr, data_in_path, element_symbols):
+    @staticmethod
+    def get_relaxed_cell(rlx_astr, data_in_path, element_symbols, last_only=True):
         """
         (written by Benjamin Revard)
 
@@ -277,62 +280,6 @@ class lammps_code(object):
 
             Structure: relaxed cell as a pymatgen `Structure` object
         """
-
-        # read the dump.atom file as a list of strings
-        with open(rlx_astr, 'r') as atom_dump:
-            lines = atom_dump.readlines()
-
-        # get the lattice vectors
-        a_data = lines[5].split()
-        b_data = lines[6].split()
-        c_data = lines[7].split()
-
-        # default assume tilt is 0
-        xy, xz, yz = 0, 0, 0
-        # parse the tilt factors if thye exist
-        if len(a_data) > 2:
-            xy = float(a_data[2])
-        if len(b_data) > 2:
-            xz = float(b_data[2])
-        if len(c_data) > 2:
-            yz = float(c_data[2])
-
-        # parse the bounds
-        xlo_bound = float(a_data[0])
-        xhi_bound = float(a_data[1])
-        ylo_bound = float(b_data[0])
-        yhi_bound = float(b_data[1])
-        zlo_bound = float(c_data[0])
-        zhi_bound = float(c_data[1])
-
-        # compute xlo, xhi, ylo, yhi, zlo and zhi according to the conversion
-        # given by LAMMPS
-        # http://lammps.sandia.gov/doc/Section_howto.html#howto-12
-        xlo = xlo_bound - min([0.0, xy, xz, xy + xz])
-        xhi = xhi_bound - max([0.0, xy, xz, xy + xz])
-        ylo = ylo_bound - min(0.0, yz)
-        yhi = yhi_bound - max([0.0, yz])
-        zlo = zlo_bound
-        zhi = zhi_bound
-
-        # construct a Lattice object from the lo's and hi's and tilts
-        a = [xhi - xlo, 0.0, 0.0]
-        b = [xy, yhi - ylo, 0.0]
-        c = [xz, yz, zhi - zlo]
-        relaxed_lattice = Lattice([a, b, c])
-
-        # get the number of atoms
-        num_atoms = int(lines[3])
-
-        # get the atom types and their Cartesian coordinates
-        types = []
-        relaxed_cart_coords = []
-        for i in range(num_atoms):
-            atom_info = lines[9 + i].split()
-            types.append(int(atom_info[1]))
-            relaxed_cart_coords.append([float(atom_info[2]) - xlo,
-                                        float(atom_info[3]) - ylo,
-                                        float(atom_info[4]) - zlo])
 
         # read the atom types and corresponding atomic masses from in.data
         with open(data_in_path, 'r') as data_in:
@@ -353,13 +300,105 @@ class lammps_code(object):
                         types_masses[atom_type], '.1f'):
                     types_symbols[atom_type] = symbol
 
+
+        def get_relaxed_lattice_and_cart_coords(lines):
+            # get the lattice vectors
+            a_data = lines[5].split()
+            b_data = lines[6].split()
+            c_data = lines[7].split()
+
+            # default assume tilt is 0
+            xy, xz, yz = 0, 0, 0
+            # parse the tilt factors if thye exist
+            if len(a_data) > 2:
+                xy = float(a_data[2])
+            if len(b_data) > 2:
+                xz = float(b_data[2])
+            if len(c_data) > 2:
+                yz = float(c_data[2])
+
+            # parse the bounds
+            xlo_bound = float(a_data[0])
+            xhi_bound = float(a_data[1])
+            ylo_bound = float(b_data[0])
+            yhi_bound = float(b_data[1])
+            zlo_bound = float(c_data[0])
+            zhi_bound = float(c_data[1])
+
+            # compute xlo, xhi, ylo, yhi, zlo and zhi according to the conversion
+            # given by LAMMPS
+            # http://lammps.sandia.gov/doc/Section_howto.html#howto-12
+            xlo = xlo_bound - min([0.0, xy, xz, xy + xz])
+            xhi = xhi_bound - max([0.0, xy, xz, xy + xz])
+            ylo = ylo_bound - min(0.0, yz)
+            yhi = yhi_bound - max([0.0, yz])
+            zlo = zlo_bound
+            zhi = zhi_bound
+
+            # construct a Lattice object from the lo's and hi's and tilts
+            a = [xhi - xlo, 0.0, 0.0]
+            b = [xy, yhi - ylo, 0.0]
+            c = [xz, yz, zhi - zlo]
+            relaxed_lattice = Lattice([a, b, c])
+
+            # get the number of atoms
+            num_atoms = int(lines[3])
+
+            # get the atom types and their Cartesian coordinates
+            types = []
+            relaxed_cart_coords = []
+            for i in range(num_atoms):
+                atom_info = lines[9 + i].split()
+                types.append(int(atom_info[1]))
+                relaxed_cart_coords.append([float(atom_info[2]) - xlo,
+                                            float(atom_info[3]) - ylo,
+                                            float(atom_info[4]) - zlo])
+                
+            return relaxed_lattice, relaxed_cart_coords, types
+
+        # read the dump.atom file as a list of strings
+        with open(rlx_astr) as f:
+            dat_lines = f.readlines()
+        
+        dat_lines.reverse()
+        last_traj_lines = []
+        for l in dat_lines:
+            last_traj_lines.append(l)
+            if "ITEM: TIMESTEP" in l:
+                break
+        last_traj_lines.reverse()
+        dat_lines.reverse()
+        relaxed_lattice, relaxed_cart_coords, types = \
+                    get_relaxed_lattice_and_cart_coords(last_traj_lines)
+
         # make a list of chemical symbols (one for each site)
         relaxed_symbols = []
         for atom_type in types:
             relaxed_symbols.append(types_symbols[atom_type])
 
-        return Structure(relaxed_lattice, relaxed_symbols, relaxed_cart_coords,
-                         coords_are_cartesian=True)
+        last_astr = Structure(relaxed_lattice, relaxed_symbols, 
+                            relaxed_cart_coords, coords_are_cartesian=True)
+        
+        all_traj_astrs, traj_inds = [last_astr], [int(last_traj_lines[1])]
+
+        if last_only:
+            return all_traj_astrs, None
+        
+        # get all other intermediate steps
+        nl_per_traj = len(last_traj_lines)
+        total_trajs = int(len(dat_lines)/nl_per_traj)
+        for ii in range(total_trajs-1):
+            traj_lines = dat_lines[nl_per_traj*ii:nl_per_traj*(ii+1)]
+            traj_ind = int(traj_lines[1])
+            relaxed_lattice, relaxed_cart_coords, _ = \
+                    get_relaxed_lattice_and_cart_coords(last_traj_lines)
+
+            traj_astr = Structure(relaxed_lattice, relaxed_symbols, 
+                            relaxed_cart_coords, coords_are_cartesian=True)
+            all_traj_astrs.append(traj_astr)
+            traj_inds.append(traj_ind)
+
+        return all_traj_astrs, traj_inds
 
     def move_atoms_inside(self, astr):
         """
