@@ -123,6 +123,7 @@ class Pool(object):
         if unique:
             self.all_models.append(model)
         else:
+            print ("Model {} is not unique. Deleting..".format(model.label))
             return select
 
         if len(self.all_models) < 10:
