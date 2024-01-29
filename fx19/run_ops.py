@@ -136,6 +136,10 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
     if model_type == 'inputs':
         if model is not None:
             new_model = model
+            random_model_keys = random_model_obj.__dict__.keys()
+            if 'sd_true_above' in random_model_keys:
+                new_model.sd_true_above = random_model_obj.sd_true_above
+                new_model.sd_true_below = random_model_obj.sd_true_below
         else:
             return 0
     # make new random model

@@ -796,7 +796,7 @@ class Comparator(object):
                              ] = (norm_factor, np.array(dists))
             model.fingerprint['bag-of-bonds'] = pair_cor
 
-    def check_model_uniqueness(self, model, all_models, exact=True):
+    def check_model_uniqueness(self, model, all_models, exact=False):
         '''
         Check whether a model is unique.
 
