@@ -282,8 +282,7 @@ class structure_constraints(object):
                        'range as endpoints (inclusive). '
                        'Eg: ["Cd1Te4", "Cd7Te3"]')
                 self.comp_endpoints = None
-            self.comp_endpoints = [Composition[comp] for comp in \
-                                                str_record['comp_endpoints']]
+            self.comp_endpoints = str_record['comp_endpoints']
 
         # ########################bulk parameters begin########################
         if self.shape == 'bulk':
@@ -496,13 +495,17 @@ class structure_constraints(object):
 
         return self.__dict__
 
-    def check_composition(self, species_list):
+    @staticmethod
+    def check_composition(comp_endpoints, species_list):
         """
         After getting species and lattice, check if the species list is within 
         the user-specified composition range parameter is satisfied.
         """
-        if self.comp_endpoints is None: 
+        if comp_endpoints is None: 
             return True     # skip comp_check
+        
+        # Make sure all entires are composotion objects
+        comp_endpoints = [Composition(c) for c in comp_endpoints]
         
         sps = list(set(species_list))
         comp_dict = {}
@@ -510,11 +513,12 @@ class structure_constraints(object):
             comp_dict[sp] = species_list.count(sp)
         comp = Composition(comp_dict)
 
-        pdentries = [PDEntry(ci, -99) for ci in self.comp_endpoints]
-        pdentries += PDEntry(comp, -99)
+        pdentries = [PDEntry(ci, -99) for ci in comp_endpoints]
+        new_entry = PDEntry(comp, -99)
+        pdentries.append(new_entry)
 
-        pd = CompoundPhaseDiagram(pdentries, self.comp_endpoints)
-        if len(pd.transform_entries(pdentries, self.comp_endpoints)[0]) == len(pdentries):
+        pd = CompoundPhaseDiagram(pdentries, comp_endpoints)
+        if len(pd.transform_entries(pdentries, comp_endpoints)[0]) == len(pdentries):
             return True
         else: 
             return False 
