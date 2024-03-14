@@ -641,6 +641,7 @@ def get_evolve_params(str_constraints):
     evolve_params = {}
     evolve_params['shape'] = str_constraints['shape']
     evolve_params['num_species'] = str_constraints['num_species']
+    evolve_params['comp_endpoints'] = str_constraints['comp_endpoints']
     # species dicts
     # DU
     for i in range(1, str_constraints['num_species']+1):

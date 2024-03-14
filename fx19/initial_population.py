@@ -314,13 +314,22 @@ class make_random_model(object):
 
         bulk = None
         n_bulk_attempts = 0
+        n_comp_fail, n_density_fail = 0, 0
         built_structure = False
         while not built_structure and n_bulk_attempts < self.assembly_attempts*2:
             
+            if n_comp_fail > self.assembly_attempts*4:
+                print ('Warning: Composition check bottle '\
+                       'neck at random model creation')
+            if n_density_fail > self.assembly_attempts*4:
+                print ('Warning: Atomic density check bottle '\
+                       'neck at random model creation')
+                break
             # get species and make an empty lattice box
             species, _ = self.get_species_list()
             if not structure_record.structure_constraints.check_composition(
                                 self.comp_endpoints, species):
+                n_comp_fail += 1
                 continue
 
             # get lattice box
@@ -334,6 +343,7 @@ class make_random_model(object):
             # check if the lattice and the num_atoms satisfies density requirement
             density = len(species) / latt.volume
             if not self.min_density < density < self.max_density:
+                n_density_fail += 1
                 continue
 
             n_bulk_attempts += 1
@@ -759,7 +769,13 @@ class make_random_model(object):
         exchanged_species = 0
         failed_addition = False
         failed_dist_attempts = 0
+        n_overall_attempts = 0
         while coords_added < num_atoms:
+            n_overall_attempts += 1
+            if n_overall_attempts == 10000: 
+                # This is triggered in some edge cases where 
+                # num_atoms and species is large
+                return None
             new_sps = species[coords_added]
 
             # if the key value is None, then bonding not allowed
