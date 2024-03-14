@@ -81,6 +81,7 @@ class Evolve(object):
         self.hop = hop
         self.num_species = evolve_params['num_species']
         self.shape = evolve_params['shape']
+        self.comp_endpoints = evolve_params['comp_endpoints']
 
         # Make species dicts as attributes
         # DU
@@ -166,7 +167,8 @@ class Evolve(object):
             if any(np.isnan(new_astr.cart_coords.flatten())):
                 continue
             new_astr_sps = [new_sps.name for new_sps in new_astr.species]
-            if not structure_record.check_composition(new_astr_sps):
+            if not structure_record.structure_constraints.check_composition(
+                            self.comp_endpoints, new_astr_sps):
                 continue
 
             new_astr.sort()
@@ -1459,7 +1461,9 @@ class basinhopping(object):
         if add_comp == 1:
             for sps in unit_comp.keys():
                 num_added = 0
-                while num_added < unit_comp[sps]:
+                n_attempts = 0
+                while num_added < unit_comp[sps] and n_attempts < 100:
+                    n_attempts += 1
                     # get coordinates
                     fracs = [unif(0, 1), unif(0, 1), unif(0, 1)]
                     if z_bounds is None:
@@ -1494,6 +1498,9 @@ class basinhopping(object):
                             parent_astr.append(sps, carts,
                                                coords_are_cartesian=True)
                         num_added += 1
+                if n_attempts >= 100:
+                    print ('perturb_comp ran out of attempts to create child')
+                    return None, None
         else:  # remove random sites from the parent
             for sym in unit_comp.keys():
                 # get all parent sites for that species
