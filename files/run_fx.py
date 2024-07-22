@@ -16,7 +16,8 @@ from dask.distributed import Client
 # (Assuming max elapsed time for one calc)
 import dask
 import dask.distributed
-dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
+dask.config.set({'distributed.comm.timeouts.tcp': '5h'})
+dask.config.set({'distributed.scheduler.worker-ttl': None})
 
 
 main_path = os.getcwd()
