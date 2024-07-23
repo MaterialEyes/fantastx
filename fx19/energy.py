@@ -531,7 +531,7 @@ class vasp_code(object):
 
         # Read in the MaterialsProject defaults
         mprelaxset = requests.get(
-            "https://raw.githubusercontent.com/materialsproject/pymatgen/master/pymatgen/io/vasp/MPRelaxSet.yaml")
+            "https://raw.githubusercontent.com/materialsproject/pymatgen/v2024.6.10/pymatgen/io/vasp/MPRelaxSet.yaml")
         mprelaxyaml = yaml.safe_load(mprelaxset.content)
         self.mp_relax_dict = mprelaxyaml['INCAR']
         # DU
