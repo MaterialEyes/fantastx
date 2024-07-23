@@ -275,7 +275,7 @@ def update_pool_mp(returned_models, processed_models, models_evald,
 
 
 def update_pool(evald_futures, models_evald, pool, select,
-                data_file, db, sim_ids):
+                data_file, db=None, sim_ids=None):
     """
     Calculates the objective values for all models and updates pool with
     best models
