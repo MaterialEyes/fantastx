@@ -121,7 +121,9 @@ if workers['cluster'] == 'SLURM':
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
+                             processes=workers['processes'],
                              account=workers['project_name'],
+                             queue=workers['submit_queue'],
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
                              job_extra_directives=workers['job_extra_directives'],
