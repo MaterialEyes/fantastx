@@ -680,6 +680,9 @@ class vasp_code(object):
 
         shutil.copy(files_path + '/KPOINTS', relax_path + '/KPOINTS')
 
+        if os.path.exists(files_path + '/vdw_kernel.bindat'):
+            shutil.copy(files_path + '/vdw_kernel.bindat', relax_path + '/vdw_kernel.bindat')
+
         print('Job prep finished. Submitting...')
 
     def get_magmom_string(self, structure, init_mag=6.0):
