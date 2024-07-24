@@ -155,7 +155,7 @@ class Evolve(object):
                     new_astr = mate.move_atoms_to_within_cluster(new_astr)
             except:
                 print(
-                    "Exception! Unable to conduct mating operation. "
+                    "Exception! Unable to conduct operation. "
                     f"Operator is: {operator}.")
                 traceback.print_exc()
                 if operator == "perturb_sites" or operator == "perturb_comp":
@@ -1133,6 +1133,17 @@ class basinhopping(object):
         if 'add_rem_comp_frac' in basinhopping_params:
             self.add_rem_comp_frac = basinhopping_params['add_rem_comp_frac']
 
+        # Note: If box_fracs is provided, perturb_sites and perturb_comp 
+        # redirects to perturb_box and perturb_box_comp respectively.
+        self.box_fracs = None
+        if 'box_fracs' in basinhopping_params:
+            self.box_fracs = basinhopping_params['box_fracs']
+
+        self.total_atoms_range = None
+        if 'total_atoms_range' in basinhopping_params:
+            self.total_atoms_range = basinhopping_params['total_atoms_range']
+
+
     def perturb_sites(self, select, pool,
                       surface_thickness=None,
                       substrate_thickness=None,
@@ -1167,6 +1178,9 @@ class basinhopping(object):
             all_models = pool.good_pool
         if 'population' in pool.__dict__.keys():
             all_models = pool.population.models
+
+        if self.box_fracs:
+            return self.perturb_box(select, pool)
 
         if self.shape == 'surface':
             return self.perturb_surface(select, pool,
@@ -1426,7 +1440,7 @@ class basinhopping(object):
             print("Error! Unit comp was neither removable nor addable. Make"
                   " sure that there is a valid range for species occupation if"
                   " using the perturb_comp operator.")
-            return None
+            return (None, None)
 
     def perturb_comp(self, select, pool,
                      z_bounds=None, dc_astr=None, model=None):
@@ -1445,6 +1459,9 @@ class basinhopping(object):
 
         model_id (int): If given, basinhopping is done on this specific model
         """
+        if self.box_fracs:
+            return self.perturb_box_comp(select, pool)
+
         if model is None:
             parent_model = select.get_a_parent(pool)
             parent = copy.deepcopy(parent_model)
@@ -1503,14 +1520,247 @@ class basinhopping(object):
                     return None, None
         else:  # remove random sites from the parent
             for sym in unit_comp.keys():
-                # get all parent sites for that species
-                inds = [n for n, i in enumerate(parent_astr.species)
-                        if i.name == sym]
-                # randomly select the sites to remove
-                rem_inds = np.random.choice(inds, unit_comp[sym])
-                parent_astr.remove_sites(rem_inds)
+                rem_inds_all = []
+                for sym in unit_comp.keys():
+                    inds = [n for n, i in enumerate(parent_astr.species) \
+                                        if i.name == sym]
+                    if len(inds) < unit_comp[sym]:
+                        continue
+                    # randomly select the sites to remove
+                    rem_inds = np.random.choice(inds, unit_comp[sym], 
+                                                replace=False).tolist()
+                    rem_inds_all += rem_inds
+                parent_astr.remove_sites(rem_inds_all)
 
         return parent_astr, inheritance
+
+    def perturb_box(self, select, pool, model_id=None):
+        """
+        Get the target_astr similar to perturb_sites
+        box_fracs is the fractional coordinates of box as in the whole cell 
+        i.e., A parent is selected from the pool and regardless of the 
+        geometry, the atoms within the box will be perturbed 
+        """
+        box_fracs = self.box_fracs
+
+        if 'good_pool' in pool.__dict__.keys():
+            all_models = pool.good_pool
+        if 'population' in pool.__dict__.keys():
+            all_models = pool.population.models
+
+
+        if model_id is None:
+            parent_model = select.get_a_parent(pool)
+            # make a copy
+            parent = copy.deepcopy(parent_model)
+            inheritance = [parent.label]
+        else:
+            inheritance = None
+            for model in all_models:
+                # for model in pool.good_pool:
+                if model.label == model_id:
+                    parent = copy.deepcopy(model)
+                    inheritance = [parent.label]
+                    break
+            if inheritance is None:
+                parent_model = select.get_a_parent(pool)
+                # make a copy
+                parent = copy.deepcopy(parent_model)
+                inheritance = [parent.label]
+
+        # grab target structure. By default, this will be the entire parent
+        target_astr = parent.astr
+
+        # Get the cart_coords to be perturbed
+        self.move_coords_inside(target_astr)
+        frac_coords = target_astr.frac_coords
+        species = target_astr.species
+        cart_coords = target_astr.cart_coords
+
+        D_inds = []
+        fracs_in_box = []
+        for i, fracs in enumerate(frac_coords):
+            if box_fracs[0][0] <= fracs[0] <= box_fracs[0][1] and \
+               box_fracs[1][0] <= fracs[1] <= box_fracs[1][1] and \
+               box_fracs[2][0] <= fracs[2] <= box_fracs[2][1]:
+                fracs_in_box.append(fracs)
+                D_inds.append(i)
+        #species_in_box = [target_astr.sites[i].specie.name for i in D_inds]
+
+        D_coords = [cart_coords[i] for i in D_inds]
+
+        num_perturbed = 0
+        jumps_needed = int(round(len(D_coords) * 0.8, 0))
+        for i, one_coords in zip(D_inds, D_coords):
+            replaced = False
+            tries = 0
+            while not replaced and tries < 1000:
+                tries += 1
+                # Max perturbation in Å
+                jump = self.max_perturbation
+                perturb = self.get_point_on_sphere(jump)
+                new_cart = one_coords + perturb
+
+                if dc.satisfies_all_dists(new_cart,
+                                          target_astr,
+                                          self.element_syms,
+                                          self.min_dist_dict,
+                                          self.max_dist_dict,
+                                          atom_index_in_astr=i):
+                    target_astr.replace(i, species[i], new_cart,
+                                        coords_are_cartesian=True)
+                    replaced = True
+                    num_perturbed += 1
+            # print(target_astr)
+
+        # print(f"Post basinhopping: {target_astr}")
+
+        if self.total_atoms_range:
+            if not self.total_atoms_range[0] <= target_astr.num_sites <= self.total_atoms_range[1]:
+                return None, None
+
+        if num_perturbed >= jumps_needed:
+            return target_astr, inheritance
+        else:
+            return None, None
+
+    def perturb_box_comp(self, select, pool, model=None):
+        """
+        """
+        box_fracs = self.box_fracs
+
+        if model is None:
+            parent_model = select.get_a_parent(pool)
+            parent = copy.deepcopy(parent_model)
+            # make a copy
+        else:
+            parent = copy.deepcopy(model)
+        target_astr = parent.astr
+        parent_comp = target_astr.composition.as_dict()
+        inheritance = [parent.label]
+
+        # Get the cart_coords to be perturbed
+        self.move_coords_inside(target_astr)
+        frac_coords = target_astr.frac_coords
+
+        D_inds = []
+        fracs_in_box = []
+        for i, fracs in enumerate(frac_coords):
+            if box_fracs[0][0] <= fracs[0] <= box_fracs[0][1] and \
+               box_fracs[1][0] <= fracs[1] <= box_fracs[1][1] and \
+               box_fracs[2][0] <= fracs[2] <= box_fracs[2][1]:
+                fracs_in_box.append(fracs)
+                D_inds.append(i)
+
+        # find the composition outside the box as a dict
+        fixed_sites = [target_astr.sites[i] for i in range(len(target_astr.sites)) if i not in D_inds]
+        fixed_species_list = [fixed_sites[i].specie.name for i in range(len(fixed_sites))]
+
+        box_sites = [target_astr.sites[i] for i in range(len(target_astr.sites)) if i in D_inds]
+        box_species_list = [box_sites[i].specie.name for i in range(len(box_sites))]
+        
+
+
+        comp_dict = {info['name']: [info['min_num'], info['max_num']]
+                     for info in self.species_dict.values()} 
+        fixed_sites_comp_dict = {info['name']: fixed_species_list.count(info['name']) \
+                                 for info in self.species_dict.values()}
+        current_box_comp_dict = {info['name']: box_species_list.count(info['name']) \
+                                 for info in self.species_dict.values()}
+        
+        # Get the valid range for composition inside the box as a dict
+        allowed_box_comp_dict = {key: [comp_dict[key][0] - fixed_sites_comp_dict[key], 
+                                       comp_dict[key][1] - fixed_sites_comp_dict[key]] \
+                                        for key in fixed_sites_comp_dict.keys()} 
+
+        perturbed_box_comp = False
+        perturb_attempts = 0
+        while not perturbed_box_comp and perturb_attempts < 50:
+            unit_comp, _ = self._get_unit_comp(current_box_comp_dict)
+            if not unit_comp:
+                perturb_attempts += 1
+                continue
+            to_add = to_del = False
+            if random.random() > 0.5:
+                # try adding first
+                bool_sum = 0
+                for sp in unit_comp.keys():
+                    if allowed_box_comp_dict[sp][0] <= \
+                        current_box_comp_dict[sp] + unit_comp[sp] <= allowed_box_comp_dict[sp][1]:
+                        bool_sum += 1
+                if bool_sum == 3:
+                    to_add = True
+                # check if total atoms range is satisfied                    
+                if self.total_atoms_range:
+                    curr_total_atoms = target_astr.num_sites + sum(unit_comp.values())
+                    if self.total_atoms_range[0] <= curr_total_atoms <= self.total_atoms_range[1]:
+                        to_add = False
+
+            if not to_add:
+                # try removing
+                bool_sum = 0
+                for sp in unit_comp.keys():
+                    if allowed_box_comp_dict[sp][0] <= \
+                        current_box_comp_dict[sp] - unit_comp[sp] <= allowed_box_comp_dict[sp][1]:
+                        bool_sum += 1
+                if bool_sum == 3:
+                    to_del = True
+                # check if total atoms range is satisfied                    
+                if self.total_atoms_range:
+                    curr_total_atoms = target_astr.num_sites - sum(unit_comp.values())
+                    if self.total_atoms_range[0] <= curr_total_atoms <= self.total_atoms_range[1]:
+                        to_del = False
+
+            if not to_add and not to_del:
+                perturb_attempts += 1
+                continue
+            else:
+                # Add random sites to the parent
+                if to_add:
+                    for sps in unit_comp.keys():
+                        num_added = 0
+                        n_attempts = 0
+                        while num_added < unit_comp[sps] and n_attempts < 100:
+                            n_attempts += 1
+                            # get coordinates
+                            new_fracs = [unif(box_fracs[0][0], box_fracs[0][1]), 
+                                         unif(box_fracs[1][0], box_fracs[1][1]), 
+                                         unif(box_fracs[2][0], box_fracs[2][1])]
+                            new_carts = target_astr.lattice.get_cartesian_coords(new_fracs)
+
+                            # Check dists with rest of the atoms in parent_astr
+                            if dc.satisfies_all_dists(new_carts,
+                                                    parent.astr,
+                                                    self.element_syms,
+                                                    self.min_dist_dict,
+                                                    self.max_dist_dict,
+                                                    new_carts_species=sps):
+                                target_astr.append(sps, new_carts, coords_are_cartesian=True)
+                                num_added += 1
+                        if n_attempts >= 100:
+                            print ('perturb_box_comp ran out of attempts to create child')
+                            return None, None
+                else:  # to_del is True
+                    rem_inds_all = []
+                    for sym in unit_comp.keys():
+                        sym_D_inds = [i for i, site in enumerate(target_astr.sites) \
+                                      if site in box_sites and site.specie.name == sym]
+                        if len(sym_D_inds) < unit_comp[sym]:
+                            continue
+                        # randomly select the sites to remove
+                        rem_inds = np.random.choice(sym_D_inds, unit_comp[sym], 
+                                                    replace=False).tolist()
+                        rem_inds_all += rem_inds
+                    print ([target_astr.sites[i].specie.name for i in rem_inds_all], unit_comp)
+                    target_astr.remove_sites(rem_inds_all)
+                perturbed_box_comp = True
+
+        if perturb_attempts >= 50:
+            print ("Perturb box composition failed 50 times. "
+                   "Try again with different candidate..")
+            return None, None
+        
+        return target_astr, inheritance
 
     def get_point_on_sphere(self, r):
         """
@@ -1530,6 +1780,28 @@ class basinhopping(object):
         point = point * r
 
         return point
+
+    def move_coords_inside(self, astr):
+        """
+        TODO: Make this a static method
+        For a given structure object, move all sites within the unit cell.
+        Eg: [-0.1, 0.4, 1.2] --> [0.9, 0.4, 0.2]
+
+        Returns 'astr' with all atoms inside
+
+        Args:
+
+        astr (obj): pymatgen Structure object
+        """
+        species = astr.species
+        fc = astr.frac_coords
+        fc = np.where((fc < 0) | (fc > 1), fc - np.floor(fc), fc)
+
+        # replace all the coords in astr
+        all_inds = [i for i in range(len(species))]
+        astr.remove_sites(all_inds)
+        for sp, coords in zip(species, fc):
+            astr.append(sp, coords, coords_are_cartesian=False)
 
 
 class mol_ops(object):
@@ -1809,7 +2081,7 @@ class mol_ops(object):
                 frag_attach_avail) / sum(frag_attach_avail)
             num_avail_att_sites = len(frag_attach_sites)
             frag_att_list_index = np.random.choice(range(num_avail_att_sites),
-                                                   p=frag_attach_probs)
+                                                   p=frag_attach_probs) # , replace=False)
             frag_attach_site = fragment_astr.sites[
                 frag_attach_sites[frag_att_list_index]]
 
@@ -1826,7 +2098,7 @@ class mol_ops(object):
             m_att_sites = current_molecule["attachment_sites"]
             m_att_probs = np.array(m_att_avail) / sum(m_att_avail)
             m_att_index = np.random.choice(range(len(m_att_sites)),
-                                           p=m_att_probs)
+                                           p=m_att_probs)# , replace=False)
             m_att_site_id = m_att_sites[m_att_index]
             m_att_total = current_molecule["total_avail_attachments"]
             molecule_attach_site = molecule_astr.sites[m_att_site_id]
