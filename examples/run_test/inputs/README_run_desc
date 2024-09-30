@@ -1,0 +1,7 @@
+We further cropped the exp_S3.npy to create exp_img.npy (only interface) for image comparison wihtin FANTASTX. 
+
+Later, generate full size images for better visual comparison of full gbs
+
+We are including structures from S5 and S4 pareto instead of random generation. 
+
+Because, the search space is bigger in S3, and we don't want to generate truly random (would have a lot of disorder) which would probably have much larger mismatch. 

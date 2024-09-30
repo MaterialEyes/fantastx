@@ -1,0 +1,27 @@
+#!/bin/bash -l
+
+#PBS -N master_FX_job
+#PBS -l select=1:ncpus=36:mpiprocs=36
+#PBS -A G_FANTASTX
+#PBS -l walltime=72:00:00
+
+# When to send email b=job begin, e=job end, a=job abort, j=subjobs (job arrays), n=no mail
+#PBS -m be
+#PBS -M kvs.chaitanya@outlook.com
+
+# Example bash/PBS script to run pure MPI VASP on Bebop-Rebuild
+cd $PBS_O_WORKDIR
+NNODES=`wc -l < $PBS_NODEFILE`
+echo "NNODES=" $NNODES
+
+module purge
+module add intel-oneapi-compilers/2024.1.0 intel-oneapi-mpi/2021.12.1-oneapi-2024.1.0 intel-oneapi-tbb/2021.12.0-oneapi-2024.1.0 intel-oneapi-mkl/2024.0.0-intel-oneapi-mpi-2021.12.1-oneapi-2024.1.0
+
+module load anaconda3/2024.06
+conda activate Nove23
+
+#export I_MPI_DEBUG=5
+
+export PYTHONUNBUFFERED=1
+
+run_fx.py > job.log

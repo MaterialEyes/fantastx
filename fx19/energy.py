@@ -530,10 +530,11 @@ class vasp_code(object):
         self.pot_dict = pdict
 
         # Read in the MaterialsProject defaults
+        # TO-DO: set a condition to judge if we want to use MP or not, carbon doesnt have outer connection
         mprelaxset = requests.get(
             "https://raw.githubusercontent.com/materialsproject/pymatgen/master/pymatgen/io/vasp/MPRelaxSet.yaml")
         mprelaxyaml = yaml.safe_load(mprelaxset.content)
-        self.mp_relax_dict = mprelaxyaml['INCAR']
+        #self.mp_relax_dict = mprelaxyaml['INCAR']
         # DU
         # Save species names and their chemical potentials for identification
         self.sym_mu_dict = {}

@@ -654,3 +654,5 @@ def connect_to_mongodb(host='localhost', port=27017, username=None,
                        password=None, database='science'):
     client = MongoClient(f'mongodb://{username}:{password}@{host}:{port}')
     return client[database]
+
+def get_dr_probe_params(i_dict)

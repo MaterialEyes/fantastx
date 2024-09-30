@@ -23,7 +23,7 @@ class DrProbe():
 
         # Initialize constant parameters
         self.ht = 300;                   # High tension is 300 kV
-        self.nx = 850; self.ny = 850;         # All images, wavefunctions, etc. will be 512 x 512 pixels
+        self.nx = 180; self.ny = 135;         #yuxin-edit:same pixel as exp img # All images, wavefunctions, etc. will be 512 x 512 pixels
         self.nz = 100;                 # The structures will be cut into 100 slices
         self.dwf = True; self.buni = 0.005;   # Debye-Wallar factor on and set B = 0.5 Ang^2
         #dwf = True; buni = 0.000;   # Debye-Wallar factor on and set B = 0.5 Ang^2
@@ -250,8 +250,9 @@ class DrProbe():
             end = time.time()
             print(end - start)
         
-    def figure_generation(self):
+    def figure_generation(self,exp_img):
         #self.input_dir = input_dir_img
+        self.exp_img = exp_img
         self.output_folder = os.path.join(self.structure_dir, 'defocus_images')    # Name of the folder to save the images
         #/home/thiago/Desktop/Argonne/ingrained_test/Cif_model_examples/Cif_model_examples/test/test_new_script/output/Pt_6layer_modified/img'
         # Create the output folder if it doesn't exist
@@ -264,14 +265,22 @@ class DrProbe():
                 self.dat_file_path = os.path.join(self.structure_img_dir, dat_file)
                 self.dat_file_data = np.fromfile(self.dat_file_path, dtype=np.float32)
                 
-                self.dat_file_data_r = np.reshape(self.dat_file_data, (850, 850))
+                self.dat_file_data_r = np.reshape(self.dat_file_data, self.exp_img.shape) #was (850, 850), but we need generalized shape
+                self.dat_file_data_r = cv2.flip(self.dat_file_data_r, 0)
                 self.scaled = self.dat_file_data_r * 255  # Scale the data to the range of 0-255
-                plt.axis('off')  # Turn off the axis; optional. Depends on your preference
-                plt.imshow(self.scaled, cmap='gray')
-                # dont set the title to ensure a pure figure
-                # plt.title(self.img_file_name)  # Set the title of the figure
+
+
                 self.save_path = os.path.join(self.output_folder, f"{self.img_file_name}.png")
-                plt.savefig(self.save_path,bbox_inches='tight', pad_inches=0)  # Save the figure as a PNG 
+                plt.imsave(self.save_path,self.scaled)
+
+                # plt.figure(figsize=(4,3), dpi=45)
+                # plt.axis('off')  # Turn off the axis; optional. Depends on your preference
+                # plt.imshow(self.scaled, cmap='gray')
+                # # dont set the title to ensure a pure figure
+                # # plt.title(self.img_file_name)  # Set the title of the figure
+                # self.save_path = os.path.join(self.output_folder, f"{self.img_file_name}.png")
+                
+                # plt.savefig(self.save_path,bbox_inches='tight', pad_inches=0)  # Save the figure as a PNG 
 
                 for defocus, value in self.dict_paras.items():
                     if value.get('img_name') == self.img_file_name:
@@ -328,13 +337,16 @@ class DrProbe():
             return 1 - ssim(img1, img2, data_range=im_max - im_min)  # You need to import the ssim function
 
     def crop_img(self,dr_probe_img):
+        '''
+        only need to crop when ratio(exp img) != ratio(cell, or simulated img)
+        '''
         simulated_blobs = blob_dog(dr_probe_img, max_sigma=30, threshold=0.1)
         simulated_central_point = np.mean(simulated_blobs, axis=0)[:2].astype(int)
         # Specify the central point (201, 191)
         center_x, center_y = simulated_central_point[1],simulated_central_point[0]
         # Specify the desired width and height of the cropped region
-        desired_width = 155  # For example
-        desired_height = 116  # Corresponding to 4:3 aspect ratio
+        desired_width = self.exp_img.shape[1]  # must be same as exp image pixels
+        desired_height = self.exp_img.shape[0]  # Corresponding to 4:3 aspect ratio
         # Calculate the top-left corner coordinates of the cropped region
         start_x = max(0, center_x - desired_width // 2)
         start_y = max(0, center_y - desired_height // 2)
@@ -347,6 +359,9 @@ class DrProbe():
         plt.imshow(cropped_image,cmap='gray')
         plt.axis('off')
         plt.show()
+
+        cropped_image = dr_probe_img
+        start_x,start_y, actual_width, actual_height = 0,0,180,135
         return cropped_image, [start_x,start_y, actual_width, actual_height]
 
     def zoom_img(self,img,zoom_factor):
@@ -379,7 +394,7 @@ class DrProbe():
         angle = x0[3]
         img,exp_img = args
         # modify img
-        # cropped_img, start_x,start_y, actual_width, actual_height = self.crop_img(img)
+        # img, start_x,start_y, actual_width, actual_height = self.crop_img(img)
         zoomed_img = self.zoom_img(img,zoom_factor=zoom_factor)
         translated_img = self.translate_img(zoomed_img,delta_x,delta_y)
         rotated_img = self.rotate_img(translated_img,angle)
@@ -389,18 +404,18 @@ class DrProbe():
         # print(f'zoom_factor:{zoom_factor}, delta_x:{delta_x},delta_y:{delta_y},angle:{angle},mismatch:{1-ssim_value} ')
         return 1-ssim_value
     
-    def optimize_postprocess(self,img,exp_img):
+    def optimize_postprocess(self,img):
         #find optimized crop+zoom+rotate+translation paras for a certain defocus img
 
         # Initialize an empty list to store the iterations
         initial_x0 = [1.01,1,1,1. ]
-        bounds_x0 = (
-            (0.8,1.2),
-            (-15,15),
-            (-15,15),
-            (-5.0,5.0)
+        bounds_x0 = ( # should be variable in input.yaml, cuz all values based on initial guess results. e.g. initial guess gives optimized zoom factor=1.46, then give a boundary like 1.2~1.7
+            (0.8,1.8),
+            (-10,15),
+            (-10,15),
+            (-6.0,6.0)
         )
-        res = differential_evolution(self.evaluate_mismatch, args=(img,exp_img,), bounds=bounds_x0,integrality=[0,1,1,0],disp=True)
+        res = differential_evolution(self.evaluate_mismatch, args=(self.img,self.exp_img, ), bounds=bounds_x0,integrality=[0,1,1,0],disp=True)
         return res
 
     def optimize_all(self,exp_img):
@@ -408,10 +423,12 @@ class DrProbe():
         self.exp_img = exp_img
         for defocus, value in self.dict_paras.items():
             img_file_path = self.dict_paras[defocus]['img_file_path']
-            img = cv2.imread(img_file_path, cv2.IMREAD_GRAYSCALE)
+            self.img = cv2.imread(img_file_path, cv2.IMREAD_GRAYSCALE)
             # crop doesnt require optimization, so put it before zoom/translation optimization
-            cropped_image, crop_factor = self.crop_img(img)
-            res = self.optimize_postprocess(cropped_image, exp_img)
+            print(self.img.shape, self.exp_img.shape)
+            self.img, crop_factor = self.crop_img(self.img)
+            print(self.img.shape, self.exp_img.shape)
+            res = self.optimize_postprocess(self.img)
             self.dict_paras[defocus]['crop_factor'] = crop_factor
             self.dict_paras[defocus]['zoom_factor'] = res.x[0]
             self.dict_paras[defocus]['delta_x'] = int(res.x[1])
