@@ -84,7 +84,7 @@ def make_objects(i_dict):
     print(f"Energy code: {energy_pkg}")
 
     # make experimental_simulation object(s)
-    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'XANES', 'XRD']
+    exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'XANES', 'XRD', 'DR_PROBE'] # DR_PROBE related is being added by yuxin
     if 'exp_sim_1' in i_dict:
         if i_dict['exp_sim_1'] in exp_sim_methods:
             method_1 = i_dict['exp_sim_1']
@@ -103,6 +103,9 @@ def make_objects(i_dict):
             if method_1 == "XRD":
                 Xsim1_params = get_xrd_params(i_dict, 'exp_sim_1_params')
                 Xsim_1 = experimental_simulation.xrd_of_model(Xsim1_params)
+            if method_1 == "DR_PROBE":
+                Xsim1_params = get_dr_probe_params(i_dict, 'exp_sim_1_params') # get_dr_probe_params function is at bottom of inputs.py
+                Xsim_1 = experimental_simulation.dr_probe_of_model(Xsim1_params) # dr_probe_of_model at bottom of experimental_simulation.py
             all_objects['Xsim_1'] = Xsim_1
 
     # Get the MOEA and search mode based on provided inputs
@@ -655,4 +658,29 @@ def connect_to_mongodb(host='localhost', port=27017, username=None,
     client = MongoClient(f'mongodb://{username}:{password}@{host}:{port}')
     return client[database]
 
-def get_dr_probe_params(i_dict)
+def get_dr_probe_params(i_dict,exp_sim_params_id):
+    """
+    Reads the i_dict and returns dr_probe_params for experimental simulation method
+    that is used in search (if provided). Does not mention defaults if not
+    provided in input file. That happens in experimental_simulation module
+
+    Arguments:
+
+        i_dict (dict): dictionary of all the user-provided input parameters
+         read from yaml file
+
+        exp_sim_params_id (str): `'exp_sim_1_params'` if only one experimetnal
+         simulation method.
+
+    Returns:
+
+        dict: all the determined parameters
+
+    !!! TODO
+
+        Add `'exp_sim_2_params'` if 2 sim methods are used
+    """
+    dr_probe_params = i_dict[exp_sim_params_id]
+    dr_probe_params['main_path'] = i_dict['main_path'] # not sure what this does # refer to xx/examples/your_working_path
+    print(dr_probe_params)
+    return dr_probe_params

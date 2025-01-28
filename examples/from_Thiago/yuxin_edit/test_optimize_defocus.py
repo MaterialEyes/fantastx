@@ -4,7 +4,7 @@ import cv2
 #initiate
 dr_probe = DrProbe()
 parent_folder = os.getcwd()
-parent_folder =  '/home/share/g-chan/yuxin_fantastx'
+parent_folder =  '/home/share/g-chan/yuxin_all/fantastx_examples/test_buildcell'
 #the input folder and .cel file should be prepared in advance
 input_dir_path = f'{parent_folder}/input/'
 output_dir_path = f'{parent_folder}/output/'

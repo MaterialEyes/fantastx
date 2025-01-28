@@ -14,8 +14,8 @@ from skimage.feature import blob_dog, blob_log
 from skimage.transform import rotate
 import matplotlib.pyplot as plt
 from scipy.optimize import differential_evolution
-
-
+import subprocess
+from pathlib import Path
 class DrProbe():
 
     def __init__(self):
@@ -85,6 +85,18 @@ class DrProbe():
         #drp.commands.cellmuncher(cif_file=input, output=file='pt-ceo2-thickness.cel')
 
         # Read lattice parameters from cel filed
+        self.cif_files = [f for f in os.listdir(input_dir_path) if f.endswith(".cif")] # can be only 1 file
+        print(self.cif_files)
+        directory = Path(input_dir_path)
+        # Rename all .cif files to .cel
+        new_files = []
+        for file in directory.glob("*.cif"):
+            new_file = file.with_suffix(".cel")
+            new_files.append(new_file)
+            print(new_file)
+
+        subprocess.run(['BuildCell', f'--cif={input_dir_path}{self.cif_files[0]}', f'--output={new_files[0]}'])
+
 
         self.cel_files = [f for f in os.listdir(input_dir_path) if f.endswith(".cel")]
 

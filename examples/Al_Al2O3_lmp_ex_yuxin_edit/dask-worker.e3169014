@@ -1,0 +1,29 @@
+2024-12-10 14:34:58,090 - distributed.nanny - INFO -         Start Nanny at: 'tcp://172.17.1.224:36109'
+2024-12-10 14:35:00,622 - distributed.worker - INFO -       Start worker at:   tcp://172.17.1.224:39230
+2024-12-10 14:35:00,622 - distributed.worker - INFO -          Listening to:   tcp://172.17.1.224:39230
+2024-12-10 14:35:00,622 - distributed.worker - INFO -           Worker name:               PBSCluster-0
+2024-12-10 14:35:00,622 - distributed.worker - INFO -          dashboard at:         172.17.1.224:41176
+2024-12-10 14:35:00,622 - distributed.worker - INFO - Waiting to connect to: tcp://172.17.100.136:44473
+2024-12-10 14:35:00,622 - distributed.worker - INFO - -------------------------------------------------
+2024-12-10 14:35:00,622 - distributed.worker - INFO -               Threads:                          1
+2024-12-10 14:35:00,622 - distributed.worker - INFO -                Memory:                   7.45 GiB
+2024-12-10 14:35:00,622 - distributed.worker - INFO -       Local Directory: /tmp/3169014.sched5.carboncluster/dask-scratch-space/worker-ayqlwp73
+2024-12-10 14:35:00,622 - distributed.worker - INFO - -------------------------------------------------
+2024-12-10 14:35:01,519 - distributed.worker - INFO - Starting Worker plugin shuffle
+2024-12-10 14:35:01,519 - distributed.worker - INFO -         Registered to: tcp://172.17.100.136:44473
+2024-12-10 14:35:01,520 - distributed.worker - INFO - -------------------------------------------------
+2024-12-10 14:35:01,520 - distributed.core - INFO - Starting established connection to tcp://172.17.100.136:44473
+2024-12-10 14:35:20,623 - distributed.core - INFO - Event loop was unresponsive in Worker for 18.46s.  This is often caused by long-running GIL-holding functions or moving large chunks of data. This can cause timeouts and instability.
+2024-12-10 14:35:44,963 - distributed.worker - WARNING - Compute Failed
+Key:       full_eval-4c29ba92f605c81623f05545b13ee903
+Function:  full_eval
+args:      (<fx19.structure_record.model object at 0x2ab9fbc84a60>, <fx19.energy.lammps_code object at 0x2ab9fbcb81c0>, <fx19.experimental_simulation.gb_ingrained object at 0x2ab9fbcb8370>)
+kwargs:    {}
+Exception: "FileNotFoundError(2, 'No such file or directory')"
+
+/home/yuxin.chang/miniconda3/envs/fantastx/lib/python3.9/site-packages/pymatgen/core/structure.py:789: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn(f"Not all sites have property {key}. Missing values are set to None.")
+/home/yuxin.chang/miniconda3/envs/fantastx/lib/python3.9/site-packages/pymatgen/core/structure.py:789: UserWarning: Not all sites have property selective_dynamics. Missing values are set to None.
+  warnings.warn(f"Not all sites have property {key}. Missing values are set to None.")
+2024-12-10 14:36:39,263 - distributed._signals - INFO - Received signal SIGTERM (15)
+2024-12-10 14:36:39,264 - distributed.nanny - INFO - Closing Nanny at 'tcp://172.17.1.224:36109'. Reason: signal-15

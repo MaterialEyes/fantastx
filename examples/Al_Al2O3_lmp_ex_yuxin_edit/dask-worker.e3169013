@@ -1,0 +1,21 @@
+2024-12-10 14:34:57,090 - distributed.nanny - INFO -         Start Nanny at: 'tcp://172.17.1.224:45201'
+2024-12-10 14:34:59,501 - distributed.worker - INFO -       Start worker at:   tcp://172.17.1.224:46122
+2024-12-10 14:34:59,501 - distributed.worker - INFO -          Listening to:   tcp://172.17.1.224:46122
+2024-12-10 14:34:59,501 - distributed.worker - INFO -           Worker name:               PBSCluster-3
+2024-12-10 14:34:59,501 - distributed.worker - INFO -          dashboard at:         172.17.1.224:36156
+2024-12-10 14:34:59,501 - distributed.worker - INFO - Waiting to connect to: tcp://172.17.100.136:44473
+2024-12-10 14:34:59,501 - distributed.worker - INFO - -------------------------------------------------
+2024-12-10 14:34:59,501 - distributed.worker - INFO -               Threads:                          1
+2024-12-10 14:34:59,501 - distributed.worker - INFO -                Memory:                   7.45 GiB
+2024-12-10 14:34:59,501 - distributed.worker - INFO -       Local Directory: /tmp/3169013.sched5.carboncluster/dask-scratch-space/worker-u8ubdx9w
+2024-12-10 14:34:59,501 - distributed.worker - INFO - -------------------------------------------------
+2024-12-10 14:35:00,951 - distributed.worker - INFO - Starting Worker plugin shuffle
+2024-12-10 14:35:00,951 - distributed.worker - INFO -         Registered to: tcp://172.17.100.136:44473
+2024-12-10 14:35:00,952 - distributed.worker - INFO - -------------------------------------------------
+2024-12-10 14:35:00,952 - distributed.core - INFO - Starting established connection to tcp://172.17.100.136:44473
+2024-12-10 14:35:20,616 - distributed.core - INFO - Event loop was unresponsive in Worker for 19.06s.  This is often caused by long-running GIL-holding functions or moving large chunks of data. This can cause timeouts and instability.
+2024-12-10 14:36:39,150 - distributed._signals - INFO - Received signal SIGTERM (15)
+2024-12-10 14:36:39,151 - distributed.nanny - INFO - Closing Nanny at 'tcp://172.17.1.224:45201'. Reason: signal-15
+2024-12-10 14:36:39,152 - distributed.nanny - INFO - Nanny asking worker to close. Reason: signal-15
+/home/yuxin.chang/miniconda3/envs/fantastx/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 6 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

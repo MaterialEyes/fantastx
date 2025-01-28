@@ -282,8 +282,7 @@ class structure_constraints(object):
                        'range as endpoints (inclusive). '
                        'Eg: ["Cd1Te4", "Cd7Te3"]')
                 self.comp_endpoints = None
-            self.comp_endpoints = [Composition[comp] for comp in \
-                                                str_record['comp_endpoints']]
+            # self.comp_endpoints = [Composition[comp] for comp in str_record['comp_endpoints']]
 
         # ########################bulk parameters begin########################
         if self.shape == 'bulk':

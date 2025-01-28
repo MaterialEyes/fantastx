@@ -124,7 +124,7 @@ elif workers['cluster'] == 'PBS':
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
                              job_extra_directives=workers['job_extra_directives'],
-                             job_script_prologue=workers['env_extra'],
+                             job_script_prologue=workers['job_script_prologue'],
                              job_directives_skip=workers['job_directives_skip'])
     print("Job script for dask-worker: \n", cluster_job.job_script())
     client = Client(cluster_job)
