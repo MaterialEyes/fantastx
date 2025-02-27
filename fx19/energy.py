@@ -74,8 +74,11 @@ class lammps_code(object):
         # default atom_style
         def_atom_style = 'charge'
         self.atom_style = def_atom_style
+        # print('energy_params',energy_params)
         if 'atom_style' in energy_params:
             self.atom_style = energy_params['atom_style']
+
+        self.resubmit = 0
 
     def prep_job_folder(self, model, reg_id):
         """
@@ -234,6 +237,10 @@ class lammps_code(object):
                 relaxed_astr.sort()
                 self.move_atoms_inside(relaxed_astr)
                 relaxed_astr.to(filename=POSCAR_relaxed, fmt='poscar')
+                #TODO: add .cif output to make DRPROBE readable structure file
+                #DONE. need test
+                relaxed_astr.to(filename=relax_path + '/POSCAR_relaxed.cif', fmt='cif')
+
                 model.astr = relaxed_astr
                 # NOTE: Do not overwrite model.astr as it could be used in Xsim(s)
                 # Save the grain boundary as a model attribute
@@ -538,7 +545,7 @@ class vasp_code(object):
         # DU
         # Save species names and their chemical potentials for identification
         self.sym_mu_dict = {}
-        for key, value in energy_params['element_syms'].items():
+        for key, value in ['element_syms'].items():
             self.sym_mu_dict[value] = energy_params['mu'][key]
 
         # parameters for LDAU calculations

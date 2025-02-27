@@ -1904,8 +1904,9 @@ class dr_probe_of_model(object):
         self.msa_prm_gen = drp.msaprm.MsaPrm()
         self.wav_prm_gen = drp.wavimgprm.WavimgPrm()
 
-        self.input_dir = r'{}'.format(dr_probe_params['input_dir_path'])
-        self.output_dir = r'{}'.format(dr_probe_params['output_dir_path'])
+        self.main_path = dr_probe_params['main_path']
+
+
 
         self.defoci = dr_probe_params['defoci_vals']
         self.dict_paras = {val: {} for val in dr_probe_params['defoci_vals']}
@@ -1963,8 +1964,9 @@ class dr_probe_of_model(object):
 
         # Read lattice parameters from cel filed
 
-        # TODO read structure files (lammps -> .cif -> .cel)
+        # TODO read structure files (lammps -> .cif -> .cel) #already done
         self.cif_files = [f for f in os.listdir(input_dir_path) if f.endswith(".cif")] # can be only 1 file
+        # TODO if len(self.cif_files)!=1: pop error
         print(self.cif_files)
         directory = Path(input_dir_path)
         # Rename all .cif files to .cel
@@ -2383,6 +2385,17 @@ class dr_probe_of_model(object):
         # #the input folder and .cel file should be prepared in advance
         # input_dir_path = f'{parent_folder}/input/'
         # output_dir_path = f'{parent_folder}/output/'
+
+        #TODO change the format similar to self.input_dir = main_path + '/calcs/' + str(model.label) + '/pdf_sim'
+        #DONE. need to test
+        # self.input_dir = r'{}'.format(dr_probe_params['input_dir_path'])
+        self.input_dir = self.main_path + '/calcs/' + str(model.label) + '/relax'
+
+        #TODO here REDEFINE OUTPUT_DIR by input_dir
+        self.output_dir = self.input_dir + '/dr_probe_output'
+
+        # TO DO add model path as parameter which direct to input cif/cel files
+        # TODO and make output the path = /parentfolder/xxx.cif
         self.inputs() # previous parameters are deleted cuz they are initialized in __init__
 
         self.run_dr_probe() # previous parameters are deleted cuz they are initialized in __init__

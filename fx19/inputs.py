@@ -465,6 +465,10 @@ def get_energy_params(i_dict):
     else:
         energy_params['files_path'] = i_dict['inputs']['energy_files_path']
 
+    # for lammps code: need to specify atom_style:
+    if energy_params['energy_code']=='lammps' and'atom_style' in i_dict:
+        energy_params['atom_style'] = i_dict['atom_style']
+
     return energy_params
 
 
@@ -681,6 +685,7 @@ def get_dr_probe_params(i_dict,exp_sim_params_id):
         Add `'exp_sim_2_params'` if 2 sim methods are used
     """
     dr_probe_params = i_dict[exp_sim_params_id]
-    dr_probe_params['main_path'] = i_dict['main_path'] # not sure what this does # refer to xx/examples/your_working_path
+    dr_probe_params['main_path'] = i_dict['main_path']
+    # dr_probe_params['model_files_path'] = i_dict['model_files_path'] # not sure what this does # refer to xx/examples/your_working_path
     print(dr_probe_params)
     return dr_probe_params

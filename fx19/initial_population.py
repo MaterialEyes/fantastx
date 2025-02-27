@@ -233,11 +233,18 @@ class make_random_model(object):
         max_dia = self.max_dia
         max_bond_dist = max(self.max_dist_dict.values())
 
+        #TODO: fix structure_record.check_composition
+        '''
         while True:
             # get species and make an empty lattice box
             species, cum_sum = self.get_species_list()
+            print(species)
+            print(structure_record.check_composition(species))
             if structure_record.check_composition(species):
                 break
+        '''
+        species, cum_sum = self.get_species_list()
+        
         latt = Lattice.from_parameters(max_dia, max_dia, max_dia, 90, 90, 90)
 
         atoms_too_close = True
@@ -670,7 +677,8 @@ class make_random_model(object):
                                                 species_added, inv_syms,
                                                 self.max_dist_dict,
                                                 None, True, available_bonds)
-            num_new_bonds = sum([len(i) for i in new_bonds.values()])
+            if new_bonds is not None:
+                num_new_bonds = sum([len(i) for i in new_bonds.values()])
             if new_bonds is None or num_new_bonds > self.max_bonds[new_sps]:
                 failed_dist_attempts += 1
                 if failed_dist_attempts > self.dist_checks:
