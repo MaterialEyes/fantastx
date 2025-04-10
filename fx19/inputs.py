@@ -686,6 +686,6 @@ def get_dr_probe_params(i_dict,exp_sim_params_id):
     """
     dr_probe_params = i_dict[exp_sim_params_id]
     dr_probe_params['main_path'] = i_dict['main_path']
-    # dr_probe_params['model_files_path'] = i_dict['model_files_path'] # not sure what this does # refer to xx/examples/your_working_path
+    dr_probe_params['model_files_path'] = i_dict['inputs']['model_files_path'] # not sure what this does # refer to xx/examples/your_working_path
     print(dr_probe_params)
     return dr_probe_params

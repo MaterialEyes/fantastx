@@ -86,6 +86,8 @@ from scipy.optimize import differential_evolution
 import subprocess
 from pathlib import Path
 
+import traceback
+
 DEBUG = True
 
 
@@ -1887,10 +1889,12 @@ class dr_probe_of_model(object):
     def __init__(self, dr_probe_params):
 
         self.name = 'DR_PROBE'
-        
+
+        self.exp_img = cv2.imread(dr_probe_params['exp_img_path'], cv2.IMREAD_GRAYSCALE)
+
         # Initialize constant parameters
         self.ht = 300;                   # High tension is 300 kV
-        self.nx = 850; self.ny = 850;         # All images, wavefunctions, etc. will be 512 x 512 pixels
+        self.nx = self.exp_img.shape[1] ; self.ny = self.exp_img.shape[0];         #yuxin-edit:same pixel as exp img
         self.nz = 100;                 # The structures will be cut into 100 slices
         self.dwf = True; self.buni = 0.005;   # Debye-Wallar factor on and set B = 0.5 Ang^2
         #dwf = True; buni = 0.000;   # Debye-Wallar factor on and set B = 0.5 Ang^2
@@ -1906,11 +1910,13 @@ class dr_probe_of_model(object):
 
         self.main_path = dr_probe_params['main_path']
 
-
-
         self.defoci = dr_probe_params['defoci_vals']
         self.dict_paras = {val: {} for val in dr_probe_params['defoci_vals']}
+        
+        self.bounds_x0 = dr_probe_params['bounds_x0']
 
+        
+        
     def inputs(self): # no more (self,dr_probe_params) cuz dr_probe_params are assgined in __init__
         #%% 1.2) Specify input and output directories
 
@@ -1927,6 +1933,7 @@ class dr_probe_of_model(object):
         #self.output_dir = r'{}'.format(dr_probe_params[output_dir_path])
 
         # initialize output dir, incase run in one dir repeatly
+        os.makedirs(self.input_dir, exist_ok=True)
         shutil.rmtree(self.output_dir,ignore_errors=True)
         os.makedirs(self.output_dir, exist_ok=True)
         # Create the full path to the SimulationCheck directory
@@ -1965,18 +1972,17 @@ class dr_probe_of_model(object):
         # Read lattice parameters from cel filed
 
         # TODO read structure files (lammps -> .cif -> .cel) #already done
-        self.cif_files = [f for f in os.listdir(input_dir_path) if f.endswith(".cif")] # can be only 1 file
+        self.cif_files = [f for f in os.listdir(self.relax_dir) if f.endswith(".cif")] # can be only 1 file
         # TODO if len(self.cif_files)!=1: pop error
-        print(self.cif_files)
-        directory = Path(input_dir_path)
-        # Rename all .cif files to .cel
+        print(self.cif_files)        # Rename all .cif files to .cel
         new_files = []
-        for file in directory.glob("*.cif"):
-            new_file = file.with_suffix(".cel")
+        for file in self.cif_files:
+            new_file = file.replace("cif", "cel")
             new_files.append(new_file)
             print(new_file)
 
-        subprocess.run(['BuildCell', f'--cif={input_dir_path}{self.cif_files[0]}', f'--output={new_files[0]}'])
+        print(['BuildCell', f'--cif={self.relax_dir}/{self.cif_files[0]}', f'--output={self.input_dir}/{new_files[0]}'])
+        subprocess.run(['BuildCell', f'--cif={self.relax_dir}/{self.cif_files[0]}', f'--output={self.input_dir}/{new_files[0]}'])
 
 
         self.cel_files = [f for f in os.listdir(self.input_dir) if f.endswith(".cel")] # change from dr_probe_params[input_dir_path]) to self.input_dir, not sure if any error will occur here
@@ -2013,7 +2019,7 @@ class dr_probe_of_model(object):
                                         5: (self.Cs, 0),         # Cs = -13 um
                                         11: (self.C5, 0)}        # C5 = 5 mm         
         #self.msa_prm_gen.save_msa_prm(r'home/thiago/Desktop/Argonne/ingrained_test/Cif_model_examples/Cif_model_examples/test/test_new_script/output/init_prm/MsaPrm_parallel_Initialized.prm') # Save the initailized MSA prm file
-        self.msa_prm_gen.save_msa_prm(os.path.join(output_dir_path, 'init_prm', 'MsaPrm_parallel_Initialized.prm'))
+        self.msa_prm_gen.save_msa_prm(os.path.join(self.output_dir, 'init_prm', 'MsaPrm_parallel_Initialized.prm'))
 
         # Initizliae general WavImg Parameter File
         #self.wav_prm_gen = drp.wavimgprm.WavimgPrm()
@@ -2032,7 +2038,7 @@ class dr_probe_of_model(object):
                                         5: (self.Cs, 0),         # Cs = -13 um
                                         11: (self.C5, 0)}        # C5 = 5 mm    
         #self.wav_prm_gen.save_wavimg_prm(r'home/thiago/Desktop/Argonne/ingrained_test/Cif_model_examples/Cif_model_examples/test/test_new_script/output/init_prm/WavPrm_Initialized.prm') # Save the initailized WavImg prm file)
-        self.wav_prm_gen.save_wavimg_prm(os.path.join(output_dir_path, 'init_prm', 'MsaPrm_parallel_Initialized.prm'))
+        self.wav_prm_gen.save_wavimg_prm(os.path.join(self.output_dir, 'init_prm', 'MsaPrm_parallel_Initialized.prm'))
     
     def run_dr_probe(self):
         start = time.time()
@@ -2157,10 +2163,10 @@ class dr_probe_of_model(object):
                 self.dat_file_path = os.path.join(self.structure_img_dir, dat_file)
                 self.dat_file_data = np.fromfile(self.dat_file_path, dtype=np.float32)
                 
-                self.dat_file_data_r = np.reshape(self.dat_file_data, (850, 850))
+                self.dat_file_data_r = np.reshape(self.dat_file_data, self.exp_img.shape) #in general should be self.nx and self.ny
                 self.scaled = self.dat_file_data_r * 255  # Scale the data to the range of 0-255
                 plt.axis('off')  # Turn off the axis; optional. Depends on your preference
-                plt.imshow(self.scaled, cmap='gray')
+                # plt.imshow(self.scaled, cmap='gray')
                 # dont set the title to ensure a pure figure
                 # plt.title(self.img_file_name)  # Set the title of the figure
                 self.save_path = os.path.join(self.output_folder, f"{self.img_file_name}.png")
@@ -2173,7 +2179,6 @@ class dr_probe_of_model(object):
                 self.list_img_path.append(self.save_path)
                 plt.show() # Remove this line if you do not want the output figures to be shown 
                 plt.close()  # Close the current figure
-        # print(self.list_figure)
 
     def scale_pixels(self,img, mode=None):
             """
@@ -2219,6 +2224,13 @@ class dr_probe_of_model(object):
             img2 = self.scale_pixels(img2, mode="rescale")
             im_max, im_min = max(img1.max(), img2.max()), min(img1.min(), img2.min())
             return 1 - ssim(img1, img2, data_range=im_max - im_min)  # You need to import the ssim function
+    
+    def get_background_color(self,img):
+        """Find the most common pixel intensity (background color)."""
+        flat_image = img.flatten()  # Flatten to 1D
+        most_common = Counter(flat_image).most_common(1)[0][0]  # Get most frequent value
+        print('get_background_color',most_common)
+        return most_common
 
     def crop_img(self,dr_probe_img):
         simulated_blobs = blob_dog(dr_probe_img, max_sigma=30, threshold=0.1)
@@ -2226,8 +2238,8 @@ class dr_probe_of_model(object):
         # Specify the central point (201, 191)
         center_x, center_y = simulated_central_point[1],simulated_central_point[0]
         # Specify the desired width and height of the cropped region
-        desired_width = 155  # For example
-        desired_height = 116  # Corresponding to 4:3 aspect ratio
+        desired_height = self.exp_img.shape[0] # in cv2 image.shape: (height, width, channels)
+        desired_width = self.exp_img.shape[1]
         # Calculate the top-left corner coordinates of the cropped region
         start_x = max(0, center_x - desired_width // 2)
         start_y = max(0, center_y - desired_height // 2)
@@ -2247,22 +2259,28 @@ class dr_probe_of_model(object):
         zoomed_img = cv2.resize(zoomed_img,(img.shape[1],img.shape[0]))
         return zoomed_img
     
+    ''' if fill blank with the pixels outside boundary:
     def translate_img(self,img,delta_x,delta_y):
-        height, width = img.shape[:2]
-
         # Move the first 5 pixels along the x-axis to the end of the image
         shifted_image_x = np.concatenate((img[:, delta_x:], img[:, :delta_x]), axis=1)
 
         # Move the first 7 pixels along the y-axis to the end of the image
         shifted_image_xy = np.concatenate((shifted_image_x[delta_y:], shifted_image_x[:delta_y]), axis=0)
         return shifted_image_xy
+    '''
+    # fill blank with background color
+    def translate_img(self,img,delta_x,delta_y):
+        M = np.float32([[1, 0, delta_x], [0, 1, delta_y]])
+        # Perform the translation along both axes
+        translated_img = cv2.warpAffine(img, M, (img.shape[1], img.shape[0]), borderValue=int(self.background_color))
+        return translated_img
     
     def rotate_img(self,img,angle):
         height, width = img.shape[:2]
         # Calculate the rotation matrix
         rotation_matrix = cv2.getRotationMatrix2D((width/2, height/2), angle, 1)
         # Perform the rotation
-        rotated_img = cv2.warpAffine(img, rotation_matrix, (width, height),borderValue=int(img[0][0]))
+        rotated_img = cv2.warpAffine(img, rotation_matrix, (width, height),borderValue=int(self.background_color))
         return rotated_img
 
     def evaluate_mismatch(self,x0,*args):
@@ -2270,42 +2288,51 @@ class dr_probe_of_model(object):
         delta_x = int(x0[1])
         delta_y = int(x0[2])
         angle = x0[3]
-        img,exp_img = args
+        img = args[0]
+        print('type(img)', type(img))
         # modify img
         # cropped_img, start_x,start_y, actual_width, actual_height = self.crop_img(img)
         zoomed_img = self.zoom_img(img,zoom_factor=zoom_factor)
+        print('zoomed_img shape', zoomed_img.shape)
         translated_img = self.translate_img(zoomed_img,delta_x,delta_y)
+        print('translated_img shape', translated_img.shape)
         rotated_img = self.rotate_img(translated_img,angle)
+        print('rotated_img shape', rotated_img.shape)
+        print('self.exp_img.shape', self.exp_img.shape)
         # calc mismatch = 1-ssim
-        (ssim_value, diff) = ssim(rotated_img, exp_img, full=True)
+        (ssim_value, diff) = ssim(rotated_img, self.exp_img, full=True)
+        print('ssim_value',ssim_value)
+        print('1-ssim_value',1-ssim_value)
         # print(x0)
         # print(f'zoom_factor:{zoom_factor}, delta_x:{delta_x},delta_y:{delta_y},angle:{angle},mismatch:{1-ssim_value} ')
         return 1-ssim_value
     
-    def optimize_postprocess(self,img,exp_img):
+    def optimize_postprocess(self,img):
         #find optimized crop+zoom+rotate+translation paras for a certain defocus img
 
-        # Initialize an empty list to store the iterations
-        initial_x0 = [1.01,1,1,1. ]
-        bounds_x0 = (
-            (0.8,1.2),
-            (-15,15),
-            (-15,15),
-            (-5.0,5.0)
-        )
-        res = differential_evolution(self.evaluate_mismatch, args=(img,exp_img,), bounds=bounds_x0,integrality=[0,1,1,0],disp=True)
+        res = differential_evolution(self.evaluate_mismatch, args=(img,), bounds=self.bounds_x0,integrality=[0,1,1,0],disp=True)
         return res
 
-    def optimize_all(self,exp_img):
+    def optimize_all(self):
         # find optimized defocus para, in which we also find optimized crop+zoom+rotate+translation paras for each defocus para
-        self.exp_img = exp_img
         for defocus, value in self.dict_paras.items():
             img_file_path = self.dict_paras[defocus]['img_file_path']
+            print('img_file_path', img_file_path)
             img = cv2.imread(img_file_path, cv2.IMREAD_GRAYSCALE)
+            # Get background color for filling translation blanks
+            self.background_color = self.get_background_color(img)
+            print('original img shape ', img.shape)
+            img = cv2.flip(img, 0) # added after thiago generated image. figured out all image generated before is upside down
+            print('flipped img shape ', img.shape)
+            img = cv2.resize(img,(self.exp_img.shape[1],self.exp_img.shape[0]))
+            print('resized img shape ', img.shape)
             # crop doesnt require optimization, so put it before zoom/translation optimization
-            cropped_image, crop_factor = self.crop_img(img)
-            res = self.optimize_postprocess(cropped_image, exp_img)
-            self.dict_paras[defocus]['crop_factor'] = crop_factor
+            #Apr 2, 2025: discard cropping
+            # cropped_image, crop_factor = self.crop_img(img)
+            # print('cropped_image',cropped_image, 'crop_factor',crop_factor,'cropped img shape', cropped_image.shape)
+            res = self.optimize_postprocess(img)
+            print('res',res)
+            # self.dict_paras[defocus]['crop_factor'] = crop_factor
             self.dict_paras[defocus]['zoom_factor'] = res.x[0]
             self.dict_paras[defocus]['delta_x'] = int(res.x[1])
             self.dict_paras[defocus]['delta_y'] = int(res.x[2])
@@ -2317,13 +2344,18 @@ class dr_probe_of_model(object):
         for defocus, value in self.dict_paras.items():
             img_file_path = self.dict_paras[defocus]['img_file_path']
             img = cv2.imread(img_file_path, cv2.IMREAD_GRAYSCALE)
-            [start_x,start_y, actual_width, actual_height] = self.dict_paras[defocus]['crop_factor']
+            # [start_x,start_y, actual_width, actual_height] = self.dict_paras[defocus]['crop_factor']
             zoom_factor = self.dict_paras[defocus]['zoom_factor']
             delta_x = self.dict_paras[defocus]['delta_x']
             delta_y = self.dict_paras[defocus]['delta_y']
             angle = self.dict_paras[defocus]['angle']
 
-            cropped_img = img[start_y:start_y + actual_height, start_x:start_x + actual_width]
+            # cropped_img = img[start_y:start_y + actual_height, start_x:start_x + actual_width]
+            print('during save_optimized_img')
+            self.background_color = self.get_background_color(img)
+            img = cv2.flip(img, 0)
+            img = cv2.resize(img,(self.exp_img.shape[1],self.exp_img.shape[0]))
+            cropped_img = img
             zoomed_img = self.zoom_img(cropped_img,zoom_factor=zoom_factor)
             translated_img = self.translate_img(zoomed_img,delta_x=delta_x,delta_y=delta_y)
             rotated_img = self.rotate_img(translated_img,angle=angle)
@@ -2389,10 +2421,11 @@ class dr_probe_of_model(object):
         #TODO change the format similar to self.input_dir = main_path + '/calcs/' + str(model.label) + '/pdf_sim'
         #DONE. need to test
         # self.input_dir = r'{}'.format(dr_probe_params['input_dir_path'])
-        self.input_dir = self.main_path + '/calcs/' + str(model.label) + '/relax'
+        self.relax_dir = self.main_path + '/calcs/' + str(model.label) + '/relax'
+        self.input_dir = self.relax_dir + '/dr_probe_input'
 
         #TODO here REDEFINE OUTPUT_DIR by input_dir
-        self.output_dir = self.input_dir + '/dr_probe_output'
+        self.output_dir = self.relax_dir + '/dr_probe_output'
 
         # TO DO add model path as parameter which direct to input cif/cel files
         # TODO and make output the path = /parentfolder/xxx.cif
@@ -2401,9 +2434,10 @@ class dr_probe_of_model(object):
         self.run_dr_probe() # previous parameters are deleted cuz they are initialized in __init__
 
         self.figure_generation()
+        print('figure_generation Done')
 
-        #exp_img = cv2.imread(f'{parent_folder}/denoised_13_rotated_cropped.jpg', cv2.IMREAD_GRAYSCALE)
-        self.optimize_all(exp_img) # should be from input.yaml TODO
+        self.optimize_all() # should be from input.yaml TODO
+        print('optimize_all Done')
         self.save_optimized_img()
         min_mismatch, best_paras = self.find_best_paras()
         if model.Xsim1 == 'DR_PROBE':
