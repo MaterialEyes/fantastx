@@ -16,7 +16,8 @@ from dask.distributed import Client
 # (Assuming max elapsed time for one calc)
 import dask
 import dask.distributed
-dask.config.set({'distributed.comm.timeouts.tcp': '3h'})
+dask.config.set({'distributed.comm.timeouts.tcp': '5h'})
+dask.config.set({'distributed.scheduler.worker-ttl': None})
 
 
 main_path = os.getcwd()
@@ -120,7 +121,9 @@ if workers['cluster'] == 'SLURM':
 elif workers['cluster'] == 'PBS':
     cluster_job = PBSCluster(cores=workers['num_cores'],
                              memory=workers['total_mem'],
+                             processes=workers['processes'],
                              account=workers['project_name'],
+                             queue=workers['submit_queue'],
                              interface=workers['node_type'],
                              walltime=workers['walltime'],
                              job_extra_directives=workers['job_extra_directives'],
