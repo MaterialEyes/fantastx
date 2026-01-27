@@ -112,7 +112,7 @@ def relax(model, reg_id, energy_code):
 
 
 def make_model(random_model_obj, evolve, select, pool, reg_id,
-               model_type='random', model=None):
+               model_type='random', model=None, nnoc_generator=None, nnoc_operators=None):
     """
     Makes a model from input, at random, or inherited from parents.
 
@@ -144,13 +144,19 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
             return 0
     # make new random model
     if model_type == 'random':
-        new_model = random_model_obj.random_model(reg_id)
+        if nnoc_generator is not None:
+            new_model = nnoc_generator.random_model(reg_id)
+        else:
+            new_model = random_model_obj.random_model(reg_id)
 
     # make new model from parents
     if model_type == 'evolved':
         model_is_unique = False
         while not model_is_unique:
-            new_model = evolve.get_model(select, pool, reg_id)
+            if nnoc_operators is not None:
+                new_model = nnoc_operators.get_model(select, pool, reg_id)
+            else:
+                new_model = evolve.get_model(select, pool, reg_id)
             if new_model is None:
                 continue
             # check redundancy of the new model with all previous models
@@ -158,7 +164,7 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
                 model_is_unique = pool.comparator.check_model_uniqueness(
                     new_model,
                     pool.all_models,
-                    exact=True)
+                    exact=False)
             else:
                 model_is_unique = True
         # add the new_model inheritance to select.all_parent_labels

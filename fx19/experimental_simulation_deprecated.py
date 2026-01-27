@@ -1,354 +1,77 @@
 from __future__ import division, unicode_literals, print_function
-import os
-import shutil
-import numpy as np
-from abc import ABC, abstractmethod
-import traceback
-
-# --- ADDED: Plotting Library ---
-import matplotlib.pyplot as plt
-
-# Scipy
-from scipy import interpolate, optimize, stats
-
-# Pymatgen
+import random
+from fx19 import distance_check as dc
+from scipy import optimize as scipy_optimize
 from pymatgen.core.structure import Structure
 from pymatgen.io.cif import CifWriter
-
-# Import the new Utils
+import matplotlib.pyplot as plt
 try:
-    from fx19 import Xsim_utils as Metrics
+    from pyobjcryst import loadCrystal
+    from diffpy.srfit.pdf import PDFContribution
+    from diffpy.srfit.pdf import DebyePDFGenerator, PDFGenerator
+    from diffpy.srfit.fitbase import Profile
+    from diffpy.srfit.fitbase import FitRecipe
 except ImportError:
-    print("Warning: fx19 module not found. Metrics utilities will fail.")
-    Metrics = None
+    print('Install Diffpy-CMI for PDF simulation. Otherwise ignore..')
 
-# ==============================================================================
-# EXTERNAL LIBRARY IMPORTS
-# ==============================================================================
+# For preprocessing experimental image
+# from skimage.transform import rescale
+try:
+    from skimage import restoration
+    from skimage.exposure import equalize_adapthist
+
+    from ingrained.structure import Bicrystal
+    from ingrained.optimize import CongruityBuilder
+    import ingrained.image_ops as iop
+    import cv2
+except ImportError:
+    print('Install scikit-image, Ingrained, opencv for TEM simulation.'
+          ' Otherwise ignore..')
+
+try:
+    from xtk import simulate, optimization, convolution, processing
+    from xtk import distance as xtk_distance
+except ImportError:
+    print("Install [xtk](https://github.com/MaterialEyes/xtk) to perform "
+          " XANES simulations.")
 
 try:
     import sys
     sys.path.insert(0, '/users/PAS3157/vsckolluru/software/GSAS-II')
     import GSASII.GSASIIscriptable as G2sc
-    GSAS_AVAILABLE = True
-except ImportError:
-    GSAS_AVAILABLE = False
+except:
+    print('Install GSASIIscriptable or change hard-coded system path '
+          'at experimental_simulation.py line 40 for powder diffraction '
+          'simulations. Otherwise ignore.')
 
-# ==============================================================================
-# BASE CLASS
-# ==============================================================================
+try:
+    import ingrained.image_ops as iop
+    from ingrained.structure import PartialCharge
+    from ingrained.utilities import compareAngles, multistart, multistart_series
+    from ingrained.utilities import multi_congruity_finder_series
+    from pymatgen.core import Structure
+    import numpy as np
+    import os
+    import shutil
+    import cv2
+except:
+    print('Install Ingrained, numpy, opencv for STM simulation')
 
-class ExperimentalSimulator(ABC):
-    """
-    Abstract Base Class for all forward modeling simulations.
-    """
 
-    def __init__(self, params):
-        self.params = params
-        self.main_path = params.get('main_path', os.getcwd())
-        self.name = params.get('label', 'ExpSim') 
-        self.label = params.get('label', self.name) 
-        
-        try:
-            self.ref_data = self.load_reference_data()
-        except Exception as e:
-            print(f"[{self.name}] Warning: Failed to load reference data: {e}")
-            self.ref_data = np.array([])
+from math import floor
+import numpy as np
+import os
+import yaml
+import subprocess as sp
+from scipy.interpolate import CubicSpline, UnivariateSpline
+from ase.data import atomic_numbers
+from fx19.fingerprinting import DistanceCalculator
+import re
+from collections import Counter
+from pymatgen.core.lattice import Lattice
+import shutil
 
-    @abstractmethod
-    def load_reference_data(self):
-        pass
-
-    @abstractmethod
-    def simulate(self, model):
-        pass
-
-    @abstractmethod
-    def compare(self, sim_data, ref_data):
-        pass
-
-    def evaluate(self, model):
-        sim_data = self.simulate(model)
-        score = 1e6 
-        
-        if sim_data is not None and len(sim_data) > 0:
-            score = self.compare(sim_data, self.ref_data)
-            score = float(score)
-
-        assigned = False
-        for i in range(1, 5):
-            xsim_attr = f'Xsim{i}'
-            obj_attr = f'obj{i}_val'
-            model_xsim_name = getattr(model, xsim_attr, None)
-            
-            if model_xsim_name == self.name:
-                setattr(model, obj_attr, score)
-                assigned = True
-        
-        if not assigned:
-            model.obj1_val = score
-            if getattr(model, 'Xsim1', None) is None:
-                model.Xsim1 = self.name
-
-        if not hasattr(model, 'Xsim_scores'):
-            model.Xsim_scores = {}
-        model.Xsim_scores[self.name] = score
-
-        return model, score
-
-# ==============================================================================
-# CONCRETE IMPLEMENTATION: XRD (GSAS-II)
-# ==============================================================================
-
-class XRDSimulator(ExperimentalSimulator):
-    """
-    Simulates XRD patterns using GSAS-II.
-    """
-
-    def __init__(self, params):
-        self.exp_xrd_file = params['exp_xrd_file']
-        self.instr_param_file = params['instr_param_file']
-
-        super().__init__(params)
-        
-        self.name = 'XRD'
-        self.label = 'XRD'
-
-        self.xmin = params.get('xmin', 15)
-        self.xmax = params.get('xmax', 65)
-        self.npoints = int(params.get('npoints', 1250))
-        self.xmin_fit = params.get('xmin_fit', 20)
-        self.xmax_fit = params.get('xmax_fit', 60)
-        self.npoints_fit = int(params.get('npoints_fit', 2001))
-        self.scale = params.get('scale', 100)
-        self.score_method = params.get('score_method', 'res_fit')
-
-        # Internal state
-        self.current_sim_dir = None
-        self.current_model_label = "unknown" # Added to track model name for plotting
-
-    def load_reference_data(self):
-        if os.path.exists(self.exp_xrd_file):
-            try:
-                try:
-                    import pandas as pd
-                    df = pd.read_csv(self.exp_xrd_file, sep=r'\s+', engine='python')
-                    cols = [c.lower() for c in df.columns]
-                    
-                    if 'x' in cols and 'y_obs' in cols:
-                        x_col = df.iloc[:, cols.index('x')].values
-                        y_col = df.iloc[:, cols.index('y_obs')].values
-                        return np.column_stack((x_col, y_col))
-                    elif len(df.columns) >= 2:
-                        return df.iloc[:, :2].values
-                        
-                except ImportError:
-                    pass
-
-                try:
-                    return np.loadtxt(self.exp_xrd_file)
-                except ValueError:
-                    data = np.genfromtxt(self.exp_xrd_file, names=True)
-                    if data.dtype.names:
-                        x_key = next((n for n in data.dtype.names if n.lower() in ['x', '2theta', 'q']), None)
-                        y_key = next((n for n in data.dtype.names if n.lower() in ['y_obs', 'i', 'intensity', 'y']), None)
-                        if x_key and y_key:
-                            return np.column_stack((data[x_key], data[y_key]))
-                        else:
-                            return np.loadtxt(self.exp_xrd_file, skiprows=1, usecols=(0,1))
-                    return data[:, :2]
-
-            except Exception as e:
-                print(f"[{self.name}] Error reading {self.exp_xrd_file}: {e}")
-                return np.array([])
-        else:
-            print(f"[{self.name}] Error: File {self.exp_xrd_file} not found.")
-            return np.array([])
-
-    def simulate(self, model):
-        if not GSAS_AVAILABLE:
-            print("GSAS-II not installed/imported.")
-            return None
-
-        lbl = str(getattr(model, 'label', 'test_model'))
-        self.current_model_label = lbl  # --- ADDED: Store label for plotting later ---
-        
-        self.current_sim_dir = os.path.join(self.main_path, 'calcs', lbl, 'xrd_sim')
-        if not os.path.exists(self.current_sim_dir):
-            os.makedirs(self.current_sim_dir)
-
-        structure = model.astr
-        temp_init = os.path.join(self.current_sim_dir, 'temp_init.cif')
-        try:
-            CifWriter(structure).write_file(temp_init)
-        except Exception as e:
-            print(f"[{self.name}] CIF Write Error: {e}")
-            return None
-
-        gpx_path = os.path.join(self.current_sim_dir, f'{lbl}.gpx')
-        
-        try:
-            gpx = G2sc.G2Project(newgpx=gpx_path)
-            gpx.add_phase(temp_init, phasename=lbl, fmthint='CIF')
-
-            instr_abs = os.path.abspath(self.instr_param_file)
-            hist = gpx.add_simulated_powder_histogram(
-                f'{lbl} XRD simulation', instr_abs, self.xmin, self.xmax,
-                Npoints=self.npoints, phases=gpx.phases(), scale=self.scale
-            )
-
-            gpx.do_refinements()
-            data_csv = os.path.join(self.current_sim_dir, f'data_{lbl}.csv')
-            hist.Export(data_csv, '.csv', 'hist')
-
-            if Metrics:
-                data_sim = Metrics.read_gsas_histogram(data_csv)
-                return data_sim
-            else:
-                return np.loadtxt(data_csv, delimiter=',', skiprows=1)
-
-        except Exception as e:
-            print(f"GSAS-II Error for {lbl}: {e}")
-            traceback.print_exc()
-            return None
-
-    def compare(self, sim_data, ref_data):
-        if sim_data is None or ref_data is None:
-            return 1e6
-        if len(sim_data) == 0 or len(ref_data) == 0:
-            return 1e6
-
-        data_exp = ref_data
-        data_sim = sim_data
-
-        try:
-            if data_sim.ndim != 2 or data_sim.shape[1] < 2:
-                raise ValueError("Simulated data must be (N, 2)")
-
-            f_sim = interpolate.interp1d(data_sim[:, 0], data_sim[:, 1], fill_value="extrapolate")
-            f_exp = interpolate.interp1d(data_exp[:, 0], data_exp[:, 1], fill_value="extrapolate")
-            
-            x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
-            
-            def f_fit(x_val, a, b): 
-                return f_sim(x_val) * a + b
-            
-            try:
-                popt, _ = optimize.curve_fit(f_fit, x, f_exp(x), p0=[1.0, 0.0])
-                sim_fitted = f_fit(x, *popt)
-            except (RuntimeError, ValueError, optimize.OptimizeWarning):
-                sim_fitted = f_sim(x)
-
-            sim_raw = f_sim(x)
-            exp_interp = f_exp(x)
-            
-            # --- ADDED: Create Plot ---
-            # We wrap this in a try/except so plotting errors don't crash the optimization
-            try:
-                self.create_stacked_plot(
-                    x, 
-                    exp_interp, 
-                    sim_raw, 
-                    sim_fitted, 
-                    self.current_model_label
-                )
-            except Exception as plot_e:
-                print(f"Warning: Plot generation failed for {self.current_model_label}: {plot_e}")
-            # --------------------------
-
-            range_norm = data_exp[:, 1].max() - data_exp[:, 1].min()
-            if range_norm < 1e-6:
-                range_norm = 1.0
-
-            res_sim = np.abs(exp_interp - sim_raw).mean() / range_norm
-            res_fit = np.abs(exp_interp - sim_fitted).mean() / range_norm
-            
-            emd_sim = stats.wasserstein_distance(sim_raw, exp_interp) / range_norm
-            emd_fit = stats.wasserstein_distance(sim_fitted, exp_interp) / range_norm
-
-            if self.current_sim_dir and os.path.exists(self.current_sim_dir):
-                log_path = os.path.join(self.current_sim_dir, 'log')
-                with open(log_path, 'a') as f:
-                    f.write(f'res_sim: {res_sim:.6f}\nres_fit: {res_fit:.6f}\n'
-                            f'emd_sim: {emd_sim:.6f}\nemd_fit: {emd_fit:.6f}\n')
-
-            scores = {
-                'res_sim': float(res_sim),
-                'res_fit': float(res_fit),
-                'emd_sim': float(emd_sim),
-                'emd_fit': float(emd_fit)
-            }
-            
-            return scores.get(self.score_method, float(res_fit))
-
-        except Exception as e:
-            print(f"[{self.name}] Comparison Error: {e}")
-            return 1e6
-
-    def create_stacked_plot(self, x, y_exp, y_sim, y_fit, model_label, offset=1.25):
-        """
-        Creates a stacked plot of the normalized experimental and simulated data.
-        """
-        save_dir = self.current_sim_dir
-        if not save_dir or not os.path.exists(save_dir):
-            return
-
-        c_exp = '#2876B2'   # Blue
-        c_sim = "#BF68DA"   # Purple
-        c_fit = "#47B0AB"   # Teal 
-
-        # Styling
-        fontsize = 22
-        textsize = 20
-        linewidth = 3
-        border_width = 2.5
-
-        plt.rcParams['font.family'] = 'sans-serif'
-        plt.rcParams['font.size'] = fontsize
-        plt.rcParams['axes.labelsize'] = fontsize
-        plt.rcParams['xtick.labelsize'] = fontsize
-        plt.rcParams['ytick.labelsize'] = fontsize
-        plt.rcParams['legend.fontsize'] = textsize
-        plt.rcParams['axes.linewidth'] = border_width
-        plt.rcParams['xtick.major.width'] = border_width
-        plt.rcParams['ytick.major.width'] = border_width
-        plt.rcParams['xtick.bottom'] = True
-        plt.rcParams['ytick.left'] = True
-
-        # Normalization (0 to 1)
-        # Helper to avoid div by zero
-        def norm(y):
-            denom = np.max(y) - np.min(y)
-            if denom == 0: return np.zeros_like(y)
-            return (y - np.min(y)) / denom
-
-        y_exp_norm = norm(y_exp)
-        y_sim_norm = norm(y_sim)
-        y_fit_norm = norm(y_fit)
-
-        plt.figure(figsize=(10, 8))
-
-        # Plot Stack
-        # 1. Bottom: Experimental (Reference)
-        plt.plot(x, y_exp_norm, color=c_exp, linewidth=linewidth, label='Experimental')
-        
-        # 2. Middle: Fitted Simulation (Aligned)
-        plt.plot(x, y_fit_norm + offset, color=c_fit, linewidth=linewidth, label='Sim (Fitted)')
-        
-        # 3. Top: Raw Simulation (Initial Guess)
-        plt.plot(x, y_sim_norm + (offset * 2), color=c_sim, linewidth=linewidth, label='Sim (Raw)')
-
-        plt.xlabel("2θ (°)")
-        plt.ylabel("Intensity (Stacked, Norm.)")
-        plt.xlim(x.min(), x.max())
-        plt.yticks([]) 
-        
-        plt.legend(loc='upper right', frameon=False)
-        plt.title(f"Model: {model_label}", fontsize=18)
-        
-        plot_filename = os.path.join(save_dir, f"stacked_xrd_{model_label}.png")
-        plt.savefig(plot_filename, dpi=300, bbox_inches='tight')
-        plt.close()
+DEBUG = True
 
 
 class xanes_of_model(object):
@@ -1688,6 +1411,234 @@ class gb_ingrained(object):
             img = img[:, floor(diff_pix_y/2): floor(-1*diff_pix_y/2)]
 
         return img, ref
+
+
+class xrd_of_model(object):
+    """
+    This class contains functions to calculate the powder diffraction pattern (neutron or X-ray) of a crystal structure and calculate the similarity descriptor against experimental data.
+
+    Arguments:
+
+        xrd_params (dict): A dictionary of parameters used for simulating XRD
+         using **GSASII scriptable**.
+    """
+
+    def __init__(self, xrd_params):
+        """
+        """
+
+        # main path as in energy.py
+        self.name = 'XRD'
+        self.main_path = xrd_params['main_path']
+        self.xrd_sim_dir = None
+
+        print(xrd_params)
+#        open('params', 'w').write(str(xrd_params))
+
+        # path to provided files
+        self.exp_xrd_file = xrd_params['exp_xrd_file']
+        self.instr_param_file = xrd_params['instr_param_file']
+
+        # GSAS related arguments
+        self.xmin = 15
+        self.xmax = 65
+        self.npoints = 1250
+        self.xmin_fit = 20
+        self.xmax_fit = 60
+        self.npoints_fit = 2001
+        self.scale = 100
+        self.score_method = 'res_fit'
+
+        if 'xmin' in xrd_params:
+            self.xmin = xrd_params['xmin']  # min x value for simulation
+        if 'xmax' in xrd_params:
+            self.xmax = xrd_params['xmax']  # max x value for simulation
+        if 'npoints' in xrd_params:
+            # make sure it is a integer
+            self.npoints = int(xrd_params['npoints'])
+        if 'xmin_fit' in xrd_params:
+            # min x value for fitting/normalization
+            self.xmin_fit = xrd_params['xmin_fit']
+        if 'xmax_fit' in xrd_params:
+            # min x value for fitting/normalization
+            self.xmax_fit = xrd_params['xmax_fit']
+        if 'npoints_fit' in xrd_params:
+            # make sure it is a integer
+            self.npoints_fit = int(xrd_params['npoints_fit'])
+        if 'scale' in xrd_params:
+            self.scale = xrd_params['scale']  # scaling factor for histogram
+
+    def read_histogram(self, filename):
+        """
+        Read the simulated histogram data from GSASII-genrated file
+
+        Args:
+            filename (string): absolute path to the histogram data file
+
+        Returns:
+            Array: (N,2) array of floats
+        """
+        data_raw = open(filename).readlines()
+        flag = [data_raw.index(l) for l in data_raw if 'weight' in l][0]
+        data_raw = data_raw[flag+1:]
+        data_raw = [[eval(n) for n in l[:-1].split(',')] for l in data_raw]
+        return np.array(data_raw)[:, :2]
+
+    def xrd_normalize(self, data, scale='minmax'):
+        if scale == 'minmax':
+            return (data - data.min())/(data.max()-data.min())
+        if scale == 'freq':
+            return (data - data.min())/(data - data.min()).max()
+
+    def xrd_similarity_metrics_new(self, data_exp, data_sim, scale='minmax'):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, stats
+
+        f_sim = interpolate.interp1d(data_sim[:, 0], data_sim[:, 1])
+        f_exp = interpolate.interp1d(data_exp[:, 0], data_exp[:, 1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        return abs(f_exp(x)-f_sim(x)).mean(),\
+            abs(self.xrd_normalize(f_exp(x), scale) - self.xrd_normalize(f_sim(x), scale)).mean(),\
+            stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+            stats.wasserstein_distance(self.xrd_normalize(
+                f_sim(x), scale), self.xrd_normalize(f_exp(x), scale))
+
+    def xrd_similarity_metrics(self, data_exp, data_sim, scaled=True):
+        """
+        Calculate the similarity metric between the simulated and experimental neutron/XRD data.
+        Optional: normalizing and vertically translating the simulated data, using the curve_fit function, to align better with the experimental data.
+
+        Args:
+            data_exp (array): experimental diffraction pattern data as a (2, N) array
+            data_sim (array): simulated diffraction pattern data as a (2, N) array
+
+        Returns:
+            (res_sim, res_fit, emd_sim, emd_fit) -> tuple of 4 floats
+            res_sim: residual between experimental data and raw simulated data
+            res_fit: residual between experimental data and fited/aligned simulated data
+            emd_sim: Earth mover's distance between experimental data and raw simulated data
+            emd_fit: Earth mover's distance between experimental data and fited/aligned simulated data
+        """
+        from scipy import interpolate, optimize, stats
+
+        f_sim = interpolate.interp1d(data_sim[:, 0], data_sim[:, 1])
+        f_exp = interpolate.interp1d(data_exp[:, 0], data_exp[:, 1])
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        # transforming the raw simulated data to align
+        def f_fit(x, a, b): return f_sim(x)*a + b
+        popt, pcov = optimize.curve_fit(f_fit, x, f_exp(x))
+
+        # residual or earth mover's distance
+        # between exp & sim or sim with transformation
+        if scaled:
+
+            return (abs(f_exp(x)-f_sim(x))).mean() / (data_exp[:, 1].max() - data_exp[:, 1].min()),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean() / (data_exp[:, 1].max() - data_exp[:, 1].min()),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)) / (data_exp[:, 1].max() - data_exp[:, 1].min()),\
+                stats.wasserstein_distance(
+                    f_fit(x, *popt), f_exp(x)) / (data_exp[:, 1].max() - data_exp[:, 1].min())
+        else:
+            return (abs(f_exp(x)-f_sim(x))).mean(),\
+                (abs(f_exp(x)-f_fit(x, *popt))).mean(),\
+                stats.wasserstein_distance(f_sim(x), f_exp(x)),\
+                stats.wasserstein_distance(f_fit(x, *popt), f_exp(x))
+
+    def evaluate_obj(self, model):
+        """
+        This function simulated the powder diffraction pattern of a crystal structure. Then, compares it with the experimental pattern (target). A objective functions, measuring similarity with target, is assigned as a model attribute (obj1_val).
+
+        This function is a part of the API for all classes in
+        experimental_simulation module.
+
+        Arguments:
+
+            model (obj): structure_record.model() object for which TEM
+             simulation is obtained and a mismatch score is assigned
+
+        Returns:
+
+            (structure_record.model(), float):
+            - The model object being evaluated
+            - the similarity metric (score) which is the objective
+        """
+        main_path = self.main_path
+        xrd_sim_dir = main_path + '/calcs/' + str(model.label) + '/xrd_sim'
+        os.mkdir(xrd_sim_dir)
+
+        # write the structure as cif file in the simulation dir
+        temp_init = xrd_sim_dir + '/temp_init.cif'
+        cif_writer = CifWriter(model.astr.copy())
+        cif_writer.write_file(temp_init)
+
+        # Create GSASII project
+        gpx = G2sc.G2Project(filename=f'{xrd_sim_dir}/{model.label}.gpx')
+        phase0 = gpx.add_phase(
+            f'{xrd_sim_dir}/temp_init.cif',
+            phasename=str(model.label),
+            fmthint='CIF'
+        )
+
+        # Simulate power diffraction histogram and write the data
+        hist1 = gpx.add_simulated_powder_histogram(
+            f'{model.label} XRD simulation',
+            self.instr_param_file,
+            self.xmin, self.xmax, Npoints=self.npoints,
+            phases=gpx.phases(), scale=self.scale
+        )
+        gpx.do_refinements()   # calculate pattern
+        gpx.save()
+        gpx.histogram(0).Export(
+            f'{xrd_sim_dir}/data_{model.label}', '.csv', 'hist')  # data
+        gpx.histogram(0).Export(
+            f'{xrd_sim_dir}/refl_{model.label}', '.csv', 'refl')  # reflections
+
+        # post-processing of histogram data
+        # calculate and report the desired scoring function
+        data_sim = self.read_histogram(f'{xrd_sim_dir}/data_{model.label}.csv')
+        data_exp = np.loadtxt(self.exp_xrd_file)
+        res_sim, res_fit, emd_sim, emd_fit = self.xrd_similarity_metrics(
+            data_exp, data_sim)
+        open(f'{xrd_sim_dir}/log', 'a').write(
+            f'res_sim: {res_sim}\nres_fit: {res_fit}\nemd_sim: {emd_sim}\nemd_fit: {emd_fit}\n')
+
+        if self.score_method == 'res_sim':  # residual vs. raw simulated data
+            score = float(res_sim)
+        if self.score_method == 'res_fit':  # residual vs. fitted/normalized simulated data
+            score = float(res_fit)
+        if self.score_method == 'emd_sim':  # Earth mover's distance vs. raw sim. data
+            score = float(emd_sim)
+        if self.score_method == 'emd_fit':  # Earth mover's distance vs. fitted sim. data
+            score = float(emd_fit)
+
+        # the order of exp_sims is from Xsim1 -> Xsim2 -> ...
+        # Hence, obj1val -> ob2_val -> ... for assigning evaluated sims
+        if model.Xsim1 == 'XRD':
+            model.obj1_val = score
+        elif model.Xsim2 == 'XRD':
+            model.obj2_val = score
+        elif model.Xsim3 == 'XRD':
+            model.obj3_val = score
+        elif model.Xsim4 == 'XRD':
+            model.obj4_val = score
+
+        return model, score
 
 
 class stm_ingrained(object):
