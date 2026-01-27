@@ -4,6 +4,10 @@ import traceback
 import os
 import yaml
 import datetime
+
+import warnings
+warnings.filterwarnings("ignore")
+
 from fx19 import inputs
 from fx19.run_ops import *
 import time
@@ -55,6 +59,14 @@ else:
 
 pool = all_objects['pool']
 select = all_objects['select']
+
+# NNOC related objects
+nnoc_generator = None
+nnoc_operators = None
+if 'nnoc_generator' in all_objects:
+    nnoc_generator = all_objects['nnoc_generator']
+if 'nnoc_operators' in all_objects:
+    nnoc_operators = all_objects['nnoc_operators']
 
 # Create a folder 'Calcs' where all calculations take place
 if 'calcs' in os.listdir(main_path):
@@ -108,10 +120,10 @@ if 'processes' not in workers:
 if workers['cluster'] == 'SLURM':
     cluster_job = SLURMCluster(cores=workers['num_cores'],
                                memory=workers['total_mem'],
-                               processes=workers['processes'],
+                               #processes=workers['processes'],
                                account=workers['account'],
-                               queue=workers['submit_queue'],
-                               interface=workers['node_type'],
+                               #queue=workers['submit_queue'],
+                               #interface=workers['node_type'],
                                walltime=workers['walltime'],
                                job_extra_directives=workers['job_extra_directives'],
                                job_script_prologue=workers['job_script_prologue'],
@@ -195,7 +207,10 @@ def full_eval(model, energy_obj, Xsim):
             # print("Doing experimental simulation!!")
             # if relaxed structure exists
             model.Xsim1 = Xsim.name
-            model, Xsim_val = Xsim.evaluate_obj(model)
+            if Xsim.name == 'XRD':
+                model, Xsim_val = Xsim.evaluate(model)
+            else:
+                model, Xsim_val = Xsim.evaluate_obj(model)
             model.num_of_obj += 1
             return model
     else:
@@ -255,7 +270,9 @@ while models_evald < total_models_needed:
 
         # create the model then send it to the dask-workers for evaluation
         new_model = make_model(random_model_obj, evolve, select,
-                               pool, reg_id, model_type=model_mech)
+                               pool, reg_id, model_type=model_mech, 
+                               nnoc_generator=nnoc_generator, 
+                               nnoc_operators=nnoc_operators)
         print("Made new model!")
         out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)

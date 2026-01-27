@@ -7,6 +7,7 @@ from fx19 import selection, epsilonSelection, clusteredSelection
 from fx19 import structure_operations
 from fx19.clustering import HierarchicalClusterer, CompositionalClusterer
 from fx19.fingerprinting import Comparator
+from fx19.motif_structures import NNOCStructureGenerator, NNOCBasinhopping
 
 try:
     from pymongo import MongoClient
@@ -83,6 +84,20 @@ def make_objects(i_dict):
     all_objects['energy_code'] = energy_code
     print(f"Energy code: {energy_pkg}")
 
+    # If mlip in i_dict, overwrite energy_code with MLIP
+    if 'mlip' in i_dict:
+        if 'mlip_family' in i_dict['mlip']:
+            if i_dict['mlip']['mlip_family'] == 'mace':
+                mlip_params = i_dict['mlip']
+                mlip_params['main_path'] = i_dict['main_path']
+                mlip_params['shape'] = str_constraints['shape']
+                mlip_params['element_syms'] = str_constraints['element_syms']
+                mlip_params['mu'] = energy_params['mu']
+
+                energy_code = energy.MACE_mlip(mlip_params)
+                all_objects['energy_code'] = energy_code
+                print(f'Using MACE {mlip_params["mlip_foundational_model_name"]} for energy relaxation.')
+
     # make experimental_simulation object(s)
     exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'XANES', 'XRD']
     if 'exp_sim_1' in i_dict:
@@ -102,7 +117,7 @@ def make_objects(i_dict):
                 Xsim_1 = experimental_simulation.xanes_of_model(Xsim1_params)
             if method_1 == "XRD":
                 Xsim1_params = get_xrd_params(i_dict, 'exp_sim_1_params')
-                Xsim_1 = experimental_simulation.xrd_of_model(Xsim1_params)
+                Xsim_1 = experimental_simulation.XRDSimulator(Xsim1_params)
             all_objects['Xsim_1'] = Xsim_1
 
     # Get the MOEA and search mode based on provided inputs
@@ -389,6 +404,14 @@ def make_objects(i_dict):
         energy_code.sd_cut_off = surface_ops_obj.sd_cut_off
         energy_code.sd_no_z = surface_ops_obj.sd_no_z
         all_objects['energy_code'] = energy_code
+
+    # NNOCStructureGenerator and NNOCBasinHoppingOperator objects
+    if 'nnoc_constraints' in i_dict['structure_record']:
+        nnoc_constraints = i_dict['structure_record']['nnoc_constraints']
+        nnoc_generator = NNOCStructureGenerator(**nnoc_constraints)
+        nnoc_operators = NNOCBasinhopping(**nnoc_constraints)
+        all_objects['nnoc_generator'] = nnoc_generator
+        all_objects['nnoc_operators'] = nnoc_operators
 
     # Develop any other below objects
 
