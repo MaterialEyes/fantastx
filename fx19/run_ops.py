@@ -112,7 +112,9 @@ def relax(model, reg_id, energy_code):
 
 
 def make_model(random_model_obj, evolve, select, pool, reg_id,
-               model_type='random', model=None, nnoc_generator=None, nnoc_operators=None):
+               model_type='random', model=None, 
+               nnoc_generator=None, nnoc_operators=None, 
+               nbh_generator=None, nbh_operators=None):
     """
     Makes a model from input, at random, or inherited from parents.
 
@@ -146,6 +148,8 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
     if model_type == 'random':
         if nnoc_generator is not None:
             new_model = nnoc_generator.random_model(reg_id)
+        elif nbh_generator is not None:
+            new_model = nbh_generator.random_model(reg_id)
         else:
             new_model = random_model_obj.random_model(reg_id)
 
@@ -155,6 +159,8 @@ def make_model(random_model_obj, evolve, select, pool, reg_id,
         while not model_is_unique:
             if nnoc_operators is not None:
                 new_model = nnoc_operators.get_model(select, pool, reg_id)
+            elif nbh_operators is not None:
+                new_model = nbh_operators.get_model(select, pool, reg_id)
             else:
                 new_model = evolve.get_model(select, pool, reg_id)
             if new_model is None:

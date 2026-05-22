@@ -1,16 +1,16 @@
 from dataclasses import dataclass
-from typing import List, Optional, Dict, Union
+from typing import List, Optional, Dict, Union, Tuple
 import numpy as np
 import os, random, copy
 
-from ase import Atoms
+from ase import Atoms, Atom
 from ase.io import read, write
 
+from pymatgen.core import Lattice, Structure
 from pymatgen.io.ase import AseAtomsAdaptor
 
 
 from sklearn.cluster import DBSCAN
- 
 from scipy.spatial import Voronoi
 from scipy.spatial.transform import Rotation as R
 
@@ -297,6 +297,944 @@ class ClusterAnalyzer:
         print(f"Successfully wrote {len(motifs)} motifs to {output_dir}")
 
 
+class NBHStructureGenerator:
+    """
+    Generator for Sodium Borohydride (NBH) structures using a reference lattice map
+    and closo-borohydride cage motifs (BUs).
+    """
+    def __init__(self, 
+                 ref_presets_path: str,
+                 b10_path: str,
+                 b12_path: str,
+                 lattice_range: Tuple[float, float] = (8.5, 9.5),
+                 max_bu_deformation_pct: float = 5.0,
+                 min_dist_cation_anion: float = 3.1,
+                 min_dist_cation_cation: float = 3.0,
+                 max_attempts: int = 100,
+                 **kwargs):
+        """
+        Args:
+            ref_presets_path: Path to directory containing POSCAR preset files acting as maps (e.g., POSCAR_preset_bcc_24g).
+                                IMPORTANT: Assumes 'Cl' = Anion sites, 'Na' = Candidate Cation sites.
+            b10_path: Path to B10H10 motif POSCAR.
+            b12_path: Path to B12H12 motif POSCAR.
+            lattice_range: (min, max) for the cubic lattice parameter a0.
+            max_bu_deformation_pct: Max percentage to stretch/compress BUs (e.g., 5.0 for 5%).
+            min_dist_cation_anion: Exclusion radius around BU centers (Å).
+            min_dist_cation_cation: Minimum Na-Na distance (Å).
+            max_attempts: Max retries to generate a valid structure.
+            **kwargs: Additional overrides for internal attributes.
+        """
+        
+        # Configuration Attributes
+        self.lattice_range = lattice_range
+        self.max_bu_deformation_pct = max_bu_deformation_pct
+        self.min_dist_cation_anion = min_dist_cation_anion
+        self.min_dist_cation_cation = min_dist_cation_cation
+        self.max_attempts = max_attempts
+        
+        # Paths
+        self.ref_presets_path = ref_presets_path
+        self.b10_path = b10_path
+        self.b12_path = b12_path
+
+        # Handle any extra kwargs
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+        # Cache Resources
+        self.ref_atoms_list, self.b10_motif, self.b12_motif = self._load_resources()
+
+        # Attributes to add water molecules if needed (can be set via kwargs)
+        self.num_waters_per_cage_motif = kwargs.get('num_waters_per_cage_motif', [])
+        self.min_dist_h2os = kwargs.get('min_dist_h2os', 2.5)
+        self.min_dist_h2o_host = kwargs.get('min_dist_h2o_host', 2.0) # Minimum distance from water to any host atom (Na, B, H))
+
+    def _load_resources(self) -> Tuple[Atoms, Atoms, Atoms]:
+        """Loads reference structure and motifs into memory."""
+        required_paths = [self.ref_presets_path, self.b10_path, self.b12_path]
+        for p in required_paths:
+            if not os.path.exists(p):
+                raise FileNotFoundError(f"Resource file not found: {p}")
+            
+        ref_poscars = [i for i in os.listdir(self.ref_presets_path) if i.startswith("POSCAR_preset")]
+        if not ref_poscars:
+            print (f"Note: POSCAR_presets needed with Na and Cl species for mapping to cation and anion sites, respectively.")
+            raise FileNotFoundError(f"No POSCAR_preset files found in {self.ref_presets_path}")
+        
+        # create atoms for each preset and store in a list for random selection later
+        ref_atoms_list = []
+        for poscar in ref_poscars:
+            ref_atoms_i = read(os.path.join(self.ref_presets_path, poscar))
+            ref_atoms_list.append(ref_atoms_i)
+        
+        return (ref_atoms_list, read(self.b10_path), read(self.b12_path))
+
+    def _transform_bu(self, bu: Atoms) -> Atoms:
+        """Applies random rotation and deformation to a motif."""
+        bu = bu.copy()
+        
+        # 1. Random Rotation
+        axis = random.choice(['x', 'y', 'z'])
+        angle = random.uniform(0, 360)
+        # Using 'COM' (Center of Mass) for rotation center
+        bu.rotate(angle, axis, center='COM')
+        
+        # 2. Random Deformation
+        deform_factor = random.uniform(0, self.max_bu_deformation_pct) / 100.0
+        scale = 1.0 + deform_factor * random.choice([-1, 1])
+        
+        # Apply scaling matrix to positions manually to deform along one axis
+        M = np.eye(3)
+        idx = 'xyz'.index(axis)
+        M[idx, idx] = scale
+        bu.set_positions(bu.get_positions() @ M.T)
+        
+        return bu
+
+    def _pbc_distance(self, p1: np.ndarray, p2: np.ndarray, cell_array: np.ndarray) -> float:
+        """
+        Calculates distance between two cartesian points under PBC using numpy.
+        """
+        diff = p1 - p2
+        # Round to nearest image
+        # This assumes an orthogonal box (diagonal matrix) which fits the cubic logic
+        box_diag = np.diag(cell_array)
+        diff = diff - box_diag * np.round(diff / box_diag)
+        return np.linalg.norm(diff)
+    
+    def _wrap_point(self, point: np.ndarray, cell: np.ndarray, pbc: np.ndarray) -> np.ndarray:
+        """Wraps a single point into the unit cell defined by cell and pbc."""
+        wrapped = np.copy(point)
+        for i in range(3):
+            if pbc[i]:
+                wrapped[i] = wrapped[i] % cell[i, i]
+        return wrapped
+
+    def _create_h2o_template(self) -> Atoms:
+        """
+        Creates a standardized H2O molecule centered at its geometric center.
+        Uses typical geometry: O-H = 0.96 Å, H-O-H = 104.5°.
+        """
+        bond_len = 0.96
+        angle_rad = np.radians(104.5) / 2
+        
+        # Define relative positions (O at top, H's below)
+        pos = [
+            [0.0, 0.0, 0.0],                                      # O
+            [bond_len * np.sin(angle_rad), -bond_len * np.cos(angle_rad), 0.0], # H1
+            [-bond_len * np.sin(angle_rad), -bond_len * np.cos(angle_rad), 0.0] # H2
+        ]
+        
+        h2o = Atoms('OHH', positions=pos)
+        # Center positions at (0,0,0) for correct rotation later
+        h2o.positions -= np.mean(h2o.positions, axis=0)
+        return h2o
+
+    def add_water_molecules(self, 
+                            structure: Atoms, 
+                            num_waters: int, 
+                            max_attempts: int = 5000) -> Atoms:
+        """
+        Inserts randomly rotated H2O molecules into existing structure.
+        
+        Args:
+            structure: The host structure (NBH).
+            num_waters: Number of H2O molecules to add.
+        """
+        if num_waters <= 0:
+            return structure
+
+        # 1. Prepare Template
+        h2o_template = self._create_h2o_template()
+        
+        # 2. Identify Existing Atom Positions (Host)
+        host_positions = structure.get_positions()
+        cell = structure.get_cell()
+        
+        # List to track centers of newly placed waters for self-overlap check
+        placed_water_centers = []
+        
+        count_added = 0
+        
+        for i in range(num_waters):
+            success = False
+            for attempt in range(max_attempts):
+                # A. Generate Random Candidate Point (Cartesian)
+                # Using fractional allows uniform sampling in non-cubic cells too
+                rand_frac = np.random.random(3)
+                candidate_center = np.dot(rand_frac, cell)
+                
+                # B. Constraint 1: Check against Host Structure
+                # We check the distance from Candidate Center -> All Host Atoms
+                # (Assuming water roughly spherical ~2.5A radius is sufficient)
+                dists_host = self._get_pbc_distances_array(candidate_center, host_positions, cell)
+                
+                if np.min(dists_host) < self.min_dist_h2o_host:
+                    continue
+                
+                # C. Constraint 2: Check against previously placed Waters
+                if placed_water_centers:
+                    dists_h2o = self._get_pbc_distances_array(
+                        candidate_center, 
+                        np.array(placed_water_centers), 
+                        cell
+                    )
+                    if np.min(dists_h2o) < self.min_dist_h2os:
+                        continue
+                
+                # --- Placement is Valid ---
+                
+                # D. Rotate and Place
+                new_h2o = h2o_template.copy()
+                
+                # Random 3D rotation
+                angles = np.random.uniform(0, 360, 3)
+                new_h2o.rotate(angles[0], 'x')
+                new_h2o.rotate(angles[1], 'y')
+                new_h2o.rotate(angles[2], 'z')
+                
+                # Shift to candidate spot
+                new_h2o.positions += candidate_center
+                
+                # Add to structure
+                structure += new_h2o
+                
+                # Update tracking lists
+                placed_water_centers.append(candidate_center)
+                success = True
+                count_added += 1
+                break
+            
+            if not success:
+                print(f"Warning: Could only place {count_added}/{num_waters} water molecules.")
+                break
+
+            structure.wrap()
+            
+        return structure
+
+    def _get_pbc_distances_array(self, point: np.ndarray, targets: np.ndarray, cell: np.ndarray) -> np.ndarray:
+        """
+        Vectorized PBC distance calculation for a single point vs an array of targets.
+        (Added here to ensure the method above is self-contained within the class)
+        """
+        diff = targets - point
+        # MIC for Orthorhombic cells (assumed based on cubic/diag lattice logic)
+        box_diag = np.diag(cell)
+        diff = diff - box_diag * np.round(diff / box_diag)
+        return np.linalg.norm(diff, axis=1)
+
+    def generate_random_structure(self) -> Optional[Atoms]:
+        """
+        Generates a single random NBH structure satisfying all constraints.
+        Returns None if max_attempts is reached.
+        """
+        for attempt in range(self.max_attempts):
+            
+            # --- Step 1: Define Lattice ---
+            a0 = random.uniform(*self.lattice_range)
+            cell = np.eye(3) * a0
+            
+            # --- Step 2: Map Reference Sites to New Lattice ---
+            # We use fractional coords from the cached reference to scale to new a0
+            ref_atoms = random.choice(self.ref_atoms_list) # In case we want to extend to multiple refs later
+            ref_frac_coords = ref_atoms.get_scaled_positions()
+            
+            # Pre-calculate site indices from reference map
+            ref_symbols = np.array(ref_atoms.get_chemical_symbols())
+            ref_anion_indices = np.where(ref_symbols == "Cl")[0]
+            # We are targeting sites which are labeled 'Na' in the ref file
+            ref_cation_candidate_indices = np.where(ref_symbols == "Na")[0]
+
+            anion_sites_cart = ref_frac_coords[ref_anion_indices] @ cell
+            cation_candidates_cart = ref_frac_coords[ref_cation_candidate_indices] @ cell
+            
+            new_atoms = Atoms(cell=cell, pbc=True)
+            
+            # --- Step 3: Place Anion Cages (BUs) ---
+            num_bus = len(anion_sites_cart)
+            
+            for i in range(num_bus):
+                # Alternate between B10 and B12 or randomize
+                # Here we stick to the logic: even=B10, odd=B12
+                template = self.b10_motif if i % 2 == 0 else self.b12_motif
+                bu = self._transform_bu(template)
+                
+                # Center BU at the target site
+                bu_center = np.mean(bu.get_positions(), axis=0)
+                shift = anion_sites_cart[i] - bu_center
+                bu.positions += shift
+                
+                new_atoms += bu
+            
+            # --- Step 4: Select and Place Cations (Na) ---
+            # Probability Logic (Uniform for now based on snippet, but extensible)
+            n_cations = 2 * num_bus # Assuming 2 Na per BU as in NBH
+            if len(ref_cation_candidate_indices) < n_cations:
+                print("Warning: Not enough candidate sites for target cation count.")
+                continue
+
+            # Randomly select indices
+            selected_indices_local = np.random.choice(
+                range(len(ref_cation_candidate_indices)),
+                size=n_cations,
+                replace=False
+            )
+            
+            # Create temporary list of proposed Na positions for validation
+            proposed_na_positions = cation_candidates_cart[selected_indices_local]
+            
+            # --- Step 5: Constraint Validation ---
+            
+            # A. Anion-Cation Distance Check
+            # Check if any proposed Na is too close to any Anion center
+            valid_anion_dist = True
+            for na_pos in proposed_na_positions:
+                for anion_pos in anion_sites_cart:
+                    dist = self._pbc_distance(na_pos, anion_pos, cell)
+                    if dist < self.min_dist_cation_anion:
+                        valid_anion_dist = False
+                        break
+                if not valid_anion_dist: break
+            
+            if not valid_anion_dist:
+                continue # Retry structure generation
+            
+            # B. Cation-Cation Distance Check
+            valid_cation_dist = True
+            for i in range(len(proposed_na_positions)):
+                for j in range(i + 1, len(proposed_na_positions)):
+                    dist = self._pbc_distance(proposed_na_positions[i], 
+                                              proposed_na_positions[j], 
+                                              cell)
+                    if dist < self.min_dist_cation_cation:
+                        valid_cation_dist = False
+                        break
+                if not valid_cation_dist: break
+            
+            if not valid_cation_dist:
+                continue # Retry structure generation
+
+            # --- Step 6: Finalize Structure ---
+            for pos in proposed_na_positions:
+                new_atoms.append(Atom("Na", position=pos))
+
+            # --- Step 7: Optional Add waters ---
+            if hasattr(self, 'num_waters_per_cage_motif') and len(self.num_waters_per_cage_motif) > 0:
+                num_waters = round(random.choice(self.num_waters_per_cage_motif) * num_bus)
+                new_atoms = self.add_water_molecules(
+                    new_atoms, 
+                    num_waters=num_waters, 
+                )
+            
+            # Sort and wrap (optional but good practice)
+            # Standardize using pymatgen adaptor if sorting is complex, 
+            # but ASE wrap is usually sufficient for bounding box.
+            new_atoms.wrap()
+            
+            return new_atoms
+
+        print(f"Failed to generate valid NBH structure after {self.max_attempts} attempts.")
+        return None
+
+    def random_model(self, reg_id) -> structure_record.model:
+        """Generates a random model for Basin Hopping."""
+        new_structure = self.generate_random_structure()
+        if new_structure is None:
+            print(f"[NBHStructureGenerator] Failed to generate a valid structure after {self.max_attempts} attempts. Returning None.")
+            return None
+        new_structure = AseAtomsAdaptor().get_structure(new_structure)
+        new_structure.sort()
+
+        rand_model = structure_record.model(new_structure, reg_id)
+        rand_model.inheritance = 'random'
+        rand_model.made_by = 'random'
+        return rand_model
+
+
+class NBHBasinhopping(NBHStructureGenerator):
+    """
+    Implements mutation operators for Basin Hopping on Borohydride structures.
+    Uses DBSCAN to identify B10/B12 cages and Voronoi tessellation for 
+    intelligent Na+ placement.
+    """
+    def __init__(self, **kwargs):
+        """
+        Args:
+            probabilities (dict): Probabilities for mutation operators.
+            max_perturbation (float): Max translation in Å for motif perturbation.
+            min_dist_anion_anion (float): Min distance between cage centers.
+            motif_radius (float): Radius of the exclusion sphere around cages for Na placement.
+            min_dist_cation_H (float): Minimum distance between Na and H.
+            **kwargs: Passed to NBHStructureGenerator.
+        """
+        super().__init__(**kwargs)
+        
+        # 1. Load attributes from kwargs or set defaults
+        self.probabilities = kwargs.get('probabilities', {
+            'perturb_lattice': 0.2,
+            'perturb_motifs': 0.25,
+            'rotate_motifs': 0.2,
+            'perturb_and_rotate': 0.25,
+            'reshuffle_cations': 0.1,
+        })
+        
+        # Geometrical constraints for mutations 
+        # NOTE: anion is the motif or cage (B10/B12 + H), cation is Na+
+        self.max_perturbation = kwargs.get('max_perturbation', 0.5)
+        self.min_dist_anion_anion = kwargs.get('min_dist_anion_anion', 7.0)
+        self.min_dist_cation_H = kwargs.get('min_dist_cation_H', 1.5)
+        self.motif_radius = kwargs.get('motif_radius', 3.0) # Default radius for motif exclusion in Na placement
+        self.min_dist_cation_anion = kwargs.get('min_dist_cation_anion', 3.1) # Default cation-anion min distance
+
+        self.eps_dbscan = kwargs.get('eps_dbscan', 2.0) # DBSCAN eps for clustering B atoms into cages
+        self.min_samples_dbscan = kwargs.get('min_samples_dbscan', 6) # DBSCAN min_samples for cage identification
+
+        self.verbose = kwargs.get('verbose', False) 
+
+    def select_and_apply_operator(self, structure: Atoms) -> Tuple[Optional[Atoms], str]:
+        """Selects an operator based on probabilities and applies it."""
+        ops = list(self.probabilities.keys())
+        probs = list(self.probabilities.values())
+        
+        # Normalize probabilities
+        total = sum(probs)
+        probs = [p / total for p in probs]
+        
+        chosen_op = str(np.random.choice(ops, p=probs))
+        
+        if chosen_op == 'perturb_lattice':
+            result = self.op_perturb_lattice(structure)
+        elif chosen_op == 'perturb_motifs':
+            result = self.op_perturb_motifs(structure)
+        elif chosen_op == 'rotate_motifs':
+            result = self.op_rotate_motifs(structure)
+        elif chosen_op == 'perturb_and_rotate':
+            result = self.op_perturb_and_rotate_motifs(structure)
+        elif chosen_op == 'reshuffle_cations':
+            result = self.op_reshuffle_cations(structure)
+        else:
+            print (f"Unknown operator: {chosen_op}")
+            return None, chosen_op
+
+        return result, chosen_op
+    
+    def get_model(self, select, pool, reg_id):
+        """
+        Adapter for the Basin Hopping engine.
+        Workflow:
+        1. Get Parent
+        2. IF WATER SEARCH: Strip Water (Check for H3O+ outliers). If outlier, abort.
+        3. Apply Mutation
+        4. IF WATER SEARCH: Re-add Water
+        5. Return Child
+        """
+        parent_model = select.get_a_parent(pool)
+        parent = copy.deepcopy(parent_model)
+
+        # Convert to ASE
+        parent_structure = parent.astr
+        if not isinstance(parent_structure, Atoms):
+            parent_structure = AseAtomsAdaptor().get_atoms(parent_structure)
+        
+        # Default: treat parent as the clean starting point
+        clean_structure = parent_structure
+        
+        # --- STEP A: Handle Water Logic (Conditional) ---
+        # Only trigger if this is a "Water Search" (num_waters > 0)
+        is_water_search = hasattr(self, 'num_waters_per_cage_motif') and len(self.num_waters_per_cage_motif) > 0
+        
+        if is_water_search:
+            # Strip waters and check for stability
+            clean_structure = self._strip_water_molecules(parent_structure, model_label=parent.label)
+            
+            # If H3O/instability was found, _strip returns None. We skip this parent.
+            if clean_structure is None:
+                return None
+        
+        # --- STEP B: Apply Mutation to Framework ---
+        child_structure, chosen_op = self.select_and_apply_operator(clean_structure)
+        
+        if child_structure is None:
+            return None
+        
+        # --- STEP C: Re-add Waters (Conditional) ---
+        if is_water_search:
+            try:
+                # Identify motifs to calculate how many waters to add
+                motifs = self._identify_motifs_with_dbscan(child_structure, 
+                                                           eps=self.eps_dbscan, 
+                                                           min_samples=self.min_samples_dbscan)
+                num_bus = len(motifs)
+                
+                if num_bus > 0:
+                    child_structure = self.add_water_molecules(
+                        child_structure,
+                        num_waters=round(random.choice(self.num_waters_per_cage_motif) * num_bus),
+                    )
+            except Exception as e:
+                print(f"[NBHBasinhopping] Warning: Failed to re-add water to child of {parent.label}: {e}")
+                return None
+
+        # Convert back to Pymatgen
+        child_pmg = AseAtomsAdaptor().get_structure(child_structure)
+        child_pmg.sort() 
+        
+        # Create record
+        child_model = structure_record.model(child_pmg, reg_id)
+        child_model.inheritance = [parent.label] 
+        child_model.made_by = chosen_op
+        
+        return child_model
+
+    # =========================================================================
+    # CORE LOGIC: Strip waters with strict stability check
+    # =========================================================================
+    def _strip_water_molecules(self, structure: Atoms, model_label: int | str = "Unknown") -> Optional[Atoms]:
+        """
+        Identifies and removes H2O molecules.
+        Strict Check: If Oxygen has > 2 H neighbors (e.g. H3O), it is an outlier.
+        Returns None if unstable.
+        """
+        structure = structure.copy()
+        
+        o_indices = [atom.index for atom in structure if atom.symbol == 'O']
+        if not o_indices:
+            return structure
+            
+        h_indices = [atom.index for atom in structure if atom.symbol == 'H']
+        if not h_indices:
+            del structure[o_indices]
+            print (f"Warning: No H atoms found in {model_label} while stripping waters. Removing O atoms without stability check.")
+            return structure
+
+        indices_to_remove = set(o_indices)
+        
+        # Calculate distances from all O to all H
+        for o_idx in o_indices:
+            dists = structure.get_distances(o_idx, h_indices, mic=True)
+            
+            # Find H's closer than 1.2 A
+            nearby_h_local_indices = np.where(dists < 1.2)[0]
+
+            # --- STRICT STABILITY CHECK ---
+            if len(nearby_h_local_indices) > 2:
+                # Found H3O or worse -> Cage collapsed or reaction occurred.
+                print(f"Skipping outlier parent {model_label}: Oxygen {o_idx} has {len(nearby_h_local_indices)} H neighbors (unstable/H3O).")
+                return None 
+
+            for local_idx in nearby_h_local_indices:
+                global_h_idx = h_indices[local_idx]
+                indices_to_remove.add(global_h_idx)
+                
+        # Delete atoms
+        del structure[list(indices_to_remove)]
+        
+        return structure
+
+    # =========================================================================
+    # CORE LOGIC: DBSCAN MOTIF IDENTIFICATION
+    # =========================================================================
+    def _identify_motifs_with_dbscan(self, structure: Atoms, eps: float = 2.0, min_samples: int = 6) -> List[Dict]:
+        """
+        Identifies B10/B12 cages AND attaches associated H atoms.
+        Returns a list of dicts: {'indices': [all_atom_indices], 'center': np.array, 'type': str}
+        """
+        # 1. Cluster Boron Atoms
+        b_indices = [i for i, a in enumerate(structure) if a.symbol == 'B']
+        if not b_indices: 
+            print("No Boron atoms found in structure for motif identification.")
+            return []
+        
+        b_pos = structure.positions[b_indices]
+        
+        full_dist_matrix = structure.get_all_distances(mic=True)
+        b_dist_matrix = full_dist_matrix[np.ix_(b_indices, b_indices)]
+        
+        clustering = DBSCAN(eps=eps, min_samples=min_samples, metric='precomputed')
+        labels = clustering.fit_predict(b_dist_matrix)
+
+        # --- Add safety check for weird clusters ---
+        unique_labels = set(labels)
+        if -1 in unique_labels and len(unique_labels) == 1:
+             if self.verbose: 
+                 print("[Debug] DBSCAN found only noise (-1). Check eps/min_samples.")
+             return []
+        
+        motifs = {} # Map label -> {'b_indices': [], 'h_indices': []}
+        
+        # 2. Group B atoms
+        for local_idx, label in enumerate(labels):
+            if label == -1: continue
+            if label not in motifs:
+                motifs[label] = {'b_indices': [], 'h_indices': []}
+            motifs[label]['b_indices'].append(b_indices[local_idx])
+            
+        # 3. Associate H atoms to nearest B cluster
+        h_indices = [i for i, a in enumerate(structure) if a.symbol == 'H']
+        
+        for h_idx in h_indices:
+            # Find distances from this H to ALL B atoms
+            dists_to_b = full_dist_matrix[h_idx, b_indices]
+            nearest_b_local_idx = np.argmin(dists_to_b)
+            nearest_b_label = labels[nearest_b_local_idx]
+            
+            if nearest_b_label != -1 and nearest_b_label in motifs:
+                motifs[nearest_b_label]['h_indices'].append(h_idx)
+
+        # 4. Format Output
+        results = []
+        cell = structure.get_cell()
+        pbc = structure.get_pbc()
+
+        for label, data in motifs.items():
+            all_indices = data['b_indices'] + data['h_indices']
+            
+            # --- FIX START: Handle PBC for Center Calculation ---
+            b_pos_subset = structure.positions[data['b_indices']]
+            
+            # Use the first atom as a reference anchor
+            ref_pos = b_pos_subset[0]
+            
+            # Find the minimum image of all other atoms relative to the reference
+            # geometric_center = mean( reference + min_image_vector(rest - reference) )
+            diffs = b_pos_subset - ref_pos
+            
+            # Apply Minimum Image Convention to the diffs manually or via ASE
+            # (assuming orthogonal/simple cells for simplicity, but ASE's find_mic is safer)
+            diffs_mic = structure.get_distances(
+                data['b_indices'][0], 
+                data['b_indices'], 
+                mic=True, 
+                vector=True
+            )
+            
+            # Reconstruct positions relative to the anchor, then average
+            unwrapped_subset = ref_pos + diffs_mic
+            center = np.mean(unwrapped_subset, axis=0)
+            
+            # Optional: Wrap the center back into the cell for consistency
+            # (Only needed if you want the center point strictly inside the box)
+            center = self._wrap_point(center, cell, pbc) 
+            # --- FIX END ---
+            
+            cluster_size = len(data['b_indices'])
+            
+            results.append({
+                'indices': all_indices, 
+                'center': center,       
+                'type': f'B{cluster_size}'
+            })
+            
+        return results
+
+    # =========================================================================
+    # OPERATOR 1: PERTURB LATTICE 
+    # =========================================================================
+    def op_perturb_lattice(self, structure: Atoms) -> Atoms:
+        """Standard lattice perturbation preserving fractional coordinates."""
+        new_struct = structure.copy()
+        factors = np.random.uniform(0.9, 1.2, size=3) # -10% to +20%
+        current_cell = new_struct.get_cell()
+        new_cell = current_cell * factors[:, np.newaxis]
+        new_struct.set_cell(new_cell, scale_atoms=True)
+        return new_struct
+
+    # =========================================================================
+    # OPERATOR 2: PERTURB MOTIFS (Translation)
+    # =========================================================================
+    def op_perturb_motifs(self, structure: Atoms) -> Optional[Atoms]:
+        """
+        Translates cages slightly.
+        """
+        # Work on copy
+        child = structure.copy()
+        
+        # Identify Motifs
+        try:
+            motifs = self._identify_motifs_with_dbscan(child, eps=self.eps_dbscan, 
+                                                       min_samples=self.min_samples_dbscan)
+        except Exception as e:
+            print(f"DBSCAN failed: {e}")
+            return None
+            
+        if not motifs: return None
+
+        # Track updated centers to prevent collisions
+        updated_centers = [m['center'] for m in motifs]
+        
+        for i, motif in enumerate(motifs):
+            indices = motif['indices']
+            current_center = motif['center']
+            
+            success = False
+            for _ in range(100): # Max retries
+                move_vec = np.random.uniform(-self.max_perturbation, self.max_perturbation, 3)
+                new_center = current_center + move_vec
+                
+                # Check collision with OTHER cages
+                collision = False
+                for j, other_center in enumerate(updated_centers):
+                    if i == j: continue 
+                    dist = self._pbc_distance(new_center, other_center, child.cell)
+                    if dist < self.min_dist_anion_anion: 
+                        collision = True
+                        break
+                
+                if not collision:
+                    child.positions[indices] += move_vec
+                    updated_centers[i] = new_center
+                    success = True
+                    break
+            
+            if not success:
+                pass # Leave at original position
+
+        child.wrap()
+        
+        # Remove and Repopulate Cations using Voronoi
+        del child[[atom.index for atom in child if atom.symbol == 'Na']]
+        return self._repopulate_cations_voronoi(child, updated_centers)
+
+    # =========================================================================
+    # OPERATOR 3: ROTATE MOTIFS (Corrected for PBC)
+    # =========================================================================
+    def op_rotate_motifs(self, structure: Atoms) -> Optional[Atoms]:
+        """
+        Rotates cages in place, ensuring rigid body rotation even across boundaries.
+        """
+        child = structure.copy()
+        try:
+            motifs = self._identify_motifs_with_dbscan(child, eps=self.eps_dbscan,
+                                                       min_samples=self.min_samples_dbscan)
+        except Exception as e:
+            print(f"[NBHBasinhopping.op_rotate_motifs] DBSCAN failed: {e}")
+            return None
+
+        if not motifs: return None
+
+        centers = []
+        for motif in motifs:
+            indices = motif['indices']
+            # We don't use the 'center' from DBSCAN here because we need 
+            # the center of the SPECIFIC unwrapped image we act on below.
+            
+            # --- 1. Unwrap atoms to ensure they are contiguous ---
+            ref_idx = indices[0]
+            ref_pos = child.positions[ref_idx]
+            
+            # Get vectors from Reference -> All other atoms in motif (MIC aware)
+            # This handles the boundary crossing correctly.
+            diffs_mic = child.get_distances(
+                ref_idx, 
+                indices, 
+                mic=True, 
+                vector=True
+            )
+            
+            # Reconstruct contiguous motif relative to the reference atom
+            unwrapped_pos = ref_pos + diffs_mic
+            
+            # --- 2. Calculate Center of THIS unwrapped cluster ---
+            # This is the critical fix. We define the center based on these specific coordinates.
+            local_center = np.mean(unwrapped_pos, axis=0)
+            
+            # --- 3. Rotate around this local center ---
+            # Shift to origin
+            rel_pos = unwrapped_pos - local_center
+            
+            # Create temp atoms for rotation
+            temp_atoms = Atoms('X'*len(indices), positions=rel_pos)
+            angle = np.random.uniform(0, 360)
+            axis = random.choice(['x', 'y', 'z']) 
+            
+            # Rotate
+            temp_atoms.rotate(angle, axis, center=(0,0,0))
+            
+            # Shift back to the local center
+            new_pos = temp_atoms.positions + local_center
+
+            # Update positions in the child structure
+            child.positions[indices] = new_pos
+            
+            # Save this center for Voronoi exclusion later
+            # (It is safe to use this center because Voronoi distances 
+            # should be calculated using PBC-aware distance functions anyway)
+            centers.append(local_center)
+
+        # Wrap everything at the end to put atoms back into the box
+        child.wrap()
+        
+        # Remove and Repopulate Cations
+        del child[[atom.index for atom in child if atom.symbol == 'Na']]
+        
+        return self._repopulate_cations_voronoi(child, centers)
+
+    # =========================================================================
+    # OPERATOR 4: COMBO (TRANSLATE + ROTATE)
+    # =========================================================================
+    def op_perturb_and_rotate_motifs(self, structure: Atoms) -> Optional[Atoms]:
+        """
+        Combined operator: Translates motifs first, then rotates them.
+        """
+        # 1. Perturb (Translate)
+        translated_structure = self.op_perturb_motifs(structure)
+        
+        if translated_structure is None:
+            return None
+            
+        # 2. Rotate
+        # Pass the translated structure (which has regenerated Na) to the rotation operator.
+        # It will strip Na, rotate the cages (which are now in new spots), and regen Na again.
+        rotated_structure = self.op_rotate_motifs(translated_structure)
+        
+        return rotated_structure
+    
+    # =========================================================================
+    # OPERATOR 5: RESHUFFLE CATIONS
+    # =========================================================================
+    def op_reshuffle_cations(self, structure: Atoms) -> Optional[Atoms]:
+        """
+        Keeps the anion lattice as is, but re-generates Na positions.
+        """
+        child = structure.copy()
+
+        try:
+            motifs = self._identify_motifs_with_dbscan(child, eps=self.eps_dbscan,
+                                                       min_samples=self.min_samples_dbscan)
+        except Exception as e:
+            print(f"[NBHBasinhopping.op_reshuffle_cations] DBSCAN failed: {e}")
+            return None
+
+        centers = [m['center'] for m in motifs]
+
+        del child[[atom.index for atom in child if atom.symbol == 'Na']]
+        
+        return self._repopulate_cations_voronoi(child, centers)
+
+    # =========================================================================
+    # NEW CATION PLACEMENT LOGIC (VORONOI)
+    # =========================================================================
+    def _repopulate_cations_voronoi(self, structure_no_na: Atoms, motif_centers: List[np.ndarray]) -> Optional[Atoms]:
+        """
+        Wrapper to call the Voronoi sampling method and append atoms.
+        """
+        # Ensure we have centers. If not passed (e.g. from lattice perturb), find them.
+        if not motif_centers:
+            motifs = self._identify_motifs_with_dbscan(structure_no_na, eps=self.eps_dbscan, 
+                                                       min_samples=self.min_samples_dbscan)
+            motif_centers = [m['center'] for m in motifs]
+
+        new_na_coords = self._sample_na_sites_from_voronoi(
+            structure=structure_no_na,
+            motif_centers=motif_centers
+        )
+        
+        if new_na_coords is None:
+            return None
+            
+        for pos in new_na_coords:
+            # pos is Cartesian, derived from Voronoi vertices
+            structure_no_na.append(Atom('Na', position=pos))
+            
+        structure_no_na.wrap() # Ensure all new atoms are wrapped into the cell
+
+        return structure_no_na
+
+    def _sample_na_sites_from_voronoi(self,
+                                      structure: Atoms,
+                                      motif_centers: List[np.ndarray],
+                                      max_attempts: int = 5000) -> Optional[List[np.ndarray]]:
+        """
+        Sample Na positions from Voronoi vertices of H atoms.
+        """
+        # Determine number of Na atoms from motifs
+        num_na = 2 * len(motif_centers)
+            
+        motif_radius = self.motif_radius
+        min_na_na_dist = self.min_dist_cation_cation
+        min_na_h_dist = self.min_dist_cation_H
+
+        # Get all H atom positions
+        H_positions = [atom.position for atom in structure if atom.symbol == "H"]
+        if len(H_positions) < 4:
+            # Need at least 4 points for 3D Voronoi
+            return None
+
+        # Compute Voronoi vertices
+        try:
+            vor = Voronoi(H_positions)
+        except Exception as e:
+            print(f"[NBHBasinhopping] Voronoi decomposition failed on H positions: {e}")
+            return None
+            
+        candidate_sites = vor.vertices
+        cell = structure.get_cell()
+
+        # 1. Filter out vertices that are inside any BU/Motif sphere
+        filtered_by_motif = []
+        for pt in candidate_sites:
+            too_close = False
+            for c in motif_centers:
+                if self._pbc_distance(pt, c, cell) < motif_radius:
+                    too_close = True
+                    break
+            if not too_close:
+                filtered_by_motif.append(pt)
+        
+        filtered_by_motif = np.array(filtered_by_motif)
+        if len(filtered_by_motif) < num_na:
+            if self.verbose:
+                print(f"[Debug] Not enough Voronoi sites outside motifs. Found {len(filtered_by_motif)}, need {num_na}.")
+            return None
+        
+        # 2. Filter out vertices too close to any H atom
+        # (This is distinct from the motif center check; checks actual atoms)
+        final_candidates = []
+        for pt in filtered_by_motif:
+            too_close = False
+            # Optimization: check against H_positions using array math if possible, 
+            # but using loop for PBC safety as per existing pattern
+            dists = self._get_pbc_distances_array(pt, np.array(H_positions), cell)
+            if np.min(dists) < min_na_h_dist:
+                too_close = True
+            
+            if not too_close:
+                final_candidates.append(pt)
+        
+        if len(final_candidates) < num_na:
+            return None
+
+        # 3. Select well-separated Na sites from valid candidates
+        selected = []
+        attempts = 0
+        
+        while len(selected) < num_na and attempts < max_attempts:
+            # Pick random index from final_candidates
+            idx = np.random.randint(len(final_candidates))
+            pt = final_candidates[idx]
+            
+            # Check against already selected Na
+            valid = True
+            for existing in selected:
+                if self._pbc_distance(pt, existing, cell) < min_na_na_dist:
+                    valid = False
+                    break
+            
+            if valid:
+                selected.append(pt)
+            
+            attempts += 1
+
+        if len(selected) < num_na:
+            if self.verbose:
+                print(f"[Debug] Failed to place Na. Placed {len(selected)}/{num_na} after {max_attempts} attempts.")
+            return None
+            
+        return selected
+
+
 class NNOCStructureGenerator:
     def __init__(self, motifs_path: str = "", 
                  min_dist_nb: float = 4.5, 
@@ -305,7 +1243,6 @@ class NNOCStructureGenerator:
                  min_dist_na_na: float = 3.0,
                  max_dist_na_cl: float = 3.0,
                  target_na_ratio: float = 1.0,
-                 max_attempts: int = 1000,
                  probabilities: Dict[str, float] = None):
         
         self.motifs_path = motifs_path
@@ -315,7 +1252,6 @@ class NNOCStructureGenerator:
         self.min_dist_na_na = min_dist_na_na
         self.max_dist_na_cl = max_dist_na_cl
         self.target_na_ratio = target_na_ratio
-        self.max_attempts = max_attempts
         self.probabilities = probabilities or {
             'perturb_lattice': 0.2,
             'perturb_motifs': 0.4,
@@ -547,9 +1483,10 @@ class NNOCStructureGenerator:
         
         try:
             vor = Voronoi(super_points)
-        except Exception:
-            return 
-            
+        except Exception as e:
+            print(f"[NNOCStructureGenerator] Voronoi decomposition failed on anion supercell: {e}")
+            return
+
         nodes = vor.vertices
         
         # 2. Filter: Inside Box
@@ -621,12 +1558,9 @@ class NNOCBasinhopping(NNOCStructureGenerator):
     specifically tailored for Nb-Cl motif structures.
     """
     def __init__(self, **kwargs):
-        """
-        Initializes the NNOCBasinhopping class with default probabilities for mutation operators.
-        """
         super().__init__(**kwargs)
 
-        if self.probabilities is None:
+        if 'probabilities' not in kwargs:
             self.probabilities = {
                 'perturb_lattice': 0.2,
                 'perturb_motifs': 0.4,

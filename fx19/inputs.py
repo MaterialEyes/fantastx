@@ -8,6 +8,7 @@ from fx19 import structure_operations
 from fx19.clustering import HierarchicalClusterer, CompositionalClusterer
 from fx19.fingerprinting import Comparator
 from fx19.motif_structures import NNOCStructureGenerator, NNOCBasinhopping
+from fx19.motif_structures import NBHStructureGenerator, NBHBasinhopping
 
 try:
     from pymongo import MongoClient
@@ -412,6 +413,14 @@ def make_objects(i_dict):
         nnoc_operators = NNOCBasinhopping(**nnoc_constraints)
         all_objects['nnoc_generator'] = nnoc_generator
         all_objects['nnoc_operators'] = nnoc_operators
+
+    # NBHStructureGenerator and NBHBasinhoppingOperator objects
+    if 'nbh_constraints' in i_dict['structure_record']:
+        nbh_constraints = i_dict['structure_record']['nbh_constraints']
+        nbh_generator = NBHStructureGenerator(**nbh_constraints)
+        nbh_operators = NBHBasinhopping(**nbh_constraints)
+        all_objects['nbh_generator'] = nbh_generator
+        all_objects['nbh_operators'] = nbh_operators
 
     # Develop any other below objects
 

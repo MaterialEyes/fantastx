@@ -120,7 +120,7 @@ class XRDSimulator(ExperimentalSimulator):
         self.xmin_fit = params.get('xmin_fit', 20)
         self.xmax_fit = params.get('xmax_fit', 60)
         self.npoints_fit = int(params.get('npoints_fit', 2001))
-        self.scale = params.get('scale', 100)
+        self.scale = params.get('scale', 1.0)
         self.score_method = params.get('score_method', 'res_fit')
 
         # Internal state
@@ -213,77 +213,102 @@ class XRDSimulator(ExperimentalSimulator):
             return None
 
     def compare(self, sim_data, ref_data):
+        # 1. Explicit Validation
         if sim_data is None or ref_data is None:
+            print(f"[{self.name}] Error: Received NoneType data.")
             return 1e6
+            
         if len(sim_data) == 0 or len(ref_data) == 0:
+            print(f"[{self.name}] Error: Empty data arrays.")
             return 1e6
 
-        data_exp = ref_data
-        data_sim = sim_data
+        if sim_data.ndim != 2 or sim_data.shape[1] < 2:
+            print(f"[{self.name}] Error: sim_data shape {sim_data.shape} is not (N, 2)")
+            return 1e6
+        
+        if ref_data.ndim != 2 or ref_data.shape[1] < 2:
+            print(f"[{self.name}] Error: ref_data shape {ref_data.shape} is not (N, 2)")
+            return 1e6
 
+        # 2. Interpolation and Coordinate Setup
+        f_sim_raw = interpolate.interp1d(sim_data[:, 0], sim_data[:, 1], fill_value="extrapolate")
+        f_exp_raw = interpolate.interp1d(ref_data[:, 0], ref_data[:, 1], fill_value="extrapolate")
+        
+        x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
+        
+        y_sim_raw = f_sim_raw(x)
+        y_exp_raw = f_exp_raw(x)
+
+        # 3. Internal Normalization Helper
+        def normalize_01(arr):
+            amin, amax = arr.min(), arr.max()
+            if (amax - amin) < 1e-9:
+                return np.zeros_like(arr)
+            return (arr - amin) / (amax - amin)
+
+        # Normalize both for a fair "Shape" comparison
+        norm_exp = normalize_01(y_exp_raw)
+        norm_sim_raw = normalize_01(y_sim_raw)
+
+        # 4. Fitting on Normalized Data
+        # This finds if scaling/shifting the normalized sim can better match the normalized exp
+        def f_fit_norm(x_val, a, b):
+            # Note: x_val is unused but required by curve_fit signature
+            return norm_sim_raw * a + b
+
+
+        # bounds = ([min_a, min_b], [max_a, max_b])
+        # We force a > 0. We allow b to be slightly negative or positive.
+        lower_bounds = [0.0, -0.5] 
+        upper_bounds = [2.0, 0.5]
+
+        # We use normalized data for the fit to avoid the 'a=1e-5' crushing issue
         try:
-            if data_sim.ndim != 2 or data_sim.shape[1] < 2:
-                raise ValueError("Simulated data must be (N, 2)")
+            popt, _ = optimize.curve_fit(
+                f_fit_norm,
+                x,
+                norm_exp,
+                p0=[1.0, 0.0],
+                bounds=(lower_bounds, upper_bounds)
+            )
+            norm_sim_fitted = f_fit_norm(x, *popt)
+        except (RuntimeError, ValueError, optimize.OptimizeWarning):
+            popt = np.array([1.0, 0.0])
+            norm_sim_fitted = norm_sim_raw
 
-            f_sim = interpolate.interp1d(data_sim[:, 0], data_sim[:, 1], fill_value="extrapolate")
-            f_exp = interpolate.interp1d(data_exp[:, 0], data_exp[:, 1], fill_value="extrapolate")
-            
-            x = np.linspace(self.xmin_fit, self.xmax_fit, self.npoints_fit)
-            
-            def f_fit(x_val, a, b): 
-                return f_sim(x_val) * a + b
-            
-            try:
-                popt, _ = optimize.curve_fit(f_fit, x, f_exp(x), p0=[1.0, 0.0])
-                sim_fitted = f_fit(x, *popt)
-            except (RuntimeError, ValueError, optimize.OptimizeWarning):
-                sim_fitted = f_sim(x)
+        # 5. Calculate Scores (Now consistently in [0, 1] domain)
+        res_sim = np.abs(norm_exp - norm_sim_raw).mean()
+        res_fit = np.abs(norm_exp - norm_sim_fitted).mean()
+        
+        emd_sim = stats.wasserstein_distance(norm_sim_raw, norm_exp)
+        emd_fit = stats.wasserstein_distance(norm_sim_fitted, norm_exp)
 
-            sim_raw = f_sim(x)
-            exp_interp = f_exp(x)
-            
-            # --- ADDED: Create Plot ---
-            # We wrap this in a try/except so plotting errors don't crash the optimization
-            try:
-                self.create_stacked_plot(
-                    x, 
-                    exp_interp, 
-                    sim_raw, 
-                    sim_fitted, 
-                    self.current_model_label
-                )
-            except Exception as plot_e:
-                print(f"Warning: Plot generation failed for {self.current_model_label}: {plot_e}")
-            # --------------------------
+        # 6. Plotting
+        # We pass the normalized versions to the plot so the visual comparison makes sense
+        self.create_stacked_plot(
+            x, 
+            norm_exp, 
+            norm_sim_raw, 
+            norm_sim_fitted, 
+            self.current_model_label
+        )
 
-            range_norm = data_exp[:, 1].max() - data_exp[:, 1].min()
-            if range_norm < 1e-6:
-                range_norm = 1.0
+        # 7. Logging
+        if self.current_sim_dir and os.path.exists(self.current_sim_dir):
+            log_path = os.path.join(self.current_sim_dir, 'log')
+            with open(log_path, 'a') as f:
+                f.write(f'--- Fit Params (a, b): {popt[0]:.4e}, {popt[1]:.4e} ---\n'
+                        f'res_sim: {res_sim:.6f}\nres_fit: {res_fit:.6f}\n'
+                        f'emd_sim: {emd_sim:.6f}\nemd_fit: {emd_fit:.6f}\n')
 
-            res_sim = np.abs(exp_interp - sim_raw).mean() / range_norm
-            res_fit = np.abs(exp_interp - sim_fitted).mean() / range_norm
-            
-            emd_sim = stats.wasserstein_distance(sim_raw, exp_interp) / range_norm
-            emd_fit = stats.wasserstein_distance(sim_fitted, exp_interp) / range_norm
-
-            if self.current_sim_dir and os.path.exists(self.current_sim_dir):
-                log_path = os.path.join(self.current_sim_dir, 'log')
-                with open(log_path, 'a') as f:
-                    f.write(f'res_sim: {res_sim:.6f}\nres_fit: {res_fit:.6f}\n'
-                            f'emd_sim: {emd_sim:.6f}\nemd_fit: {emd_fit:.6f}\n')
-
-            scores = {
-                'res_sim': float(res_sim),
-                'res_fit': float(res_fit),
-                'emd_sim': float(emd_sim),
-                'emd_fit': float(emd_fit)
-            }
-            
-            return scores.get(self.score_method, float(res_fit))
-
-        except Exception as e:
-            print(f"[{self.name}] Comparison Error: {e}")
-            return 1e6
+        scores = {
+            'res_sim': float(res_sim),
+            'res_fit': float(res_fit),
+            'emd_sim': float(emd_sim),
+            'emd_fit': float(emd_fit)
+        }
+        
+        return scores.get(self.score_method, float(res_fit))
 
     def create_stacked_plot(self, x, y_exp, y_sim, y_fit, model_label, offset=1.25):
         """
