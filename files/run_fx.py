@@ -68,6 +68,14 @@ if 'nnoc_generator' in all_objects:
 if 'nnoc_operators' in all_objects:
     nnoc_operators = all_objects['nnoc_operators']
 
+# NBH related objects
+nbh_generator = None
+nbh_operators = None
+if 'nbh_generator' in all_objects:
+    nbh_generator = all_objects['nbh_generator']
+if 'nbh_operators' in all_objects:
+    nbh_operators = all_objects['nbh_operators']
+
 # Create a folder 'Calcs' where all calculations take place
 if 'calcs' in os.listdir(main_path):
     now = datetime.datetime.now()
@@ -270,9 +278,11 @@ while models_evald < total_models_needed:
 
         # create the model then send it to the dask-workers for evaluation
         new_model = make_model(random_model_obj, evolve, select,
-                               pool, reg_id, model_type=model_mech, 
-                               nnoc_generator=nnoc_generator, 
-                               nnoc_operators=nnoc_operators)
+                               pool, reg_id, model_type=model_mech,
+                               nnoc_generator=nnoc_generator,
+                               nnoc_operators=nnoc_operators,
+                               nbh_generator=nbh_generator,
+                               nbh_operators=nbh_operators)
         print("Made new model!")
         out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
