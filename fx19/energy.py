@@ -645,8 +645,8 @@ class MLIPCode(EnergyCode):
         # Common MLIP parameters
         self.device = energy_params.get('device', 'cpu') # Default to CPU
         self.ase_relax_type = energy_params.get('ase_relax_type', 'full_relax')
-        self.fmax = float(energy_params.get('fmax', 0.01))
-        self.steps = int(energy_params.get('max_steps', 500))
+        self.fmax = float(energy_params.get('ase_relax_fmax', 0.01))
+        self.steps = int(energy_params.get('ase_relax_max_steps', 500))
         self.relax_path = None
 
     @abstractmethod
