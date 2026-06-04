@@ -1,0 +1,94 @@
+inputs:
+    energy_files_path: /path/to/vasp_files   # VASP input files directory
+
+structure_record:
+    # ── Molecular crystal operators ──────────────────────────────────────────
+    # Use this block instead of the generic 'bulk' / 'species' block when
+    # running a molecular crystal structure search via rigid-body operators.
+    mol_crystal_constraints:
+        # Which compound class to use. Options:
+        #   Compound1Ops  — bis(μ₂-hydroxo)-bis(TACN)-dicopper(II) diperchlorate (CUXJEK, P2₁/n)
+        #   Compound3Ops  — (μ₂-terephthalato)-diaqua-bis(TACN)-dicopper(II) diperchlorate (GECNOR, P2₁/c)
+        compound: Compound3Ops
+
+        # Path to the CSD-exported CIF for the compound.
+        # B-suffix symmetry-duplicate atoms are stripped automatically.
+        starting_structure_path: /path/to/compound3.cif
+
+        # Operator selection probabilities (auto-normalised).
+        # Remove or adjust to bias the search toward specific move types.
+        probabilities:
+            perturb_atoms:          0.20   # nudge individual atomic positions
+            perturb_lattice:        0.20   # strain cell lengths / perturb free angles
+            rigid_translate:        0.25   # translate one molecular fragment rigidly
+            rigid_rotate:           0.20   # rotate one fragment about its centroid
+            rigid_translate_rotate: 0.15   # combined rotation + translation
+
+        # Maximum rigid-body translation distance (Å).
+        max_translation: 0.50
+
+        # Maximum rigid-body rotation angle (degrees).
+        max_rotation_angle: 10.0
+
+        # Maximum per-atom displacement for op_perturb_atoms (Å).
+        max_atom_displacement: 0.15
+
+        # Fraction of asymmetric-unit atoms displaced in op_perturb_atoms.
+        perturb_atom_fraction: 0.30
+
+        # Maximum fractional strain per cell length (e.g. 0.03 = 3 %).
+        max_lattice_strain: 0.03
+
+        # Maximum perturbation of free cell angles (degrees).
+        # Angles within 0.1° of 90° are treated as fixed by symmetry.
+        max_angle_perturbation: 1.0
+
+        # Intermolecular clash threshold as a fraction of Bondi vdW radii sum.
+        # Lower = allow closer contacts; higher = stricter.
+        vdw_scale: 0.85
+
+        # Intramolecular overlap threshold as a fraction of covalent radii sum.
+        intra_scale: 0.85
+
+        # Tolerance added to the sum of covalent radii for bond detection (Å).
+        bond_tolerance: 0.40
+
+        # Maximum retries per operator call before returning None.
+        max_attempts: 200
+
+population_limits:
+    initial_population: 40
+    total_population: 500
+    pool: 20
+
+energy_code: vasp
+energy_exec_cmd: time srun -N 1 -n36 -c1 --cpu_bind=cores vasp_std
+
+exp_sim_1: "XRD"
+exp_sim_1_params:
+    exp_xrd_file: /path/to/experimental_pxrd.txt
+    instr_param_file: /path/to/instrument.instprm
+    xmin: 5.
+    xmax: 60.
+    npoints: 2000
+    xmin_fit: 5.
+    xmax_fit: 60.
+    score_method: "emd_fit"
+    npoints_fit: 2000
+    scale: 1000.
+
+fingerprint_params:
+    label: "bag-of-bonds"
+    tolerance: [0.05, 1.0]
+
+select_params:
+    selection_algorithm: distance_from_pareto
+    objective_fn_type: multi
+    num_required_above_50: 20
+    num_models_before_pareto: 30
+    operators: ["perturb_sites", "fraction_slice"]
+    operator_assignment: "fixed"
+    operator_frequencies: [0.5, 0.5]
+
+workers:
+    max_workers: 10

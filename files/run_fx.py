@@ -76,6 +76,10 @@ if 'nbh_generator' in all_objects:
 if 'nbh_operators' in all_objects:
     nbh_operators = all_objects['nbh_operators']
 
+mol_crystal_ops = None
+if 'mol_crystal_ops' in all_objects:
+    mol_crystal_ops = all_objects['mol_crystal_ops']
+
 # Create a folder 'Calcs' where all calculations take place
 if 'calcs' in os.listdir(main_path):
     now = datetime.datetime.now()
@@ -282,7 +286,8 @@ while models_evald < total_models_needed:
                                nnoc_generator=nnoc_generator,
                                nnoc_operators=nnoc_operators,
                                nbh_generator=nbh_generator,
-                               nbh_operators=nbh_operators)
+                               nbh_operators=nbh_operators,
+                               mol_crystal_ops=mol_crystal_ops)
         print("Made new model!")
         out = client.submit(full_eval, new_model, energy_code, Xsim_1)
         evald_futures.append(out)
