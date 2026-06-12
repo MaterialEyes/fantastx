@@ -89,16 +89,25 @@ def make_objects(i_dict):
     # If mlip in i_dict, overwrite energy_code with MLIP
     if 'mlip' in i_dict:
         if 'mlip_family' in i_dict['mlip']:
-            if i_dict['mlip']['mlip_family'] == 'mace':
-                mlip_params = i_dict['mlip']
-                mlip_params['main_path'] = i_dict['main_path']
-                mlip_params['shape'] = str_constraints['shape']
-                mlip_params['element_syms'] = str_constraints['element_syms']
-                mlip_params['mu'] = energy_params['mu']
+            mlip_params = i_dict['mlip']
+            mlip_params['main_path'] = i_dict['main_path']
+            mlip_params['shape'] = str_constraints['shape']
+            mlip_params['element_syms'] = str_constraints['element_syms']
+            mlip_params['mu'] = energy_params['mu']
 
+            if i_dict['mlip']['mlip_family'] == 'mace':
                 energy_code = energy.MACE_mlip(mlip_params)
                 all_objects['energy_code'] = energy_code
                 print(f'Using MACE {mlip_params["mlip_foundational_model_name"]} for energy relaxation.')
+            elif i_dict['mlip']['mlip_family'] == 'fairchem':
+                energy_code = energy.FairChem_mlip(mlip_params)
+                all_objects['energy_code'] = energy_code
+                model_name = mlip_params.get('mlip_foundational_model_name', 'uma-s-1p2')
+                task_name  = mlip_params.get('mlip_task_name', 'odac')
+                print(f'Using FairChem {model_name} (task: {task_name}) for energy relaxation.')
+            else:
+                print(f'Unknown mlip_family: {i_dict["mlip"]["mlip_family"]}. '
+                      f'Supported: mace, fairchem.')
 
     # make experimental_simulation object(s)
     exp_sim_methods = ['PDF', 'GB_STEM', 'PRISM', 'GSASII', 'XANES', 'XRD']

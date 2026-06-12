@@ -62,6 +62,10 @@ _VDW_RADII: Dict[str, float] = {
 }
 _DEFAULT_VDW_RADIUS = 1.70
 
+# Operators that return a full unit cell directly (not an asymmetric unit).
+# get_model skips _expand_to_full_cell for these.
+_WHOLE_CELL_OPS: frozenset = frozenset({'whole_cell_counterion'})
+
 
 def _min_inter_dist(elem_i: str, elem_j: str, scale: float) -> float:
     """Minimum allowed intermolecular distance for an element pair (Å)."""
@@ -343,8 +347,10 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
             'rigid_translate':        0.25,
             'rigid_rotate':           0.20,
             'rigid_translate_rotate': 0.15,
+            'whole_cell_counterion':  0.00,
         })
-        self.max_atom_displacement: float  = kwargs.get('max_atom_displacement', 0.15)
+        self.max_atom_displacement: float      = kwargs.get('max_atom_displacement', 0.15)
+        self.whole_cell_max_translation: float = kwargs.get('whole_cell_max_translation', 1.0)
         self.perturb_atom_fraction: float  = kwargs.get('perturb_atom_fraction', 0.30)
         self.max_lattice_strain: float     = kwargs.get('max_lattice_strain', 0.03)
         self.max_angle_perturbation: float = kwargs.get('max_angle_perturbation', 1.0)
@@ -359,6 +365,7 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         self._rigid_bodies_cache: Optional[Dict[str, List[int]]] = None
         self._rigid_bodies_cache_species: List[str] = []
         self._adj_cache: Optional[List[List[int]]] = None
+        self._protected_cache: Optional[frozenset] = None
 
     # ── main entry point ───────────────────────────────────────────────────────
 
@@ -382,12 +389,21 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         if child_asym is None:
             return None
 
-        child_full = self._expand_to_full_cell(child_asym)
+        if chosen_op in _WHOLE_CELL_OPS:
+            # Operator already returned the full cell (symmetry broken).
+            # Skip _expand_to_full_cell.  Offspring of this model revert to
+            # the reference asymmetric unit because P1 → ASU recovery is not
+            # implemented (asym_unit = None triggers the fallback in get_model).
+            child_full = child_asym
+            store_asym = None
+        else:
+            child_full = self._expand_to_full_cell(child_asym)
+            store_asym = child_asym
 
         child_model = structure_record.model(child_full, reg_id)
         child_model.inheritance = [parent.label]
         child_model.made_by = chosen_op
-        child_model.asym_unit = child_asym
+        child_model.asym_unit = store_asym
         return child_model
 
     # ── operator dispatcher ────────────────────────────────────────────────────
@@ -407,6 +423,7 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
             'rigid_translate':        self.op_rigid_translate,
             'rigid_rotate':           self.op_rigid_rotate,
             'rigid_translate_rotate': self.op_rigid_translate_rotate,
+            'whole_cell_counterion':  self.op_whole_cell_counterion,
         }
         fn = dispatch.get(chosen_op)
         if fn is None:
@@ -435,10 +452,18 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         }
         species = [s.symbol for s in asym_unit.species]
 
-        n = asym_unit.num_sites
-        n_perturb = max(1, int(n * self.perturb_atom_fraction))
-        to_perturb = list(np.random.choice(n, n_perturb, replace=False))
+        protected = self._protected_atom_indices()
+        candidate_indices = [i for i in range(asym_unit.num_sites) if i not in protected]
+        if not candidate_indices:
+            return None
+        n_perturb = max(1, int(len(candidate_indices) * self.perturb_atom_fraction))
+        to_perturb = list(
+            np.random.choice(candidate_indices,
+                             min(n_perturb, len(candidate_indices)),
+                             replace=False)
+        )
 
+        n = asym_unit.num_sites
         cart = asym_unit.cart_coords.copy()
         lattice = asym_unit.lattice
 
@@ -630,6 +655,159 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
                 )
         return None
 
+    # ── whole-cell counterion/solvent operator ────────────────────────────────
+
+    def op_whole_cell_counterion(self, asym_unit: Structure) -> Optional[Structure]:
+        """
+        Rigid-body translate / rotate / both on a randomly selected ClO4⁻ or
+        H2O unit in the *full* unit cell.
+
+        Unlike the other operators, this one:
+          - Expands the asymmetric unit to the full cell internally.
+          - Operates independently on each symmetry copy of ClO4⁻ / H2O,
+            intentionally breaking the space-group symmetry (P2₁/c → P1).
+          - Returns the modified full cell directly.  get_model() detects this
+            via _WHOLE_CELL_OPS and skips _expand_to_full_cell.
+
+        Scientific rationale
+        --------------------
+        H atoms are invisible to XRD (Z=1, negligible scattering factor).
+        Rotating a water molecule or translating a perchlorate does not directly
+        improve the XRD score.  However, the subsequent MLIP relaxation (no
+        space-group constraint in ASE) moves ALL atoms to a new local minimum
+        shaped by the new counterion/solvent environment.  This can shift the
+        heavy-atom framework into a basin that ASU-level operators cannot reach
+        because the crystallographic constraint ties all 4 copies together.
+
+        Parameters (all configurable via YAML)
+        ---------------------------------------
+        whole_cell_max_translation : float  max translate distance in Å (default 3.0)
+        max_rotation_angle is not used here; rotation is always drawn from [0°, 360°).
+        """
+        full    = self._expand_to_full_cell(asym_unit)
+        n       = full.num_sites
+        species = [s.symbol for s in full.species]
+        frac    = full.frac_coords.copy()
+        lat_mat = full.lattice.matrix
+        inv_mat = np.linalg.inv(lat_mat)
+        lattice = full.lattice
+
+        # Build full-cell bond graph using vectorised distance computation.
+        cov_r   = np.array([_COVALENT_RADII.get(s, _DEFAULT_COVALENT_RADIUS)
+                            for s in species])
+        cutoffs = (cov_r[:, None] + cov_r[None, :] + self.bond_tolerance)  # (n,n)
+
+        df      = frac[:, None, :] - frac[None, :, :]          # (n,n,3)
+        df     -= np.round(df)
+        dists   = np.linalg.norm(df @ lat_mat, axis=2)          # (n,n)
+        np.fill_diagonal(dists, np.inf)
+        bonded  = dists < cutoffs                                # (n,n) bool
+
+        adj: List[List[int]] = [list(np.where(bonded[i])[0]) for i in range(n)]
+
+        # BFS: connected components.
+        visited: set = set()
+        components: List[List[int]] = []
+        for start in range(n):
+            if start in visited:
+                continue
+            comp: List[int] = []
+            queue = [start]
+            while queue:
+                idx = queue.pop(0)
+                if idx in visited:
+                    continue
+                visited.add(idx)
+                comp.append(idx)
+                queue.extend(x for x in adj[idx] if x not in visited)
+            components.append(sorted(comp))
+
+        # Label mobile units: perchlorate (has Cl) and water (O+H only, ≤3 atoms).
+        mobile: Dict[str, List[int]] = {}
+        perc_n = water_n = 0
+        for comp in components:
+            comp_sp = {species[i] for i in comp}
+            if 'Cl' in comp_sp:
+                perc_n += 1
+                mobile[f'perchlorate_{perc_n}'] = comp
+            elif comp_sp <= {'O', 'H'} and len(comp) <= 3:
+                water_n += 1
+                mobile[f'water_{water_n}'] = comp
+
+        if not mobile:
+            return None
+
+        # Select ~half of all mobile units at random (at least 1).
+        frag_names = list(mobile.keys())
+        n_select   = max(1, len(frag_names) // 2)
+        selected   = list(np.random.choice(frag_names, n_select, replace=False))
+
+        selected_idx_set = set(idx for k in selected for idx in mobile[k])
+        other_idx        = [i for i in range(n) if i not in selected_idx_set]
+        cart_other       = full.cart_coords[other_idx]
+        species_other    = [species[i] for i in other_idx]
+
+        # Same sub-operation for all selected fragments; each gets independent
+        # random parameters (direction / axis / angle).
+        sub_op = str(np.random.choice(['translate', 'rotate', 'both']))
+
+        for _ in range(self.max_attempts):
+            new_frac           = frac.copy()
+            moved_cart_parts   : List[np.ndarray] = []
+            moved_species_parts: List[str]         = []
+
+            for fname in selected:
+                frag_idx = mobile[fname]
+
+                # Unwrap fragment to contiguous Cartesian via BFS minimum-image.
+                g2l: Dict[int, int] = {g: l for l, g in enumerate(frag_idx)}
+                nf        = len(frag_idx)
+                unwrapped = np.empty((nf, 3))
+                unwrapped[0] = frac[frag_idx[0]]
+                placed: set  = {frag_idx[0]}
+                queue        = [frag_idx[0]]
+                while queue:
+                    gi = queue.pop(0)
+                    li = g2l[gi]
+                    for gj in adj[gi]:
+                        if gj in g2l and gj not in placed:
+                            lj            = g2l[gj]
+                            d             = frac[gj] - unwrapped[li]
+                            d            -= np.round(d)
+                            unwrapped[lj] = unwrapped[li] + d
+                            placed.add(gj)
+                            queue.append(gj)
+                new_cart = unwrapped @ lat_mat
+
+                # Independent random parameters per fragment, same sub-op type.
+                if sub_op in ('translate', 'both'):
+                    direction  = np.random.randn(3)
+                    direction /= np.linalg.norm(direction)
+                    new_cart  += direction * np.random.uniform(0.0, self.whole_cell_max_translation)
+
+                if sub_op in ('rotate', 'both'):
+                    axis      = np.random.randn(3)
+                    axis     /= np.linalg.norm(axis)
+                    angle_deg = np.random.uniform(0.0, 360.0)
+                    R         = SciRot.from_rotvec(np.radians(angle_deg) * axis).as_matrix()
+                    centroid  = new_cart.mean(axis=0)
+                    new_cart  = centroid + (R @ (new_cart - centroid).T).T
+
+                new_frac_frag = (new_cart @ inv_mat) % 1.0
+                moved_cart_parts.append(new_frac_frag @ lat_mat)
+                moved_species_parts.extend(species[i] for i in frag_idx)
+                for li, gi in enumerate(frag_idx):
+                    new_frac[gi] = new_frac_frag[li]
+
+            # Clash check: all moved atoms vs everything not selected.
+            moved_cart = np.vstack(moved_cart_parts)
+            if self._check_inter_dists(
+                moved_cart, moved_species_parts, cart_other, species_other, lattice
+            ):
+                return Structure(lattice, full.species, new_frac, coords_are_cartesian=False)
+
+        return None
+
     # ── rigid-body detection ───────────────────────────────────────────────────
 
     def _identify_rigid_bodies(
@@ -712,7 +890,30 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         self._rigid_bodies_cache = rigid_bodies
         self._rigid_bodies_cache_species = species
         self._adj_cache = adj
+        self._protected_cache = None   # invalidate when bond graph is rebuilt
         return rigid_bodies
+
+    def _protected_atom_indices(self) -> frozenset:
+        """
+        Returns indices of asymmetric-unit atoms that op_perturb_atoms must
+        not displace individually.
+
+        Rule: protect every non-H atom.  Only H atoms (TACN C-H, benzene C-H,
+        N-methyl H, coordinated water O-H) are left perturbable.  A 0.15 Å
+        nudge on H cannot distort ring or coordination geometry, and H is
+        practically invisible to XRD.  Perchlorate atoms are automatically
+        covered (Cl and O are non-H); they should only move as rigid units via
+        rigid_translate / rigid_rotate.
+
+        Result is cached on first call.
+        """
+        if self._protected_cache is not None:
+            return self._protected_cache
+        species = [s.symbol for s in self.asym_unit.species]
+        self._protected_cache = frozenset(
+            i for i, elem in enumerate(species) if elem != 'H'
+        )
+        return self._protected_cache
 
     # ── fragment unwrapping ────────────────────────────────────────────────────
 

@@ -61,8 +61,36 @@ population_limits:
     total_population: 500
     pool: 20
 
+# ── Energy / relaxation ────────────────────────────────────────────────────────
+# Set energy_code to the fallback code (required key, even when using mlip).
+# The mlip block below overrides it at runtime when present.
 energy_code: vasp
 energy_exec_cmd: time srun -N 1 -n36 -c1 --cpu_bind=cores vasp_std
+
+# ── MLIP relaxation (overrides energy_code when present) ──────────────────────
+# Choose one of the blocks below and comment out the other.
+
+# --- FairChem / UMA ---
+mlip:
+    mlip_family: fairchem
+    mlip_foundational_model_name: uma-s-1p2   # uma-s-1p2 | uma-m-1p1
+    mlip_task_name: odac                      # odac | omat | omol | oc20 | oc25 | omc
+    dispersion: false                         # true = add TorchDFTD3 on top (use for omat; odac already has D3BJ)
+    dispersion_xc: pbe                        # xc for external D3 (only used when dispersion: true)
+    device: cuda                              # cuda | cpu
+    ase_relax_type: relax_only_positions      # relax_only_positions | full_relax_no_angles | full_relax
+    ase_relax_fmax: 0.05                      # force convergence threshold in eV/Å
+    ase_relax_max_steps: 500
+
+# --- MACE ---
+# mlip:
+#     mlip_family: mace
+#     mlip_foundational_model_name: mace-mh-1  # mace-mh-1 | mace-matpes-r2scan-0
+#     dispersion: true
+#     device: cuda
+#     ase_relax_type: relax_only_positions
+#     ase_relax_fmax: 0.05
+#     ase_relax_max_steps: 500
 
 exp_sim_1: "XRD"
 exp_sim_1_params:

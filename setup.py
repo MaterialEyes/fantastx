@@ -13,7 +13,7 @@ if __name__ == "__main__":
         long_description='Fully Automated Nanoscale To Atomic Scale from Theory and eXperiments',
         packages=find_packages(),
         install_requires=[
-            'numpy>=1.23,<1.25',
+            'numpy>=1.23',
             'matplotlib>=3.7.1',
             'scipy>=1.10.1',
             'pandas>=2.0.2',
@@ -31,7 +31,7 @@ if __name__ == "__main__":
             'scikit-image>=0.21.0',
             'ase>=3.22.1',
             'pymatgen>=2023.5.31',
-            'opencv-python>=4.7.0.72'
+            'opencv-python-headless>=4.7.0.72'
         ],
         package_data={},
         author='V. S. Chaitanya Kolluru, Davis Unruh',
@@ -55,6 +55,7 @@ if __name__ == "__main__":
             "Programming Language :: Python :: 3.9",
             "Programming Language :: Python :: 3.10",
             "Programming Language :: Python :: 3.11",
+            "Programming Language :: Python :: 3.12",
             "Programming Language :: Python :: 3 :: Only"
         ],
         python_requires=">=3.7"

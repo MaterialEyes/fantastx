@@ -39,6 +39,16 @@ try:
 except ImportError:
     mace_mp = None
 
+# FairChem / UMA Import (Safe)
+try:
+    from fairchem.core import pretrained_mlip
+    from fairchem.core.calculate.ase_calculator import FAIRChemCalculator
+    from torch_dftd.torch_dftd3_calculator import TorchDFTD3Calculator
+    from ase.calculators.mixing import SumCalculator
+except ImportError:
+    pretrained_mlip = None
+    FAIRChemCalculator = None
+
 DEBUG = False
 
 
@@ -795,3 +805,49 @@ class MACE_mlip(MLIPCode):
             default_dtype="float32",
             device=device
         )
+
+
+class FairChem_mlip(MLIPCode):
+    """
+    FairChem / UMA implementation inheriting from MLIPCode.
+
+    Supports any model available via fairchem's pretrained_mlip registry
+    (uma-s-1p2, uma-m-1p1, etc.) with a selectable task head and optional
+    external D3 dispersion correction via TorchDFTD3Calculator.
+
+    For the omol task, FAIRChemCalculator automatically sets charge=0 and
+    spin=1 as defaults if not present in atoms.info — no special handling needed.
+
+    Relevant YAML keys (under 'mlip'):
+        mlip_family:                  fairchem
+        mlip_foundational_model_name: uma-s-1p2       # default
+        mlip_task_name:               odac            # omat | odac | oc20 | omol | omc | oc25
+        dispersion:                   false            # true adds TorchDFTD3 externally
+        dispersion_xc:                pbe             # xc for D3 (only used when dispersion: true)
+        device:                       cuda
+        ase_relax_type:               relax_only_positions
+        ase_relax_fmax:               0.05
+        ase_relax_max_steps:          500
+    """
+
+    def __init__(self, energy_params):
+        super().__init__(energy_params)
+        self.model_name = energy_params.get('mlip_foundational_model_name', 'uma-s-1p2')
+        self.task_name  = energy_params.get('mlip_task_name', 'odac')
+        self.dispersion = energy_params.get('dispersion', False)
+        self.disp_xc    = energy_params.get('dispersion_xc', 'pbe')
+
+    def get_calculator(self, model, device):
+        if pretrained_mlip is None or FAIRChemCalculator is None:
+            raise ImportError(
+                "fairchem-core not installed. "
+                "Please install it in the active environment."
+            )
+
+        predict_unit = pretrained_mlip.get_predict_unit(self.model_name, device=device)
+        base_calc = FAIRChemCalculator(predict_unit, task_name=self.task_name)
+
+        if self.dispersion:
+            d3 = TorchDFTD3Calculator(xc=self.disp_xc, device=device)
+            return SumCalculator([base_calc, d3])
+        return base_calc
