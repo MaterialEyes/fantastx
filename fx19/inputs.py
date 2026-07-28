@@ -660,6 +660,9 @@ def get_mating_params(i_dict, str_constraints):
     mating_params['num_species'] = str_constraints['num_species']
     mating_params['shape'] = str_constraints['shape']
     mating_params['element_syms'] = str_constraints['element_syms']
+    # Not set by structure_constraints for molecule shape; mating.__init__
+    # handles a missing/None value by skipping the composition check.
+    mating_params['comp_endpoints'] = str_constraints.get('comp_endpoints')
     if mating_params['shape'] == 'cluster'\
             or mating_params['shape'] == 'molecule':
         mating_params['box_abc'] = str_constraints['box_abc']

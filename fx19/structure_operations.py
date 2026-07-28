@@ -273,6 +273,10 @@ class mating(object):
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
         self.min_dist_dict = mating_params['min_dist_dict']
+        # None for molecule shape (structure_constraints never sets
+        # comp_endpoints in that case) -- check_composition() already
+        # treats None as "skip the check", so this is safe as-is.
+        self.comp_endpoints = mating_params.get('comp_endpoints')
 
         self.mating_attempts = 1000
 
@@ -428,9 +432,27 @@ class mating(object):
 
                 if child is None:
                     continue
-                else:
-                    print(f"Succeeded in mating on attempt {tries}")
-                    not_attached = False
+
+                # Reject and retry (same 2 parents, new cut point/attach
+                # draw) if the spliced child doesn't satisfy the
+                # charge-neutrality / comp_endpoints constraint. This is
+                # checked here (after attach_slices, not right after
+                # cutting) because attach_slices() above can itself still
+                # add/remove atoms for per-species min/max reasons, so this
+                # is the true final composition. Shares the same
+                # mating_attempts budget as the geometric retries above, and
+                # is invisible to the caller's own (much smaller) retry
+                # loop -- no random atoms are added/removed to force a
+                # composition match; only the cut/attach choice is retried,
+                # so only atoms either parent actually has ever end up in
+                # the child.
+                child_species = [s.name for s in child.species]
+                if not structure_record.structure_constraints.check_composition(
+                        self.comp_endpoints, child_species):
+                    continue
+
+                print(f"Succeeded in mating on attempt {tries}")
+                not_attached = False
             if not_attached:
                 return None, inheritance
 
@@ -1519,18 +1541,21 @@ class basinhopping(object):
                     print ('perturb_comp ran out of attempts to create child')
                     return None, None
         else:  # remove random sites from the parent
+            rem_inds_all = []
             for sym in unit_comp.keys():
-                rem_inds_all = []
-                for sym in unit_comp.keys():
-                    inds = [n for n, i in enumerate(parent_astr.species) \
-                                        if i.name == sym]
-                    if len(inds) < unit_comp[sym]:
-                        continue
-                    # randomly select the sites to remove
-                    rem_inds = np.random.choice(inds, unit_comp[sym], 
-                                                replace=False).tolist()
-                    rem_inds_all += rem_inds
-                parent_astr.remove_sites(rem_inds_all)
+                inds = [n for n, i in enumerate(parent_astr.species) \
+                                    if i.name == sym]
+                if len(inds) < unit_comp[sym]:
+                    continue
+                # randomly select the sites to remove
+                rem_inds = np.random.choice(inds, int(unit_comp[sym]),
+                                            replace=False).tolist()
+                rem_inds_all += rem_inds
+            parent_astr.remove_sites(rem_inds_all)
+
+        if self.total_atoms_range:
+            if not self.total_atoms_range[0] <= parent_astr.num_sites <= self.total_atoms_range[1]:
+                return None, None
 
         return parent_astr, inheritance
 
