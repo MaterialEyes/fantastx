@@ -658,6 +658,7 @@ class MLIPCode(EnergyCode):
         self.fmax = float(energy_params.get('ase_relax_fmax', 0.01))
         self.steps = int(energy_params.get('ase_relax_max_steps', 500))
         self.relax_path = None
+        self.resubmit = 0  # MLIP runs inline; no job resubmission needed
 
     @abstractmethod
     def get_calculator(self, model, device):
@@ -767,6 +768,10 @@ class MLIPCode(EnergyCode):
 
             # 6. Update Model
             relaxed_astr = AseAtomsAdaptor.get_structure(atoms)
+            # pymatgen copies atoms.calc onto the Structure, which carries the
+            # entire CUDA-resident FairChem model. Strip it so the model object
+            # can be pickled and sent back to the CPU dask driver.
+            relaxed_astr.calc = None
             self.move_atoms_inside(relaxed_astr)
             
             poscar_relaxed_path = os.path.join(relax_path, 'POSCAR_relaxed')

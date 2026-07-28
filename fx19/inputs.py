@@ -9,7 +9,7 @@ from fx19.clustering import HierarchicalClusterer, CompositionalClusterer
 from fx19.fingerprinting import Comparator
 from fx19.motif_structures import NNOCStructureGenerator, NNOCBasinhopping
 from fx19.motif_structures import NBHStructureGenerator, NBHBasinhopping
-from fx19.mol_crystals import Compound1Ops, Compound3Ops
+from fx19.mol_crystals import Compound1Ops, Compound2Ops, Compound3Ops
 
 try:
     from pymongo import MongoClient
@@ -436,7 +436,7 @@ def make_objects(i_dict):
     if 'mol_crystal_constraints' in i_dict['structure_record']:
         mol_cfg = dict(i_dict['structure_record']['mol_crystal_constraints'])
         compound = mol_cfg.pop('compound', 'Compound1Ops')
-        _mol_classes = {'Compound1Ops': Compound1Ops, 'Compound3Ops': Compound3Ops}
+        _mol_classes = {'Compound1Ops': Compound1Ops, 'Compound2Ops': Compound2Ops, 'Compound3Ops': Compound3Ops}
         if compound not in _mol_classes:
             raise ValueError(f"Unknown mol_crystal compound '{compound}'. "
                              f"Choose from: {list(_mol_classes)}")

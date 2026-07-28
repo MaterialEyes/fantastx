@@ -43,9 +43,10 @@ structure_record:
         # Angles within 0.1° of 90° are treated as fixed by symmetry.
         max_angle_perturbation: 1.0
 
-        # Intermolecular clash threshold as a fraction of Bondi vdW radii sum.
-        # Lower = allow closer contacts; higher = stricter.
-        vdw_scale: 0.85
+        # Intermolecular clash threshold as a fraction of covalent radii sum
+        # (not vdW radii — vdW sums falsely reject normal hydrogen-bond
+        # contacts). Lower = allow closer contacts; higher = stricter.
+        inter_scale: 0.95
 
         # Intramolecular overlap threshold as a fraction of covalent radii sum.
         intra_scale: 0.85

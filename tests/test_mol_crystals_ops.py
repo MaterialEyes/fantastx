@@ -154,9 +154,9 @@ if pn == 0 and wn == 0:
 else:
     print(f'  {PASS} — mobile units detected correctly')
 
-# ── 3b: rotate-only with lenient vdW (rotation keeps Cl/O centroid fixed) ────
+# ── 3b: rotate-only with lenient inter_scale (rotation keeps Cl/O centroid fixed) ──
 print('  3b: rotate-only trials (most lenient — centroid stays put) ...')
-ops_p1.vdw_scale = 0.70          # relax threshold slightly for test
+ops_p1.inter_scale = 0.70          # relax threshold slightly for test
 ops_p1.max_attempts = 200
 
 np.random.seed(7)

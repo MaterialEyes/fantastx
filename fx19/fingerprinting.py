@@ -42,7 +42,12 @@ try:
 except ImportError:
     print('Install Dscribe for structure comparison'
           'using dscribe fingerprints.')
-from ase.ga.ofp_comparator import OFPComparator
+try:
+    from ase.ga.ofp_comparator import OFPComparator
+except ImportError:
+    print('Install ase-ga for valle-oganov fingerprint comparison '
+          '(ase.ga moved to a separate package in newer ASE versions).')
+    OFPComparator = None
 from pymatgen.io.ase import AseAtomsAdaptor
 import copy
 from sklearn.preprocessing import normalize

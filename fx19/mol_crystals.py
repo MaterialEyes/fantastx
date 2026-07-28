@@ -53,24 +53,23 @@ _COVALENT_RADII: Dict[str, float] = {
 }
 _DEFAULT_COVALENT_RADIUS = 1.00
 
-# Bondi van der Waals radii (Å) used for intermolecular clash detection.
-# Threshold for a pair (i, j) = vdw_scale * (_VDW_RADII[i] + _VDW_RADII[j]).
-_VDW_RADII: Dict[str, float] = {
-    'H': 1.20, 'C': 1.70, 'N': 1.55, 'O': 1.52,
-    'Cl': 1.75, 'Cu': 1.40, 'S': 1.80, 'F': 1.47,
-    'Br': 1.85, 'I':  1.98, 'P': 1.80,
-}
-_DEFAULT_VDW_RADIUS = 1.70
-
 # Operators that return a full unit cell directly (not an asymmetric unit).
 # get_model skips _expand_to_full_cell for these.
-_WHOLE_CELL_OPS: frozenset = frozenset({'whole_cell_counterion'})
+_WHOLE_CELL_OPS: frozenset = frozenset({'whole_cell_counterion',
+                                        'whole_cell_rigid_bodies'})
 
 
 def _min_inter_dist(elem_i: str, elem_j: str, scale: float) -> float:
-    """Minimum allowed intermolecular distance for an element pair (Å)."""
-    ri = _VDW_RADII.get(elem_i, _DEFAULT_VDW_RADIUS)
-    rj = _VDW_RADII.get(elem_j, _DEFAULT_VDW_RADIUS)
+    """Minimum allowed intermolecular distance for an element pair (Å).
+    Uses covalent radii (same convention as _min_intra_dist), not vdW radii:
+    vdW-radii sums reject legitimate hydrogen-bond contacts (~1.7-2.2 Å,
+    routinely shorter than vdW sums) as false clashes. A scale of ~0.95-1.0
+    on covalent radii catches genuine overlaps while tolerating contacts
+    that are merely a bit close — relaxation pulls those back to their
+    ideal distance afterward unless they're close enough to trigger strong
+    repulsion."""
+    ri = _COVALENT_RADII.get(elem_i, _DEFAULT_COVALENT_RADIUS)
+    rj = _COVALENT_RADII.get(elem_j, _DEFAULT_COVALENT_RADIUS)
     return scale * (ri + rj)
 
 
@@ -166,10 +165,11 @@ class MolCrystalGenerator:
         ys = [_strip_uncertainty(v) for v in raw['_atom_site_fract_y']]
         zs = [_strip_uncertainty(v) for v in raw['_atom_site_fract_z']]
 
-        # A B-suffix copy has a label whose trailing portion matches \d+B,
-        # e.g. Cu1B, N3B, H22B.  Plain atom labels never end in 'B' for
-        # the compounds we handle (no boron).
-        _b_copy = re.compile(r'\d+B\d*$')
+        # A B-suffix copy has a label ending in a non-zero-leading number then 'B',
+        # e.g. Cu1B, N3B, C1B, H22B.  SHELXL hex-count labels (C00B, H00B, H01B)
+        # have a leading-zero number and are NOT matched — they are real atoms.
+        # No boron in any compound handled here, so a trailing B is unambiguous.
+        _b_copy = re.compile(r'[1-9]\d*B$')
 
         asym_species, asym_coords = [], []
         for label, sym, x, y, z in zip(labels, symbols, xs, ys, zs):
@@ -265,19 +265,27 @@ class MolCrystalGenerator:
 
     def random_model(self, reg_id) -> Optional[structure_record.model]:
         """
-        Generates a seeded model for the initial FANTASTX pool.
-        Stores the perturbed asymmetric unit as model.asym_unit so that
-        evolutionary operators can retrieve it later.
+        Generates an initial-population model using the same basin-hopping
+        operators as get_model(), treating the reference starting structure as
+        the implicit parent.  This gives the same structural diversity as
+        evolved candidates and avoids the duplicate-fingerprint problem that
+        arises when many near-identical tiny perturbations fill the initial pool.
         """
-        perturbed_asym = self._perturb_asym_unit(
-            self.asym_unit, self.seed_fraction, self.max_seed_displacement
-        )
-        full_cell = self._expand_to_full_cell(perturbed_asym)
+        child_asym, chosen_op = self.select_and_apply_operator(self.asym_unit)
+        if child_asym is None:
+            return None
 
-        rand_model = structure_record.model(full_cell, reg_id)
+        if chosen_op in _WHOLE_CELL_OPS:
+            child_full = child_asym
+            store_asym = None
+        else:
+            child_full = self._expand_to_full_cell(child_asym)
+            store_asym = child_asym
+
+        rand_model = structure_record.model(child_full, reg_id)
         rand_model.inheritance = 'random'
-        rand_model.made_by = 'random'
-        rand_model.asym_unit = perturbed_asym
+        rand_model.made_by = chosen_op
+        rand_model.asym_unit = store_asym
         return rand_model
 
 
@@ -325,12 +333,17 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
                 (degrees).  Default 10.0.
             bond_tolerance (float): Tolerance added to the sum of covalent
                 radii when detecting covalent bonds (Å).  Default 0.40.
-            vdw_scale (float): Intermolecular clash threshold expressed as a
-                fraction of the Bondi van der Waals radii sum for each atom
-                pair.  E.g. 0.85 means atoms of different rigid bodies must
-                be at least 0.85*(r_vdW_i + r_vdW_j) apart.  Default 0.85.
-                Typical pair thresholds: H–H 2.04 Å, C–H 2.47 Å,
-                C–C 2.89 Å, N–O 2.61 Å.
+            inter_scale (float): Intermolecular clash threshold expressed as a
+                fraction of the covalent radii sum for each atom pair.
+                E.g. 0.95 means atoms of different rigid bodies must be at
+                least 0.95*(r_cov_i + r_cov_j) apart.  Default 0.95.
+                Covalent (not vdW) radii are used deliberately: vdW-radii
+                sums reject legitimate hydrogen-bond contacts as false
+                clashes. A bit of closeness beyond the ideal distance is
+                tolerated here — relaxation pulls it back out — only
+                genuine overlap (strong repulsion) is rejected.
+                Typical pair thresholds: H–H 0.59 Å, C–H 1.02 Å,
+                C–C 1.44 Å, N–O 1.30 Å.
             intra_scale (float): Intramolecular overlap threshold expressed as
                 a fraction of the covalent radii sum for each atom pair.
                 Catches only true atom overlaps within a fragment, not normal
@@ -348,6 +361,7 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
             'rigid_rotate':           0.20,
             'rigid_translate_rotate': 0.15,
             'whole_cell_counterion':  0.00,
+            'whole_cell_rigid_bodies': 0.00,
         })
         self.max_atom_displacement: float      = kwargs.get('max_atom_displacement', 0.15)
         self.whole_cell_max_translation: float = kwargs.get('whole_cell_max_translation', 1.0)
@@ -357,8 +371,11 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         self.max_translation: float        = kwargs.get('max_translation', 0.50)
         self.max_rotation_angle: float     = kwargs.get('max_rotation_angle', 10.0)
         self.bond_tolerance: float         = kwargs.get('bond_tolerance', 0.40)
-        self.vdw_scale: float              = kwargs.get('vdw_scale', 0.85)
+        self.inter_scale: float            = kwargs.get('inter_scale', 0.95)
         self.intra_scale: float            = kwargs.get('intra_scale', 0.85)
+        self._perturbable_elements: frozenset = frozenset(
+            kwargs.get('perturbable_elements', ['H'])
+        )
 
         # Cache rigid body decomposition of the reference asymmetric unit.
         # Keys are fragment names; values are sorted atom-index lists.
@@ -424,13 +441,19 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
             'rigid_rotate':           self.op_rigid_rotate,
             'rigid_translate_rotate': self.op_rigid_translate_rotate,
             'whole_cell_counterion':  self.op_whole_cell_counterion,
+            'whole_cell_rigid_bodies': self.op_whole_cell_rigid_bodies,
         }
         fn = dispatch.get(chosen_op)
         if fn is None:
             print(f"[MolCrystalBasinhopping] Unknown operator: {chosen_op}")
             return None, chosen_op
 
-        return fn(asym_unit), chosen_op
+        result = fn(asym_unit)
+        if result is None:
+            print(f"[MolCrystalBasinhopping] {chosen_op} failed to find a "
+                  f"valid move after {self.max_attempts} attempts "
+                  f"(clash/overlap rejected every try) — resampling.")
+        return result, chosen_op
 
     # ── operators ──────────────────────────────────────────────────────────────
 
@@ -438,7 +461,7 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         """
         Nudges a random fraction of asymmetric-unit atoms by small random
         Cartesian vectors.  Only intermolecular clashes (atoms in *different*
-        rigid bodies) are checked using element-pair vdW thresholds.
+        rigid bodies) are checked using element-pair covalent-radii thresholds.
         Intramolecular distances are not checked: the displacement is at most
         max_atom_displacement (≤ 0.15 Å by default), which cannot create an
         overlap within a covalently bonded fragment starting from a valid
@@ -482,7 +505,7 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
 
                 ok = all(
                     self._cart_dist_pbc(candidate, cart[j], lattice)
-                    >= _min_inter_dist(my_elem, species[j], self.vdw_scale)
+                    >= _min_inter_dist(my_elem, species[j], self.inter_scale)
                     for j in inter
                 )
                 if ok:
@@ -737,9 +760,12 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         if not mobile:
             return None
 
-        # Select ~half of all mobile units at random (at least 1).
+        # Select all mobile units — each gets independent random parameters.
+        # Moving all copies maximises diversity per call, compensating for the
+        # fact that offspring of whole_cell_counterion models revert to the
+        # reference ASU (symmetry-broken arrangement is not inherited).
         frag_names = list(mobile.keys())
-        n_select   = max(1, len(frag_names) // 2)
+        n_select   = max(1, len(frag_names))
         selected   = list(np.random.choice(frag_names, n_select, replace=False))
 
         selected_idx_set = set(idx for k in selected for idx in mobile[k])
@@ -800,6 +826,131 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
                     new_frac[gi] = new_frac_frag[li]
 
             # Clash check: all moved atoms vs everything not selected.
+            moved_cart = np.vstack(moved_cart_parts)
+            if self._check_inter_dists(
+                moved_cart, moved_species_parts, cart_other, species_other, lattice
+            ):
+                return Structure(lattice, full.species, new_frac, coords_are_cartesian=False)
+
+        return None
+
+    def op_whole_cell_rigid_bodies(self, asym_unit: Structure) -> Optional[Structure]:
+        """
+        Rigid-body translate / rotate / both on ALL connected fragments in the
+        full unit cell — including the main Cu-complex copies, not just counterions.
+
+        Identical in mechanics to op_whole_cell_counterion but the mobile-unit
+        filter accepts every connected component, so the Cu-complex copies are
+        moved independently of one another.  This breaks translational symmetry
+        across the full cell and lets the MLIP explore packings where adjacent
+        complex copies have different orientations — the key hypothesis for
+        compounds where peak positions are correct but long-range periodicity
+        is broken (e.g., 60°-offset stacking).
+
+        Like whole_cell_counterion, returns a P1 full cell; offspring revert to
+        the reference ASU.
+        """
+        full    = self._expand_to_full_cell(asym_unit)
+        n       = full.num_sites
+        species = [s.symbol for s in full.species]
+        frac    = full.frac_coords.copy()
+        lat_mat = full.lattice.matrix
+        inv_mat = np.linalg.inv(lat_mat)
+        lattice = full.lattice
+
+        cov_r   = np.array([_COVALENT_RADII.get(s, _DEFAULT_COVALENT_RADIUS)
+                            for s in species])
+        cutoffs = (cov_r[:, None] + cov_r[None, :] + self.bond_tolerance)
+
+        df      = frac[:, None, :] - frac[None, :, :]
+        df     -= np.round(df)
+        dists   = np.linalg.norm(df @ lat_mat, axis=2)
+        np.fill_diagonal(dists, np.inf)
+        bonded  = dists < cutoffs
+
+        adj: List[List[int]] = [list(np.where(bonded[i])[0]) for i in range(n)]
+
+        visited: set = set()
+        components: List[List[int]] = []
+        for start in range(n):
+            if start in visited:
+                continue
+            comp: List[int] = []
+            queue = [start]
+            while queue:
+                idx = queue.pop(0)
+                if idx in visited:
+                    continue
+                visited.add(idx)
+                comp.append(idx)
+                queue.extend(x for x in adj[idx] if x not in visited)
+            components.append(sorted(comp))
+
+        # All fragments are mobile — no element filter.
+        mobile: Dict[str, List[int]] = {
+            f'frag_{k}': comp for k, comp in enumerate(components)
+        }
+
+        if not mobile:
+            return None
+
+        frag_names = list(mobile.keys())
+        n_select   = max(1, len(frag_names))
+        selected   = list(np.random.choice(frag_names, n_select, replace=False))
+
+        selected_idx_set = set(idx for k in selected for idx in mobile[k])
+        other_idx        = [i for i in range(n) if i not in selected_idx_set]
+        cart_other       = full.cart_coords[other_idx]
+        species_other    = [species[i] for i in other_idx]
+
+        sub_op = str(np.random.choice(['translate', 'rotate', 'both']))
+
+        for _ in range(self.max_attempts):
+            new_frac           = frac.copy()
+            moved_cart_parts   : List[np.ndarray] = []
+            moved_species_parts: List[str]         = []
+
+            for fname in selected:
+                frag_idx = mobile[fname]
+
+                g2l: Dict[int, int] = {g: l for l, g in enumerate(frag_idx)}
+                nf        = len(frag_idx)
+                unwrapped = np.empty((nf, 3))
+                unwrapped[0] = frac[frag_idx[0]]
+                placed: set  = {frag_idx[0]}
+                queue        = [frag_idx[0]]
+                while queue:
+                    gi = queue.pop(0)
+                    li = g2l[gi]
+                    for gj in adj[gi]:
+                        if gj in g2l and gj not in placed:
+                            lj            = g2l[gj]
+                            d             = frac[gj] - unwrapped[li]
+                            d            -= np.round(d)
+                            unwrapped[lj] = unwrapped[li] + d
+                            placed.add(gj)
+                            queue.append(gj)
+                new_cart = unwrapped @ lat_mat
+
+                if sub_op in ('translate', 'both'):
+                    direction  = np.random.randn(3)
+                    direction /= np.linalg.norm(direction)
+                    new_cart  += direction * np.random.uniform(0.0, self.whole_cell_max_translation)
+
+                if sub_op in ('rotate', 'both'):
+                    axis      = np.random.randn(3)
+                    axis     /= np.linalg.norm(axis)
+                    angle_deg = np.random.uniform(0.0, 360.0)
+                    R         = SciRot.from_rotvec(np.radians(angle_deg) * axis).as_matrix()
+                    centroid  = new_cart.mean(axis=0)
+                    new_cart  = centroid + (R @ (new_cart - centroid).T).T
+
+                new_frac_frag = (new_cart @ inv_mat) % 1.0
+                moved_cart_parts.append(new_frac_frag @ lat_mat)
+                moved_species_parts.extend(species[i] for i in frag_idx)
+                for li, gi in enumerate(frag_idx):
+                    new_frac[gi] = new_frac_frag[li]
+
             moved_cart = np.vstack(moved_cart_parts)
             if self._check_inter_dists(
                 moved_cart, moved_species_parts, cart_other, species_other, lattice
@@ -898,12 +1049,11 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         Returns indices of asymmetric-unit atoms that op_perturb_atoms must
         not displace individually.
 
-        Rule: protect every non-H atom.  Only H atoms (TACN C-H, benzene C-H,
-        N-methyl H, coordinated water O-H) are left perturbable.  A 0.15 Å
-        nudge on H cannot distort ring or coordination geometry, and H is
-        practically invisible to XRD.  Perchlorate atoms are automatically
-        covered (Cl and O are non-H); they should only move as rigid units via
-        rigid_translate / rigid_rotate.
+        Perturbable elements are controlled by self._perturbable_elements
+        (default: {'H'}).  Any atom whose element is NOT in that set is
+        protected.  Configure via 'perturbable_elements' in the YAML
+        mol_crystal_constraints block, e.g.:
+            perturbable_elements: ['Cu', 'N', 'H']
 
         Result is cached on first call.
         """
@@ -911,7 +1061,8 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
             return self._protected_cache
         species = [s.symbol for s in self.asym_unit.species]
         self._protected_cache = frozenset(
-            i for i, elem in enumerate(species) if elem != 'H'
+            i for i, elem in enumerate(species)
+            if elem not in self._perturbable_elements
         )
         return self._protected_cache
 
@@ -976,9 +1127,9 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
         lattice: Lattice,
     ) -> bool:
         """
-        Returns True iff every atom in `moved` is beyond its element-pair vdW
-        threshold from every atom in `others` under PBC.
-        Threshold for pair (i, j) = vdw_scale * (r_vdW_i + r_vdW_j).
+        Returns True iff every atom in `moved` is beyond its element-pair
+        covalent-radii threshold from every atom in `others` under PBC.
+        Threshold for pair (i, j) = inter_scale * (r_cov_i + r_cov_j).
         Uses minimum-image arithmetic for PBC.
         """
         if len(others) == 0:
@@ -994,7 +1145,7 @@ class MolCrystalBasinhopping(MolCrystalGenerator):
             cart  = frac @ lattice.matrix
             dists = np.linalg.norm(cart, axis=1)
             for j, d in enumerate(dists):
-                if d < _min_inter_dist(moved_species[i], others_species[j], self.vdw_scale):
+                if d < _min_inter_dist(moved_species[i], others_species[j], self.inter_scale):
                     return False
         return True
 
@@ -1028,7 +1179,7 @@ class Compound1Ops(MolCrystalBasinhopping):
         kwargs.setdefault('max_atom_displacement',  0.15)
         kwargs.setdefault('max_translation',        0.50)
         kwargs.setdefault('max_rotation_angle',     10.0)
-        kwargs.setdefault('vdw_scale',   0.85)
+        kwargs.setdefault('inter_scale', 0.95)
         kwargs.setdefault('intra_scale', 0.85)
         super().__init__(**kwargs)
 
@@ -1056,6 +1207,36 @@ class Compound3Ops(MolCrystalBasinhopping):
         kwargs.setdefault('max_atom_displacement',  0.15)
         kwargs.setdefault('max_translation',        0.50)
         kwargs.setdefault('max_rotation_angle',     10.0)
-        kwargs.setdefault('vdw_scale',   0.85)
+        kwargs.setdefault('inter_scale', 0.95)
+        kwargs.setdefault('intra_scale', 0.85)
+        super().__init__(**kwargs)
+
+
+class Compound2Ops(MolCrystalBasinhopping):
+    """
+    Perturbation operators for Compound 2:
+    [Cu4(Me3tacn)4(μ-dbc)(μ-O)2](ClO4)4 · 2H2O  (two ClO4 or ClO5 variants).
+    Space group Pbca (No. 61), Z=4, Z'=0.5.
+    Asymmetric unit: ~90 atoms (half the Cu4 complex + 2 Cl species + 1 H2O).
+
+    All operator logic is inherited from MolCrystalBasinhopping:
+    - op_whole_cell_counterion detects ClO4 and ClO5 (any Cl-containing fragment)
+      and H2O (O+H, ≤3 atoms) automatically via bond connectivity.
+    - op_perturb_atoms perturbs H atoms only (non-H protected).
+    - op_perturb_lattice perturbs only a, b, c lengths; all angles are 90° in
+      Pbca so the angle-skip logic (|angle - 90°| < 0.1°) leaves them fixed.
+    - Z'=0.5: the ASU holds half the Cu4 complex; rigid_translate/rotate moves
+      this fragment and _expand_to_full_cell generates the symmetry-related half.
+
+    This subclass exists only to carry compound-appropriate parameter defaults.
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault('max_lattice_strain',     0.03)
+        kwargs.setdefault('max_angle_perturbation', 1.0)
+        kwargs.setdefault('max_atom_displacement',  0.15)
+        kwargs.setdefault('max_translation',        0.50)
+        kwargs.setdefault('max_rotation_angle',     10.0)
+        kwargs.setdefault('inter_scale', 0.95)
         kwargs.setdefault('intra_scale', 0.85)
         super().__init__(**kwargs)
