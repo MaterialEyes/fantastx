@@ -273,6 +273,10 @@ class mating(object):
         self.num_species = mating_params['num_species']
         self.species_dict = mating_params['species_dict']
         self.min_dist_dict = mating_params['min_dist_dict']
+        # None for molecule shape (structure_constraints never sets
+        # comp_endpoints in that case) -- check_composition() already
+        # treats None as "skip the check", so this is safe as-is.
+        self.comp_endpoints = mating_params.get('comp_endpoints')
 
         self.mating_attempts = 1000
 
@@ -428,9 +432,27 @@ class mating(object):
 
                 if child is None:
                     continue
-                else:
-                    print(f"Succeeded in mating on attempt {tries}")
-                    not_attached = False
+
+                # Reject and retry (same 2 parents, new cut point/attach
+                # draw) if the spliced child doesn't satisfy the
+                # charge-neutrality / comp_endpoints constraint. This is
+                # checked here (after attach_slices, not right after
+                # cutting) because attach_slices() above can itself still
+                # add/remove atoms for per-species min/max reasons, so this
+                # is the true final composition. Shares the same
+                # mating_attempts budget as the geometric retries above, and
+                # is invisible to the caller's own (much smaller) retry
+                # loop -- no random atoms are added/removed to force a
+                # composition match; only the cut/attach choice is retried,
+                # so only atoms either parent actually has ever end up in
+                # the child.
+                child_species = [s.name for s in child.species]
+                if not structure_record.structure_constraints.check_composition(
+                        self.comp_endpoints, child_species):
+                    continue
+
+                print(f"Succeeded in mating on attempt {tries}")
+                not_attached = False
             if not_attached:
                 return None, inheritance
 
@@ -925,23 +947,18 @@ class mating(object):
                                      same_cluster=same_cluster)
         parent1, parent2 = parents[0], parents[1]
         inheritance = [parent1.label, parent2.label]
-        # p1_sites = parent1.astr.sites
-        # p2_sites = parent2.astr.sites
-        # list_of_p_sites = [p1_sites, p2_sites]
-
-        child = copy.deepcopy(parent1.astr)
-        all_inds = [i for i in range(len(child.cart_coords))]
-        child.remove_sites(all_inds)
 
         # add atoms from both parents in to one structure
         child_sites = parent1.astr.sites + parent2.astr.sites
         species = [i.species for i in child_sites]
         coords = [i.coords for i in child_sites]
         latt = parent1.astr.lattice
-        child = Structure(latt, species, coords, coords_are_cartesian=True)
+        merged = Structure(latt, species, coords, coords_are_cartesian=True)
 
-        # merge sites
-        child.merge_sites(tol=1, mode='delete')
+        # merge sites (deterministic given the two parents, so done once,
+        # not redrawn on each composition-retry attempt below)
+        merged.merge_sites(tol=1, mode='delete')
+        all_merged_sites = merged.sites
 
         # get composition of child within th range of both parents
         p1_comp = parent1.astr.composition.as_dict()
@@ -952,30 +969,50 @@ class mating(object):
         # same in both parents
         child_elems = [i for i in p1_comp.keys() if i in p2_comp.keys()]
 
-        # get child composition
-        child_comp = {}
-        for k in child_elems:
-            l, h = min([p1_comp[k], p2_comp[k]]), max([p1_comp[k], p2_comp[k]])
-            child_comp[k] = np.random.randint(l, h+1)
+        # Retry the per-element count draw + site subsample (same 2 parents,
+        # same merged/deduped site pool) until the child satisfies
+        # comp_endpoints, sharing the same mating_attempts budget used by
+        # mate_by_slicing -- rather than patching composition post-hoc with
+        # random atoms, this only ever recombines atoms the two parents
+        # actually have.
+        tries = 0
+        while tries < self.mating_attempts:
+            tries += 1
 
-        # get all child sites
-        all_child_sites = child.sites
-        child_elem_sites = []
-        for k in child_elems:
-            elem_sites = [i for i in all_child_sites if i.specie.name == k]
-            if len(elem_sites) > child_comp[k]:
-                random.shuffle(elem_sites)
-                child_elem_sites += elem_sites[:child_comp[k]]
-            else:
-                return None, None
+            # get child composition
+            child_comp = {}
+            for k in child_elems:
+                l, h = min([p1_comp[k], p2_comp[k]]), max([p1_comp[k], p2_comp[k]])
+                child_comp[k] = np.random.randint(l, h+1)
 
-        # replace child with new atoms
-        child_sps = [i.specie for i in child_elem_sites]
-        child_coords = [i.coords for i in child_elem_sites]
-        child = Structure(latt, child_sps, child_coords,
-                          coords_are_cartesian=True)
+            # get all child sites for this draw
+            child_elem_sites = []
+            enough_sites = True
+            for k in child_elems:
+                elem_sites = [i for i in all_merged_sites if i.specie.name == k]
+                if len(elem_sites) > child_comp[k]:
+                    random.shuffle(elem_sites)
+                    child_elem_sites += elem_sites[:child_comp[k]]
+                else:
+                    enough_sites = False
+                    break
+            if not enough_sites:
+                continue
 
-        return child, inheritance
+            # replace child with new atoms
+            child_sps = [i.specie for i in child_elem_sites]
+            child_coords = [i.coords for i in child_elem_sites]
+            child = Structure(latt, child_sps, child_coords,
+                              coords_are_cartesian=True)
+
+            child_species = [s.name for s in child.species]
+            if not structure_record.structure_constraints.check_composition(
+                    self.comp_endpoints, child_species):
+                continue
+
+            return child, inheritance
+
+        return None, inheritance
 
     def get_point_on_sphere(self, r):
         """
@@ -1519,18 +1556,21 @@ class basinhopping(object):
                     print ('perturb_comp ran out of attempts to create child')
                     return None, None
         else:  # remove random sites from the parent
+            rem_inds_all = []
             for sym in unit_comp.keys():
-                rem_inds_all = []
-                for sym in unit_comp.keys():
-                    inds = [n for n, i in enumerate(parent_astr.species) \
-                                        if i.name == sym]
-                    if len(inds) < unit_comp[sym]:
-                        continue
-                    # randomly select the sites to remove
-                    rem_inds = np.random.choice(inds, unit_comp[sym], 
-                                                replace=False).tolist()
-                    rem_inds_all += rem_inds
-                parent_astr.remove_sites(rem_inds_all)
+                inds = [n for n, i in enumerate(parent_astr.species) \
+                                    if i.name == sym]
+                if len(inds) < unit_comp[sym]:
+                    continue
+                # randomly select the sites to remove
+                rem_inds = np.random.choice(inds, int(unit_comp[sym]),
+                                            replace=False).tolist()
+                rem_inds_all += rem_inds
+            parent_astr.remove_sites(rem_inds_all)
+
+        if self.total_atoms_range:
+            if not self.total_atoms_range[0] <= parent_astr.num_sites <= self.total_atoms_range[1]:
+                return None, None
 
         return parent_astr, inheritance
 
